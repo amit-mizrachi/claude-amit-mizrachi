@@ -1,0 +1,15 @@
+{
+  "name": "amit-mizrachi",
+  "description": "Amit Mizrachi's personal Claude Code plugins - session handoff, overnight feature delivery, wayfinder charting, and machine-awake hooks.",
+  "owner": {
+    "name": "Amit Mizrachi",
+    "email": "amit@shapes.co"
+  },
+  "plugins": [
+    {
+      "name": "amit-mizrachi",
+      "source": "./amit-mizrachi",
+      "description": "Amit Mizrachi's Claude Code skills: next-prompt, night-sprint, mywayfinder, plus a sliding 8h macOS caffeinate hook."
+    }
+  ]
+}
