@@ -4,8 +4,11 @@
   "description": "Amit Mizrachi's Claude Code skills. next-prompt hands work off to a fresh background agent; night-sprint delivers a whole feature overnight as one PR; mywayfinder draws a wayfinder map's blocking graph as a published chart. Ships a macOS caffeinate hook that keeps the machine awake for a sliding 8 hours after the last Claude interaction.",
   "author": {
     "name": "Amit Mizrachi",
-    "email": "amit@shapes.co"
+    "url": "https://github.com/amit-mizrachi"
   },
+  "homepage": "https://github.com/amit-mizrachi/claude-amit-mizrachi",
+  "repository": "https://github.com/amit-mizrachi/claude-amit-mizrachi",
+  "license": "MIT",
   "keywords": [
     "handoff",
     "background-agents",

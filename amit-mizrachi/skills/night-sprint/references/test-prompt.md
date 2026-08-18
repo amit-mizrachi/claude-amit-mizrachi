@@ -9,8 +9,8 @@ Read for the acceptance path: <WS>/PLAN.md and <WS>/tickets/ (the acceptance cri
 
 HOW TO EXERCISE IT - <pick exactly one at kickoff and delete the rest>:
 
-<A. LOCAL DEV STACK. Use the `shapes-dev-environment` skill to boot the stack against this
-worktree (`make dev wt`). Wait for it to serve before testing - a stack that is still coming up
+<A. LOCAL DEV STACK. Boot the stack against this worktree, using whatever dev-environment
+skill or command this repo provides. Wait for it to serve before testing - a stack still coming up
 looks identical to a broken one; retry for a few minutes before concluding it is down. If the
 change is UX-facing, drive a real browser with the `test-browser` skill and capture a
 screenshot per step. If it is API/CLI, exercise it directly with curl or the real entrypoint.>

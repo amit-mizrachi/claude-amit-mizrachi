@@ -18,9 +18,10 @@ knowledge that would otherwise be lost when this session ends.
 - The next task: use `<user-arguments>` if given; otherwise infer from this session's
   work, the Current State / plan notes, or TODO/status sections. If nothing's obvious, ask.
 - Absolute paths of the docs the next session should read (CLAUDE.md, specs, plan files).
-  If the project has prior context in the team vault (`shapes-knowledge`), point the next
-  session at the relevant `Services/<repo>.md`, `Projects/`, or `Decisions/` notes — see
-  the `team-knowledge` skill for how the vault is laid out.
+  If your team keeps prior context in a knowledge vault or wiki, point the next session at
+  the specific notes that matter - the service note, the project note, the decision record -
+  never at the vault root. A pointer the next session has to go searching from is a pointer
+  it will skip.
 - The session-specific knowledge: what got done, decisions made, gotchas hit, and any
   in-flight state that isn't written down anywhere yet.
 

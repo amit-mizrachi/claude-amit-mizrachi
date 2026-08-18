@@ -30,8 +30,9 @@ implementers, you are in the wrong skill.
    - **Permission mode** for unattended sessions: **`auto` is the default and what you should
      use unless the user says otherwise.** Record it in `PERMISSION_MODE`.
    - **Test session?** If the invocation already said (`test: none|dev-stack|evals|<cmd>`),
-     use it and do not ask. Otherwise ask: none · boot the stack locally via
-     `shapes-dev-environment` and walk the golden path · run evals · a custom command.
+     use it and do not ask. Otherwise ask: none · boot the stack locally with whatever
+     dev-environment skill this repo has and walk the golden path · run evals · a custom
+     command.
 
    **Why `auto` and not the other two.** The valid modes are `acceptEdits`, `auto`,
    `bypassPermissions`, `manual`, `dontAsk` and `plan`, and only one of them suits an
@@ -196,9 +197,9 @@ Open **one draft PR** as soon as `T01` lands - not at the end. Early CI and earl
 give the checkpoint reviewers something real to address. Every later session pushes to the
 same branch, so the PR grows all night. At the very end, flip it out of draft and report it.
 
-**Never merge and never deploy** - those are the user's, always. If a required check
-(e.g. a Monday-item check) has no ticket to point at, open the PR anyway and report the red
-check. Never fabricate a ticket id and never bypass hooks with `--no-verify`.
+**Never merge and never deploy** - those are the user's, always. If a required check has no
+ticket to point at (a tracker check wanting an item id, say), open the PR anyway and report
+the red check. Never fabricate a ticket id and never bypass hooks with `--no-verify`.
 
 ## Red Flags - STOP
 

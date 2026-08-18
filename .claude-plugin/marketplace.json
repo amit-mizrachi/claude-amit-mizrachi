@@ -3,7 +3,7 @@
   "description": "Amit Mizrachi's personal Claude Code plugins - session handoff, overnight feature delivery, wayfinder charting, and machine-awake hooks.",
   "owner": {
     "name": "Amit Mizrachi",
-    "email": "amit@shapes.co"
+    "url": "https://github.com/amit-mizrachi"
   },
   "plugins": [
     {
