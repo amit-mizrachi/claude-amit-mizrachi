@@ -90,6 +90,7 @@ implementers, you are in the wrong skill.
 | Branch | ONE: `<type>/<slug>` off `origin/<default>` |
 | Worktree | ONE, shared by every session: `.claude/worktrees/<slug>` |
 | Launching | **always** `bash <WS>/launch.sh <WS> <TAG>` - never a bare `claude --bg` |
+| Reviving | **always** `bash <WS>/revive.sh <WS> <TAG> <cause>` - never re-launch a dead tag by hand |
 | Status | each session writes `state/<TAG>.status` = `DONE` or `BLOCKED: <reason>` as its last act |
 | Summary | each session also writes `state/<TAG>.summary` - ONE line, what it actually did, for the ledger |
 | Signal | each session's final commit body also carries `SIGNAL: <TAG>-DONE` / `-BLOCKED: <reason>` |
@@ -105,8 +106,9 @@ implementers, you are in the wrong skill.
 | `references/test-prompt.md` | the opt-in tester - pick ONE of its three modes and delete the rest |
 | `references/launch.sh` | atomic claim + launch + session-id capture |
 | `references/watch.sh` | the watcher: emits DONE / BLOCKED / STUCK / DIED / STALLED events |
+| `references/revive.sh` | the reviver: resume the dead conversation, then restart, then abandon |
 
-Copy both scripts into the workspace at setup (`cp` + `chmod +x`) and use those copies, so
+Copy all three scripts into the workspace at setup (`cp` + `chmod +x`) and use those copies, so
 editing the skill never changes a sprint already running. Fill every `<PLACEHOLDER>` in the
 prompts - an unfilled placeholder is a session that wakes up at 3am not knowing what to build.
 
@@ -138,17 +140,14 @@ short - you have to survive until morning, so log to `LOG.md` and keep your cont
 | `DONE <TNN>` | If the next tag is unclaimed, `launch.sh` it (the implementer normally already did - the claim makes a double call harmless). At a checkpoint boundary, launch the reviewer instead. After `T01`, open the **draft** PR. |
 | `DONE REVIEW-FINAL` | Launch `TEST` if the user opted in; else go to the morning report. |
 | `DONE TEST` | Morning report. |
-| `STUCK <TAG> permission-prompt` | `claude stop <id>`, revive (below). If already on the permissive mode, it is a *question*, not a permission - revive with "decide it yourself and proceed" appended. |
-| `DIED <TAG> ended-without-signal` | Read `claude logs <id>` and `git log` on the branch to see how far it actually got, then revive with a RESUME note naming what already landed. |
-| `STALLED <TAG> idle-<N>m` | Check `claude logs <id>`. Genuinely idle -> stop and revive. Mid-build/mid-install -> leave it, allow one more stall window, then treat as DIED. |
+| `DIED <TAG> api-error` | The API dropped it, the conversation is intact. `revive.sh <WS> <TAG> api-error` - **resume, do not restart**. This is the common one; see Reviving. |
+| `DIED <TAG> ended-without-signal` | `revive.sh <WS> <TAG> ended-without-signal`. It resumes first too; if that rung is spent it restarts with a RESUME note naming what already landed. |
+| `STUCK <TAG> permission-prompt` | `revive.sh <WS> <TAG> permission-prompt`. If already on the permissive mode it is a *question*, not a permission - the continue prompt tells it to decide for itself and proceed. |
+| `STALLED <TAG> api-error` | Same as `DIED ... api-error` - it hit the error and never came back. Resume it. |
+| `STALLED <TAG> idle-<N>m` | Check `claude logs <id>` first. Genuinely idle -> `revive.sh <WS> <TAG> idle`. Mid-build or mid-install -> leave it, allow one more stall window, then treat as DIED. |
 | `BLOCKED <TAG> <reason>` | Do **not** revive - it reported a real blocker. Record it, skip every ticket that lists it as a blocker, continue with the rest. |
 | `SWEEP <n>` | Heartbeat, roughly every 10 polls. Nothing to do. |
 | `SWEEP 0 ... all-sessions-terminal` | The watcher has **exited** - nothing is running. If tags remain, launch the next one and **re-arm the watcher**; if the sprint is complete, write the morning report. Never leave the sprint with no armed watcher and work outstanding. |
-
-**Revive** = `claude stop <id>`; `rm -rf state/claim-<TAG> state/<TAG>.session`; bump
-`state/<TAG>.attempts`; re-launch. **Two attempts per tag, then stop trying**: mark it
-ABANDONED in `LOG.md`, skip its dependents, carry on with the rest of the sprint. A sprint
-that delivers 7 of 9 tickets and says so plainly beats one that loops on ticket 3 all night.
 
 **Conductor relay - hard rule at 35%.** The sprint outlives any one conductor. **The moment
 your remaining context reaches 35%, relay** - do not wait until you are nearly out, and do not
@@ -164,6 +163,41 @@ try to squeeze in one more ticket:
 `PLAN.md` + `LOG.md` + `state/` are written precisely so a cold conductor can pick the sprint
 up without your context. Relay as many times as the night needs.
 
+## Reviving - resume the conversation before you restart the ticket
+
+Most night-time deaths are not the session's fault. The API drops the call mid-response, stalls
+mid-stream, or returns 529 or 500, and the process is simply gone. **The conversation survives
+on disk** - everything it read, every decision it made, the edit it was halfway through. A
+resume costs one prompt and picks up mid-thought. Restarting the ticket from the top throws all
+of that away and re-does hours of reading. Resume is not a fallback, it is the first move.
+
+**Always `bash <WS>/revive.sh <WS> <TAG> <cause>`.** Never re-launch a dead tag by hand. The
+script walks a ladder, cheapest rung first, and prints which rung it took:
+
+| Rung | What it does | Budget per tag |
+|---|---|---|
+| `resume` | `claude --bg --resume` on the same conversation, told to carry on and **not** start over | 2 for `api-error`, 1 otherwise |
+| `restart` | fresh session on the original ticket prompt, plus a RESUME block telling it which commits already landed so it does not redo them | 1 |
+| `abandon` | writes `BLOCKED: ABANDONED ...` so the watcher reports it and the sprint moves on | - |
+
+`<cause>` is the watcher's second field - `api-error`, `ended-without-signal`, `idle`,
+`permission-prompt`. It sets the resume budget and the wording of the continue prompt, nothing
+else. An API error gets two resumes because it is transient infrastructure and the work in that
+conversation is worth a second go.
+
+**Two things make hand-reviving wrong**, and are exactly why the script exists:
+
+- A resumed session gets a **new session id** and does **not** inherit its display name. The
+  watcher tracks the id in `state/<TAG>.session`, so a stale id there is a live session nobody
+  is watching - the sprint goes quiet until morning.
+- The watcher emits each `(tag, verdict)` **once**. Without clearing that tag's rows from its
+  seen-file, a revived session that dies again is never reported at all.
+
+When the ladder runs out, the tag is ABANDONED: record it in `LOG.md`, skip its dependents,
+carry on with the rest of the sprint. A sprint that delivers 7 of 9 tickets and says so plainly
+beats one that loops on ticket 3 all night. Log **every rung** as its own ledger row - a ticket
+that took three sessions to land is something the user needs to see in the morning.
+
 ## Session ledger and the morning report
 
 The user wakes up to one message and needs to reconstruct a night they slept through, so the
@@ -177,7 +211,8 @@ every revived attempt and every conductor relay**, built from `state/<TAG>.sessi
 | Tag | Session id | Name | Role | Verdict | What it did |
 |---|---|---|---|---|---|
 | T01 | `a1b2c3d4` | ns-<slug>-T01 | implementer | DONE | one line from `.summary` |
-| T03 | `e5f6...` | ns-<slug>-T03 | implementer (attempt 1) | DIED, revived | how far it got before it died |
+| T03 | `e5f6...` | ns-<slug>-T03 | implementer | DIED api-error | how far it got before the API dropped it |
+| T03 | `9a8b...` | ns-<slug>-T03-r2 | implementer (resumed) | DONE | what it finished after the resume |
 | REVIEW-C1 | `...` | ns-<slug>-REVIEW-C1 | reviewer | DONE | findings accepted vs rejected |
 
 The final message must contain, in this order:
@@ -208,7 +243,9 @@ the red check. Never fabricate a ticket id and never bypass hooks with `--no-ver
 | "Tickets 3 and 4 are independent, I'll run both." | No. Serial is the contract - it is what removes conflicts and integration. Concurrency is `orchestrating-parallel-delivery`. |
 | "I'll just implement this small ticket myself." | The conductor writes no product code. Your context is the scarcest resource of the night; spend it watching. |
 | "No plan yet, I'll figure out tickets as I go." | Run `/to-spec` + `/to-tickets` and get approval first. An unapproved sprint builds the wrong thing 9 times. |
-| "Ticket 5 is stuck; I'll keep retrying until it works." | Two attempts, then ABANDONED and move on. Report the gap. |
+| "T05 died on an API error, I'll relaunch the ticket." | Resume it first - `revive.sh` does. The conversation is still on disk; a fresh session re-reads the codebase from scratch and repeats every decision the dead one already made. |
+| "Ticket 5 is stuck; I'll keep retrying until it works." | The ladder is the limit: resume, restart, ABANDONED. Then move on and report the gap. |
+| "I'll resume it by hand, it's one `claude --bg --resume`." | Resume mints a **new session id** and drops the name. Do it by hand and `state/<TAG>.session` points at a corpse while a real session runs unwatched - the sprint goes silent and nobody notices until morning. |
 | "Each ticket can open its own PR." | One branch, one PR. That is the deliverable. |
 | "The tests are red but the ticket is basically done." | Green or `BLOCKED: <reason>`. There is no third state. |
 | "I'll review everything at the end, it's simpler." | For 5+ tickets a late review means unwinding a night of work. Checkpoint at the seams. |
@@ -221,7 +258,9 @@ the red check. Never fabricate a ticket id and never bypass hooks with `--no-ver
 ## Anti-Patterns
 
 - **Bare `claude --bg`** during a sprint - bypasses the claim and can put two agents in one
-  worktree. Always `launch.sh`.
+  worktree. Always `launch.sh`, and always `revive.sh` to bring one back.
+- **Restarting a ticket that only needed a resume** - the default reaction to a dead session is
+  to resume its conversation, not to rebuild its context from zero.
 - **Prompts authored lazily** - writing the review or test prompt only when you get there.
   Nobody is awake to fix a broken prompt; write them all at kickoff.
 - **A silent night** - the morning report must name every ticket as landed, blocked, or

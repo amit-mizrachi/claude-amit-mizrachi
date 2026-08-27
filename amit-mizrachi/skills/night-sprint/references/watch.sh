@@ -10,11 +10,14 @@
 # For every tag that has a .session but no .status yet, it decides whether that
 # session is alive, stuck, or gone, and emits an event the moment that changes.
 #
-# Event vocabulary (first token is the verdict, second is the tag):
+# Event vocabulary (first token is the verdict, second is the tag, third is the cause you
+# hand to revive.sh):
 #   DONE     <tag>                        - session finished and said so
 #   BLOCKED  <tag> <reason>               - session finished and reported a blocker
 #   STUCK    <tag> permission-prompt <id> - sitting on a prompt nobody can answer
-#   DIED     <tag> ended-without-signal <id> - process gone, no status written
+#   DIED     <tag> api-error <id>         - the API dropped it. RESUMABLE - the conversation is intact
+#   DIED     <tag> ended-without-signal <id> - process gone, no status written, no API error
+#   STALLED  <tag> api-error <id> (idle <N>m) - hit an API error and never came back
 #   STALLED  <tag> idle-<N>m <id>         - alive but no transcript activity for N minutes
 #   SWEEP    <n-open> tags=<...>          - heartbeat, once every 10 polls, so silence != dead watcher
 #
@@ -46,6 +49,17 @@ session_last_activity() {
   local sid="$1" f
   f="$(ls -t "$HOME"/.claude/projects/*/"$sid".jsonl 2>/dev/null | head -1)"
   [ -n "$f" ] && mtime_of "$f"
+}
+
+# Was this session's last breath an API error rather than a clean end? The transcript records
+# one as its own line with "isApiErrorMessage":true - a dropped connection, a stalled stream,
+# a 529 or a 500. Those are infrastructure, not mistakes, and the conversation on disk is still
+# good, so the conductor should resume it rather than restart the ticket from the top.
+session_hit_api_error() {
+  local sid="$1" f
+  f="$(ls -t "$HOME"/.claude/projects/*/"$sid".jsonl 2>/dev/null | head -1)"
+  [ -n "$f" ] || return 1
+  tail -n 5 "$f" 2>/dev/null | grep -qE '"isApiErrorMessage": ?true'
 }
 
 emit_once() {
@@ -115,7 +129,11 @@ for r in rows:
         if [ -n "$last" ]; then
           idle=$(( ( $(now_epoch) - last ) / 60 ))
           if [ "$idle" -ge "$STALL_MIN" ]; then
-            emit_once "$tag:STALLED" "STALLED $tag idle-${idle}m $sid"
+            if session_hit_api_error "$sid"; then
+              emit_once "$tag:STALLED" "STALLED $tag api-error $sid (idle ${idle}m)"
+            else
+              emit_once "$tag:STALLED" "STALLED $tag idle-${idle}m $sid"
+            fi
           fi
         fi
         ;;
@@ -123,7 +141,11 @@ for r in rows:
         # Process finished or is gone entirely, but it never wrote a status file.
         # Give the filesystem one grace poll before calling it dead.
         if grep -qxF "$tag:maybe-died" "$SEEN" 2>/dev/null; then
-          emit_once "$tag:DIED" "DIED $tag ended-without-signal $sid"
+          if session_hit_api_error "$sid"; then
+            emit_once "$tag:DIED" "DIED $tag api-error $sid"
+          else
+            emit_once "$tag:DIED" "DIED $tag ended-without-signal $sid"
+          fi
         else
           printf '%s\n' "$tag:maybe-died" >> "$SEEN"
         fi

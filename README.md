@@ -53,16 +53,22 @@ The parts that make it survive an unattended night:
 - **An atomic claim before every launch.** It is the only thing keeping two agents out of one
   worktree.
 - **A watcher** emitting `DONE` / `BLOCKED` / `STUCK` / `DIED` / `STALLED`, with a defined
-  reaction to each. Two revival attempts per ticket, then it is marked abandoned and the
-  sprint moves on - a sprint that delivers 7 of 9 tickets and says so beats one that loops on
-  ticket 3 all night.
+  reaction to each. It reads the dead session's transcript to tell an API error apart from a
+  clean silent exit, because the two deserve different treatment.
+- **Resume before restart.** Most night-time deaths are the API dropping the call, not the
+  session's fault - and the conversation survives on disk. So the reviver resumes that
+  conversation with a "carry on, do not start over" prompt before it ever rebuilds a ticket
+  from scratch. Resume mints a new session id and drops the display name, so it also repoints
+  the watcher; doing this by hand leaves a live session nobody is watching. When the ladder
+  (resume, restart, abandon) runs out, the ticket is abandoned and the sprint moves on - one
+  that delivers 7 of 9 tickets and says so beats one that loops on ticket 3 all night.
 - **Conductor relay at 35% context.** The sprint outlives any one conductor; the workspace is
   written so a cold one can pick it up.
 - **A morning report with a full session ledger** - every session, including revived attempts
   and relays, and what each one actually contributed.
 
-Ships six reference files: the plan skeleton, implementer/review/test prompts, and the
-`launch.sh` / `watch.sh` scripts.
+Ships seven reference files: the plan skeleton, implementer/review/test prompts, and the
+`launch.sh` / `watch.sh` / `revive.sh` scripts.
 
 ### `mywayfinder`
 

@@ -17,7 +17,7 @@
 | Workspace | `<WS>` |
 | Toolchain | `<env setup, e.g. source ~/.nvm/nvm.sh && nvm use 22>` |
 | Verify | `<the one full check every session must pass>` - confirmed runnable at kickoff |
-| Permission mode | `<acceptEdits|bypassPermissions>` - chosen by the user |
+| Permission mode | `<auto - the default; only something else if the user asked for it>` |
 | Review cadence | `<final only | checkpoints after T<NN>, T<NN>, plus final>` - and why |
 | Test session | `<none | dev-stack | evals | custom: <cmd>>` - chosen by the user |
 
@@ -74,7 +74,8 @@ row, an eval score.>
 ## 6. The conductor
 
 Writes no product code. Arms `watch.sh` under a persistent Monitor and reacts: launches the
-next tag when one is missed, revives STUCK / DIED / STALLED sessions (two attempts, then
-ABANDONED), fires the reviews, opens the draft PR after T01, launches TEST, and writes the
-morning report with the full session ledger. Relays to a fresh conductor at 35% remaining
+next tag when one is missed, revives STUCK / DIED / STALLED sessions with
+`bash <WS>/revive.sh <WS> <TAG> <cause>` (which resumes the dead conversation before it ever
+restarts a ticket, then ABANDONS), fires the reviews, opens the draft PR after T01, launches
+TEST, and writes the morning report with the full session ledger. Relays to a fresh conductor at 35% remaining
 context. Never merges and never deploys - those are <USER>'s.
