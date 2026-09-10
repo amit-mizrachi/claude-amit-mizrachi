@@ -44,6 +44,11 @@ if ! mkdir "$STATE/claim-$TAG" 2>/dev/null; then
   exit 0
 fi
 
+# Record the branch tip as this tag starts. The watcher diffs against it to tell whether the
+# session has produced any work yet, and holds the context relay until it has - a session
+# relayed before it changed anything hands its successor nothing but a list of files to re-read.
+git -C "$WT" rev-parse HEAD > "$STATE/$TAG.headsha" 2>/dev/null || true
+
 echo "launch: claimed $TAG, starting session '$NAME' in $WT"
 ( cd "$WT" && claude --bg -n "$NAME" --permission-mode "$MODE" "$(cat "$PROMPT")" ) \
   > "$STATE/$TAG.launch.log" 2>&1

@@ -52,9 +52,19 @@ The parts that make it survive an unattended night:
   actions get denied and the session keeps going.
 - **An atomic claim before every launch.** It is the only thing keeping two agents out of one
   worktree.
-- **A watcher** emitting `DONE` / `BLOCKED` / `STUCK` / `DIED` / `STALLED`, with a defined
-  reaction to each. It reads the dead session's transcript to tell an API error apart from a
-  clean silent exit, because the two deserve different treatment.
+- **A watcher** emitting `DONE` / `BLOCKED` / `RELAYED` / `WARN` / `FAT` / `STUCK` / `DIED` /
+  `STALLED`, with a defined reaction to each. It reads the dead session's transcript to tell an
+  API error apart from a clean silent exit, because the two deserve different treatment.
+- **Two context rungs, measured not guessed.** A gauge reads each session's transcript for how
+  much of its window it has USED. At 20% the conductor nudges it to start nothing new; at 30% it
+  hands its tag to a fresh session. The handoff line is early on purpose - a session with 70% of
+  its window left writes a successor prompt worth reading, and several sessions per ticket is the
+  intended shape. A floor holds the handoff back until the session has actually changed
+  something, so an early relay never buys a pure re-read.
+- **Reviews are two sessions, never one.** One runs the review squad and posts its findings as
+  inline PR comments, writing no code at all; a second, with a clean window, implements them.
+  Consolidating five specialist reports and then editing code in the same session was what used
+  to exhaust a review mid-triage, which loses the triage - the most valuable thing it had.
 - **Resume before restart.** Most night-time deaths are the API dropping the call, not the
   session's fault - and the conversation survives on disk. So the reviver resumes that
   conversation with a "carry on, do not start over" prompt before it ever rebuilds a ticket
@@ -62,13 +72,19 @@ The parts that make it survive an unattended night:
   the watcher; doing this by hand leaves a live session nobody is watching. When the ladder
   (resume, restart, abandon) runs out, the ticket is abandoned and the sprint moves on - one
   that delivers 7 of 9 tickets and says so beats one that loops on ticket 3 all night.
-- **Conductor relay at 35% context.** The sprint outlives any one conductor; the workspace is
-  written so a cold one can pick it up.
+- **The conductor holds itself to the same rungs.** It is the longest-lived session of the night
+  and the one whose death costs the most, so it relays itself into a fresh conductor at 30% used;
+  the workspace is written so a cold one can pick the sprint up.
+- **A closing wizard that is only the commands a human must run** - an apply, a paste, a click.
+  No preflight stages, no status stages, no "did it work" stages: anything an agent could do, the
+  sprint does itself or files as a follow-up ticket. A stage asking the user to do an agent's
+  chore reads as a requirement and is really a handover.
 - **A morning report with a full session ledger** - every session, including revived attempts
   and relays, and what each one actually contributed.
 
-Ships seven reference files: the plan skeleton, implementer/review/test prompts, and the
-`launch.sh` / `watch.sh` / `revive.sh` scripts.
+Ships thirteen reference files: the plan skeleton, the implementer / review-find / review-fix /
+test / wizard / continuation prompts, and the `launch.sh` / `watch.sh` / `revive.sh` /
+`remind.sh` / `relay.sh` / `context-used.sh` scripts.
 
 ### `mywayfinder`
 
@@ -113,7 +129,8 @@ Nothing below is required. Where a skill is missing, the caller degrades and say
 |---|---|---|
 | `wayfinder` | `mywayfinder` | the map itself (**required**) |
 | `to-spec`, `to-tickets` | `night-sprint` | cutting a feature into tickets when none exist yet |
-| a review skill (e.g. `quad-review-squad`) | `night-sprint` | the checkpoint and final reviews |
+| a review skill (e.g. `quad-review-squad`) | `night-sprint` | the FIND half of each review pair |
+| `address-review` (or equivalent) | `night-sprint` | the FIX half of each review pair |
 | a dev-environment skill | `night-sprint` | the optional test session that boots the stack |
 | `artifact-design` | `mywayfinder` | built into Claude Code |
 | `next-prompt` | `night-sprint` | the conductor relay - ships here |
