@@ -15,9 +15,16 @@
 #   DONE     <tag>                        - session finished and said so
 #   BLOCKED  <tag> <reason>               - session finished and reported a blocker
 #   RELAYED  <tag> <cont-tag>             - session ran low on context and handed its ticket on
-#   WARN     <tag> used-<N>pct <id>       - crossed WARN_AT_USED. Nudge it with remind.sh:
-#                                           start nothing new, finish what is in flight
-#   FAT      <tag> used-<N>pct <id>       - crossed RELAY_AT_USED. Hand it to relay.sh
+#                                           BY ITSELF. This is the healthy path, not an alarm
+#   OVERDUE  <tag> used-<N>pct <id>       - far past its own handoff line and STILL has not handed
+#                                           off, so the self-managed handoff did not happen.
+#                                           Nothing to run: a live session cannot be interrupted.
+#                                           Log it, expect a death or an auto-compact, carry on
+#   DUP      <tag> <id> <id> ...          - MORE THAN ONE live session on one tag. Two agents in
+#                                           one worktree: a stop failed and the resume forked
+#                                           instead of replacing. Stop all but the one doing the
+#                                           work, repoint state/<tag>.session at it, and audit
+#                                           the overlap - see "one tag, one session" in SKILL.md
 #   STUCK    <tag> permission-prompt <id> - sitting on a prompt nobody can answer
 #   DIED     <tag> api-error <id>         - the API dropped it. RESUMABLE - the conversation is intact
 #   DIED     <tag> ended-without-signal <id> - process gone, no status written, no API error
@@ -43,56 +50,41 @@ mkdir -p "$STATE"
 WT=""
 [ -f "$WS/WORKTREE" ] && WT="$(tr -d '[:space:]' < "$WS/WORKTREE")"
 
-# Context thresholds, pinned by the conductor at kickoff. ALL THREE ARE PERCENT USED, the way
+# The sprint slug, so a tag's sessions can be recognised by display name. launch.sh names every
+# session `ns-<SLUG>-<TAG>`, and revive/relay/remind suffix that (`-r1`, `-relay`, `-nudge`), so
+# `ns-<SLUG>-<TAG>` plus `ns-<SLUG>-<TAG>-*` is exactly the set of sessions belonging to one tag.
+SLUG=""
+[ -f "$WS/SLUG" ] && SLUG="$(tr -d '[:space:]' < "$WS/SLUG")"
+
+# Context thresholds, pinned by the conductor at kickoff. BOTH ARE PERCENT USED, the way
 # `/context` reports it: 0 is a fresh session, 100 is a full one. They count UP.
+#
+# WARN_AT_USED and RELAY_AT_USED are NOT read here. They are the session's own rungs, applied
+# from its own prompt, and the watcher has no lever at either of them - see the `working` case.
 #
 #   CONTEXT_WINDOW   - total tokens the sprint's model can hold. Cannot be read off the
 #                      transcript (a 1M model records the same name as the 200k one), so it is
 #                      a pinned fact or the 200k default.
-#   WARN_AT_USED     - the nudge. The session is still comfortable but has spent enough that
-#                      opening a new front is a bad bet. remind.sh tells it to start nothing new.
-#   RELAY_AT_USED    - the handoff. Deliberately early: a session that hands off at 30% used
-#                      still has 70% of a window to write a handoff its successor can act on,
-#                      and the successor gets a full window for the rest of the ticket. Several
-#                      sessions per ticket is the intended shape, not a failure.
-#   CEILING_USED     - the floor guard's ceiling, read by relay.sh. See the note there.
+#   CEILING_USED     - how full a session has to be before "it has not handed off yet" stops
+#                      being a session mid-handoff and starts being one that never will. The
+#                      only context reading this watcher acts on.
 CONTEXT_WINDOW=200000
 [ -f "$WS/CONTEXT_WINDOW" ] && CONTEXT_WINDOW="$(tr -d '[:space:]' < "$WS/CONTEXT_WINDOW")"
-WARN_AT_USED=20
-[ -f "$WS/WARN_AT_USED" ] && WARN_AT_USED="$(tr -d '[:space:]' < "$WS/WARN_AT_USED")"
-RELAY_AT_USED=30
-[ -f "$WS/RELAY_AT_USED" ] && RELAY_AT_USED="$(tr -d '[:space:]' < "$WS/RELAY_AT_USED")"
 CEILING_USED=60
 [ -f "$WS/CEILING_USED" ] && CEILING_USED="$(tr -d '[:space:]' < "$WS/CEILING_USED")"
 GAUGE="$WS/context-used.sh"
 
 now_epoch() { date +%s; }
 
-# THE FLOOR. A relay is only worth doing once the session has something to hand over.
+# THE FLOOR used to live here, as a gate on the relay event: do not hand a ticket on until the
+# session has produced something, because a session that hands off having only READ gives its
+# successor a list of files and nothing else, and the ticket loops all night being re-read.
 #
-# At 30% used the handoff line sits close to a session's startup cost: reading PLAN.md, the
-# ticket, LOG.md, `git log`, and the two or three files whose pattern the ticket must mirror can
-# spend that much on its own, especially on a 200k window. A session relayed at that point hands
-# its successor nothing but a list of files it read - and the successor starts by reading them
-# again. Do that twice and the ticket never gets built; the sprint just re-reads itself all night.
-#
-# So the relay waits for evidence of work: a commit that was not there when this tag launched, or
-# an uncommitted change in the worktree. Only one session touches the worktree at a time, so any
-# dirt in it is this session's.
-#
-# CEILING_USED is the escape hatch. A session that has burned that much window without changing a
-# single file is not about to start; the ticket is bigger than the plan thought, or it is stuck in
-# a reading loop. Relaying there at least passes the reading on, and the resulting chain of
-# continuations is exactly the signal the morning report should carry: this ticket was too big.
-tag_has_produced_work() {
-  local tag="$1" base
-  [ -n "$WT" ] || return 0                       # no worktree pinned - do not block the relay
-  base="$STATE/$tag.headsha"
-  [ -f "$base" ] || return 0                     # launched before the floor existed - same
-  [ -n "$(git -C "$WT" status --porcelain 2>/dev/null)" ] && return 0
-  [ "$(git -C "$WT" rev-parse HEAD 2>/dev/null)" != "$(tr -d '[:space:]' < "$base")" ] && return 0
-  return 1
-}
+# That rule has not gone away - it moved to where it can actually be applied. The session itself
+# decides whether to hand off, so the session applies its own floor, from its prompt: "if you have
+# not changed a single file, do NOT hand off, keep going until you have something real to pass
+# on", with CEILING_USED as the escape hatch for a ticket that turned out too big. The watcher
+# cannot make that judgement from outside and no longer pretends to.
 
 # mtime of a file, portable across macOS (BSD stat) and Linux (GNU stat)
 mtime_of() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null; }
@@ -166,7 +158,27 @@ while true; do
     open_n=$((open_n + 1))
     open_tags="$open_tags $tag"
 
-    # 2. No status file. Ask the harness what the process is doing.
+    # 2. ONE TAG, ONE SESSION. Nothing should be able to break this now: `launch.sh` claims a tag
+    # atomically, a session hands its own tag on rather than being interrupted, and `revive.sh`
+    # refuses any session whose transcript is still growing. The one remaining way in is a revive
+    # of a session that looked dead and was not, so the check stays - cheaply, and here.
+    #
+    # It is worth keeping for what it costs. Two agents in one worktree edit each other's files
+    # blind, and this watcher follows only ONE session id per tag, so the other one commits to the
+    # branch unwatched. That went unnoticed for whole nights before it was an event.
+    if [ -n "$SLUG" ]; then
+      dup="$(printf '%s' "$agents" | python3 -c 'import json,sys
+pre=sys.argv[1]
+try: rows=json.load(sys.stdin)
+except Exception: sys.exit(0)
+live=[r for r in rows
+      if r.get("pid") and r.get("state")!="done"
+      and (r.get("name")==pre or str(r.get("name") or "").startswith(pre+"-"))]
+if len(live)>1: print(" ".join(sorted(str(r.get("id") or "?") for r in live)))' "ns-$SLUG-$tag" 2>/dev/null)"
+      [ -n "$dup" ] && emit_once "$tag:DUP" "DUP $tag $dup"
+    fi
+
+    # 3. No status file. Ask the harness what the process is doing.
     state="$(printf '%s' "$agents" \
       | python3 -c 'import json,sys
 sid=sys.argv[1]
@@ -182,38 +194,31 @@ for r in rows:
         emit_once "$tag:STUCK" "STUCK $tag permission-prompt $sid"
         ;;
       working)
-        # How full is it? Checked before the stall check, because a session with no window
-        # left is worth relaying while it can still explain itself - waiting until it goes
-        # quiet means it has already lost the reasoning the successor needs.
+        # HOW FULL IS IT - and this is a REPORT, not a lever.
         #
-        # Two rungs, and the ORDER MATTERS. A session can jump from 12% to 35% used in a
-        # single poll (one big read), and in that case the nudge is pointless - it is already
-        # past the handoff line. So the relay rung is tested FIRST, and firing it also burns
-        # the nudge so no remind.sh call chases a session that is already relaying.
+        # Every session manages its own window. It measures itself with the same gauge, narrows
+        # at WARN_AT_USED and hands its tag to a fresh session at RELAY_AT_USED, all from its own
+        # prompt. The sprint cannot send a message into a running session, and it no longer tries:
+        # the old `WARN` and `FAT` events drove scripts that did `claude stop` + `--bg --resume`,
+        # which forked the session whenever the stop failed and put two agents in one worktree.
         #
-        # `.relayed` and `.warned` are the one-shot guards: relay.sh and remind.sh drop them.
-        # They are separate files from the seen-list because relay.sh CLEARS this tag's rows
-        # out of the seen-file (so a later death is still reported), which would otherwise let
-        # both rungs refire.
-        if [ -x "$GAUGE" ] && [ ! -f "$STATE/$tag.relayed" ]; then
+        # So the watcher says nothing at the two rungs - the session is already handling them, and
+        # an event nobody can act on is noise. It speaks up only when the session is FAR past its
+        # own line and still has not handed off, which means the self-managed handoff did not
+        # happen. There is no fix for that from out here. It is a line for the morning report, and
+        # a hint to expect this tag to die or auto-compact.
+        #
+        # The margin matters: a session that hits RELAY_AT_USED spends real time consolidating and
+        # writing its continuation prompt, and it is ABOVE the line for all of it. Firing at the
+        # line itself would flag every correct handoff. CEILING_USED is far enough past it that a
+        # session still there is genuinely not handing off.
+        if [ -x "$GAUGE" ]; then
           used="$(bash "$GAUGE" "$sid" "$CONTEXT_WINDOW" 2>/dev/null)"
           case "$used" in
             ''|*[!0-9]*) : ;;   # no reading this round - say nothing rather than guess
             *)
-              if [ "$used" -ge "$RELAY_AT_USED" ]; then
-                # Past the handoff line - but hold the relay until this session has actually
-                # produced something, unless it is past the ceiling. See tag_has_produced_work.
-                if tag_has_produced_work "$tag" || [ "$used" -ge "$CEILING_USED" ]; then
-                  grep -qxF "$tag:WARN" "$SEEN" 2>/dev/null \
-                    || printf '%s\n' "$tag:WARN" >> "$SEEN"
-                  emit_once "$tag:FAT" "FAT $tag used-${used}pct $sid"
-                elif [ ! -f "$STATE/$tag.warned" ]; then
-                  # Still worth the nudge: it has read a third of its window and changed
-                  # nothing, so "start nothing new" is exactly the advice it needs.
-                  emit_once "$tag:WARN" "WARN $tag used-${used}pct $sid"
-                fi
-              elif [ "$used" -ge "$WARN_AT_USED" ] && [ ! -f "$STATE/$tag.warned" ]; then
-                emit_once "$tag:WARN" "WARN $tag used-${used}pct $sid"
+              if [ "$used" -ge "$CEILING_USED" ]; then
+                emit_once "$tag:OVERDUE" "OVERDUE $tag used-${used}pct $sid"
               fi
               ;;
           esac

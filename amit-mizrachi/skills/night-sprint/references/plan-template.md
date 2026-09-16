@@ -24,6 +24,7 @@
 | Ceiling | `<60>`% used - the relay is held until a session has produced work, but never past this |
 | Review cadence | `<final only | checkpoints after T<NN>, T<NN>, plus final>` - and why. Each review is TWO sessions: find, then fix |
 | Test session | `<none | dev-stack | evals | custom: <cmd>>` - chosen by the user |
+| How to boot the stack | `<the dev-environment skill name and/or the exact boot command>` - only for `dev-stack`; the TEST session reads it from here |
 
 ## 1. Goal
 
@@ -144,7 +145,7 @@ never hand-edited.
 If nothing manual comes up, `WIZARD` writes no script and says so in one line. Permissions and
 access-control changes are described by the wizard, never executed by it.
 
-## 6. Context - two rungs, and a ticket may take more than one session
+## 6. CONTEXT RELAY - you manage your own window, and a ticket may take more than one session
 
 A context window is smaller than some tickets, and a session that pushes on until it is full does
 not stop cleanly. So no session runs itself to the end of its window: it hands its tag to a fresh
@@ -152,22 +153,32 @@ one early, while it still has most of a window left to explain itself. `T03` bec
 `T03 -> T03c2 -> T03c3`: one ticket, several sessions, still strictly one at a time. That is the
 intended shape of this sprint, not a sign a ticket went wrong.
 
-Every session measures itself with `bash <WS>/context-used.sh --self <CONTEXT_WINDOW>` after any
-large read, long build, or subagent fan-out. **The number counts UP** - 0 is a fresh session, 100
-is a full one, exactly as `/context` reports it. The conductor watches the same number for every
-open tag through `watch.sh`.
+**Every session manages its own window, and nothing else can.** The sprint cannot send a message
+into a running session - there is no interrupt, no reminder, no script that hands a ticket on from
+outside. A session that does not measure itself runs until the harness auto-compacts it and loses
+the reasoning that mattered. So the handoff is the session's own job, and the same job for every
+role including the conductor.
 
-| Rung | Reading | The session does | The conductor does |
-|---|---|---|---|
-| Nudge | `<WARN_AT_USED>`% used | Starts nothing new. Finishes what it is on, stops widening its reading, opens no new front | `bash <WS>/remind.sh <WS> <TAG> <used>` on a `WARN` event |
-| Handoff | `<RELAY_AT_USED>`% used | Consolidates and hands its tag on, per the steps below | `bash <WS>/relay.sh <WS> <TAG> <used>` on a `FAT` event |
+Measure with `bash <WS>/context-used.sh --self <CONTEXT_WINDOW>`. **The number counts UP** - 0 is a
+fresh session, 100 is a full one, exactly as `/context` reports it. Measure after each commit,
+after any fan-out returns, after any noisy build or search, before opening a group of unread files,
+before starting the next acceptance criterion, and whenever you cannot remember the last check.
 
-Two guards keep the early handoff from becoming waste. A session **one command from green
-finishes instead of relaying**. And a session that **has not changed a single file does not
-relay at all** - its successor would start exactly where it did, minus the reading, which is how
-a ticket loops all night without being built. `watch.sh` holds the `FAT` event back until the
-worktree shows work, and releases it regardless past `<CEILING_USED>`% used, because a session
-that full with nothing to show is a ticket that was too big.
+| Rung | Reading | The session does |
+|---|---|---|
+| Narrow | `<WARN_AT_USED>`% used | Starts nothing new. Finishes what it is on, stops widening its reading, opens no new front |
+| Hand off | `<RELAY_AT_USED>`% used | Consolidates and hands its tag to a fresh session, per the steps below |
+
+Two guards keep the early handoff from becoming waste, and both are the session's to apply. A
+session **one command from green finishes instead of handing off**. And a session that **has not
+changed a single file does not hand off at all** - its successor would start exactly where it did,
+minus the reading, which is how a ticket loops all night without being built. Past
+`<CEILING_USED>`% used that second guard expires: hand off anyway and say in the continuation
+prompt that the ticket was bigger than the plan thought.
+
+The conductor does not drive any of this. `watch.sh` reads the same number only to raise
+`OVERDUE` when a session is far past its own line and still has not handed off - a report for the
+morning, not a lever. Nothing external interrupts a working session.
 
 At `<RELAY_AT_USED>`% used, the session:
 
@@ -185,13 +196,15 @@ A session that is one command from green finishes instead of relaying.
 ## 7. The conductor
 
 Writes no product code. Arms `watch.sh` under a persistent Monitor and reacts: launches the
-next tag when one is missed, revives STUCK / DIED / STALLED sessions with
+next tag when one is missed, revives DIED / STALLED sessions with
 `bash <WS>/revive.sh <WS> <TAG> <cause>` (which resumes the dead conversation before it ever
-restarts a ticket, then ABANDONS), nudges filling sessions with
-`bash <WS>/remind.sh <WS> <TAG> <used>`, relays them with `bash <WS>/relay.sh <WS> <TAG> <used>`,
-fires each review pair, opens the draft PR after T01, launches TEST and then WIZARD, and writes
-the morning report with the full session ledger, the follow-ups from `<WS>/state/FOLLOWUPS.md`,
-and the paste-ready wizard command from `<WS>/HANDOFF.md`.
+restarts a ticket, then ABANDONS), fires each review pair, opens the draft PR after T01, launches
+TEST and then WIZARD, and writes the morning report with the full session ledger, the follow-ups
+from `<WS>/state/FOLLOWUPS.md`, and the paste-ready wizard command from `<WS>/HANDOFF.md`.
+
+**It never interrupts a session that is working.** There is no mechanism for it and the sprint
+does not want one: a live session owns its own window and its own handoff. The conductor acts only
+on sessions that are already gone, and on tags that have not started.
 
 It holds itself to the same two rungs as everyone else, measured with
 `bash <WS>/context-used.sh --self <CONTEXT_WINDOW>` at EVERY watcher event: at

@@ -46,21 +46,35 @@ optional test session, and write the morning report.
 
 The parts that make it survive an unattended night:
 
+- **Nothing interrupts a working session, and the sprint no longer pretends otherwise.** There
+  is no way to push an instruction into a running background session. Two scripts used to fake
+  one by stopping the session and resuming it with a new prompt - but `claude stop` matches only
+  the short 8-character id, so handed the full session id it stopped nothing, and the resume
+  **forked** the conversation: two agents in one worktree, overwriting each other, with the
+  watcher following only one. Both scripts are deleted. The failure was removed rather than
+  guarded.
+- **So every session manages its own window.** It measures itself with `context-used.sh --self`
+  at named checkpoints, narrows its scope at 20% USED, and at 30% writes its own continuation
+  prompt and launches its own successor - one ticket becoming `T03 -> T03c2 -> T03c3`, still
+  strictly one session at a time. The handoff line is early on purpose: a session with 70% of
+  its window left writes a successor prompt worth reading, and several sessions per ticket is
+  the intended shape, not a failure. A floor holds the handoff back until the session has
+  actually changed a file, so an early relay never buys a pure re-read; a 60% ceiling expires
+  that floor. The conductor has always worked this way and now every role does.
 - **A permission mode that cannot stall.** `acceptEdits` still prompts on shell commands, and
   a background session cannot answer a prompt - it just sits there. `bypassPermissions` needs
   a one-time interactive disclaimer nobody is awake to accept. So the default is `auto`: risky
   actions get denied and the session keeps going.
-- **An atomic claim before every launch.** It is the only thing keeping two agents out of one
-  worktree.
-- **A watcher** emitting `DONE` / `BLOCKED` / `RELAYED` / `WARN` / `FAT` / `STUCK` / `DIED` /
-  `STALLED`, with a defined reaction to each. It reads the dead session's transcript to tell an
-  API error apart from a clean silent exit, because the two deserve different treatment.
-- **Two context rungs, measured not guessed.** A gauge reads each session's transcript for how
-  much of its window it has USED. At 20% the conductor nudges it to start nothing new; at 30% it
-  hands its tag to a fresh session. The handoff line is early on purpose - a session with 70% of
-  its window left writes a successor prompt worth reading, and several sessions per ticket is the
-  intended shape. A floor holds the handoff back until the session has actually changed
-  something, so an early relay never buys a pure re-read.
+- **One tag, one session**, held at all three ways in: `launch.sh` claims a tag with an atomic
+  `mkdir` so a double launch is harmless, nothing can fork a running session, and `revive.sh`
+  refuses any session whose transcript is still growing.
+- **A watcher** emitting `DONE` / `BLOCKED` / `RELAYED` / `OVERDUE` / `DUP` / `STUCK` / `DIED` /
+  `STALLED` / `SWEEP`, with a defined reaction to each. It reads the dead session's transcript
+  to tell an API error apart from a clean silent exit, because the two deserve different
+  treatment. `DUP` is the loud one - more than one live session on a single tag - and it
+  outranks everything else, because nothing the watcher says about that tag can be trusted while
+  it holds. `OVERDUE` is the opposite: a session far past its own handoff line, reported and
+  never acted on, because there is nothing to run.
 - **Reviews are two sessions, never one.** One runs the review squad and posts its findings as
   inline PR comments, writing no code at all; a second, with a clean window, implements them.
   Consolidating five specialist reports and then editing code in the same session was what used
@@ -72,9 +86,6 @@ The parts that make it survive an unattended night:
   the watcher; doing this by hand leaves a live session nobody is watching. When the ladder
   (resume, restart, abandon) runs out, the ticket is abandoned and the sprint moves on - one
   that delivers 7 of 9 tickets and says so beats one that loops on ticket 3 all night.
-- **The conductor holds itself to the same rungs.** It is the longest-lived session of the night
-  and the one whose death costs the most, so it relays itself into a fresh conductor at 30% used;
-  the workspace is written so a cold one can pick the sprint up.
 - **A closing wizard that is only the commands a human must run** - an apply, a paste, a click.
   No preflight stages, no status stages, no "did it work" stages: anything an agent could do, the
   sprint does itself or files as a follow-up ticket. A stage asking the user to do an agent's
@@ -82,9 +93,9 @@ The parts that make it survive an unattended night:
 - **A morning report with a full session ledger** - every session, including revived attempts
   and relays, and what each one actually contributed.
 
-Ships thirteen reference files: the plan skeleton, the implementer / review-find / review-fix /
+Ships eleven reference files: the plan skeleton, the implementer / review-find / review-fix /
 test / wizard / continuation prompts, and the `launch.sh` / `watch.sh` / `revive.sh` /
-`remind.sh` / `relay.sh` / `context-used.sh` scripts.
+`context-used.sh` scripts.
 
 ### `mywayfinder`
 
@@ -129,7 +140,7 @@ Nothing below is required. Where a skill is missing, the caller degrades and say
 |---|---|---|
 | `wayfinder` | `mywayfinder` | the map itself (**required**) |
 | `to-spec`, `to-tickets` | `night-sprint` | cutting a feature into tickets when none exist yet |
-| a review skill (e.g. `quad-review-squad`) | `night-sprint` | the FIND half of each review pair |
+| a review skill (e.g. `code-review` in squad mode) | `night-sprint` | the FIND half of each review pair |
 | `address-review` (or equivalent) | `night-sprint` | the FIX half of each review pair |
 | a dev-environment skill | `night-sprint` | the optional test session that boots the stack |
 | `artifact-design` | `mywayfinder` | built into Claude Code |

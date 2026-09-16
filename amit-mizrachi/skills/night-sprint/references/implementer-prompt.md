@@ -39,23 +39,43 @@ Be concrete about WHERE. "You need a Monday API key" sends the user hunting; "Mo
 
 NEVER put a real secret value in that file, in a commit, or in your summary. Names and paths only.
 
-CONTEXT - A TICKET MAY TAKE MORE THAN ONE SESSION, AND THAT IS THE PLAN, NOT A FAILURE. This sprint would rather run three fresh sessions on a ticket than one exhausted one, so the handoff line is early and you should expect to reach it. Measure, never estimate:
+CONTEXT - YOU MANAGE YOUR OWN WINDOW, AND NOBODY ELSE CAN.
+
+A ticket may take more than one session, and that is the plan, not a failure. This sprint would rather run three fresh sessions on a ticket than one exhausted one, so the handoff line is early and you should expect to reach it.
+
+NOBODY IS WATCHING THIS NUMBER BUT YOU. The sprint cannot send a message into a running session - there is no way to interrupt you, no reminder is coming, and no script will hand your ticket on for you. A session that does not measure itself runs until the harness auto-compacts it, loses the reasoning that mattered, and in the worst case dies mid-edit having written none of it down. That is the single most expensive thing that can happen tonight, and it is entirely in your hands.
+
+Measure, never estimate:
 
   bash <WS>/context-used.sh --self <CONTEXT_WINDOW>
 
-The number counts UP: 0 is a fresh session, 100 is a full one, exactly as `/context` reports it. Check it after any large read, long build, or subagent fan-out, and believe it over your own sense of how much room is left. There are two rungs.
+The number counts UP: 0 is a fresh session, 100 is a full one, exactly as `/context` reports it. Believe it over your own sense of how much room is left - that sense is consistently wrong.
 
-RUNG 1 - <WARN_AT_USED>% USED: START NOTHING NEW. You are still comfortable, but not comfortable enough to open a new front. Do not begin a new subsystem, do not start a refactor beyond what your ticket needs, do not go reading widely through files you have not already opened. DO drive whatever you are on right now to a finished, committed state. The expensive mistake is not running out of window - it is running out halfway through something, because a half-finished thing is what makes a handoff expensive. The conductor may send you this same reminder; it is advice, not an instruction to stop.
+MEASURE AT EVERY ONE OF THESE, no exceptions:
+  - immediately after each commit
+  - after any subagent or fan-out returns
+  - after any search, build or test run that printed a lot of output
+  - before you open a group of files you have not read yet
+  - before you start the next acceptance criterion
+  - if you cannot remember the last time you measured
 
-RUNG 2 - <RELAY_AT_USED>% USED: HAND THE TICKET ON. Stop taking new work and spend the rest of the window handing off well - you still have most of it, and that is deliberate: your successor should inherit a good handoff and a nearly full window. Two exceptions. If you are one command from green, FINISH IT - a split that saves nothing costs the sprint a whole session of re-reading. And if you have not yet changed a single file, do NOT hand off: your successor would start exactly where you did, minus your reading, which is how a ticket loops all night without being built. Keep going in that case, and relay once you have something real to pass on.
+There are two rungs.
 
-The conductor watches the same number and may send you the relay instruction first; either way the procedure is identical:
+RUNG 1 - <WARN_AT_USED>% USED: START NOTHING NEW. You are still comfortable, but not comfortable enough to open a new front. Do not begin a new subsystem, do not start a refactor beyond what your ticket needs, do not go reading widely through files you have not already opened. DO drive whatever you are on right now to a finished, committed state. The expensive mistake is not running out of window - it is running out halfway through something, because a half-finished thing is what makes a handoff expensive.
+
+RUNG 2 - <RELAY_AT_USED>% USED: HAND THE TICKET ON. Stop taking new work and spend the rest of the window handing off well - you still have most of it, and that is deliberate: your successor should inherit a good handoff and a nearly full window.
+
+Two exceptions, and only these two. If you are one command from green, FINISH IT - a split that saves nothing costs the sprint a whole session of re-reading. And if you have not yet changed a single file, do NOT hand off: your successor would start exactly where you did, minus your reading, which is how a ticket loops all night without being built. Keep going in that case, and hand off once you have something real to pass on. If you are still reading at <CEILING_USED>% used, hand off anyway and say plainly in the continuation prompt that this ticket is bigger than the plan thought.
+
+THE HANDOFF, five steps, in this order:
 
   1. Commit and push what you have. If it is not green, commit it anyway as WIP whose body says `SIGNAL: <TAG>-RELAYED` and names the failing checks. Never stash, never revert.
   2. Fill <WS>/continuation-prompt.md into <WS>/prompt-<TAG>c2.txt: what landed, which acceptance criteria are met and which are not, the real verify output, the files changed and the ones next, every decision and dead end so your successor does not rediscover them, and that it must launch <NEXT_TAG> when the ticket is finally green. Your successor starts empty and cannot read this conversation - assume it knows nothing.
   3. echo "<what landed, what is left>" > <WS>/state/<TAG>.summary
   4. echo "RELAYED: <TAG>c2" > <WS>/state/<TAG>.status   (RELAYED, never DONE - the ticket is still in flight, and DONE would let the sprint move on with your work unfinished)
   5. bash <WS>/launch.sh <WS> <TAG>c2
+
+Then post your three lines and stop. Do NOT launch <NEXT_TAG> - your successor owns the ticket now, and owns launching what comes after it.
 
 FOUND SOMETHING REAL THAT IS NOT YOUR TICKET? Do not fix it and do not leave it unsaid. One line:
   echo "<severity> | <file or area> | <what is wrong> | <why it is not this ticket>" >> <WS>/state/FOLLOWUPS.md
