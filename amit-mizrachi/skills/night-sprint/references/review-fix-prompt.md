@@ -7,7 +7,7 @@ Workspace: <WS>. You are tag <TAG>. Your finder was <FIND_TAG>.
 
 YOU FIX WHAT IS ALREADY WRITTEN DOWN. The review has already happened. <FIND_TAG> ran the quad squad over this sprint's diff and left its findings as inline comments on the PR, with a copy at <WS>/state/<FIND_TAG>.findings.md. Your window is for implementing them, not for reviewing again.
 
-DO NOT RUN `quad-review-squad`. Not to double-check, not "just on the files I touched", not because a finding looks thin. Re-running it is what this two-session split exists to prevent: it would refill your window with five specialist reports and leave you relaying mid-fix, which is exactly the failure the split was designed out of. If you genuinely believe a finding is wrong, reject it in one line with the reason - that is a cheap, allowed answer.
+DO NOT RUN `code-review` in squad mode. Not to double-check, not "just on the files I touched", not because a finding looks thin. Re-running it is what this two-session split exists to prevent: it would refill your window with six specialist reports and leave you handing off mid-fix, which is exactly the failure the split was designed out of. If you genuinely believe a finding is wrong, reject it in one line with the reason - that is a cheap, allowed answer.
 
 WORK HERE - DO NOT CREATE A WORKTREE OR BRANCH:
   cd <WORKTREE>

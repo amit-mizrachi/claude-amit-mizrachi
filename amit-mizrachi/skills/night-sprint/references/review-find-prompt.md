@@ -24,7 +24,7 @@ SCOPE: <the accumulated diff from <BASE REF> to HEAD - tickets <NN..NN>>. Review
 
 ## STEP 1 - QUAD REVIEW
 
-Run the `quad-review-squad` skill over that diff. It fans out the five specialist reviewers in parallel and consolidates them into one prioritised plan. This is the one place in a night sprint where parallelism is correct - it is read-only analysis, not code being written, and the reviewers run in their own context windows rather than yours.
+Run the `code-review` skill in SQUAD mode over that diff. It fans out the six specialist reviewers - architecture, security, code quality, simplification, observability, reuse and extraction - in parallel and consolidates them into one prioritised plan. If this sprint changed any skill, agent definition or prompt template, also run `prompt-reviewer` separately; it is deliberately not one of the six. This is the one place in a night sprint where parallelism is correct - it is read-only analysis, not code being written, and the reviewers run in their own context windows rather than yours.
 
 ## STEP 2 - TRIAGE. You are the deciding engineer, not a stenographer.
 

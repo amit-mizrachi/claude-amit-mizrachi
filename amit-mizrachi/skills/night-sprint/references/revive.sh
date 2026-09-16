@@ -76,9 +76,146 @@ clear_seen() {
   [ -f "$SEEN.tmp" ] && mv "$SEEN.tmp" "$SEEN"
 }
 
+# ---------------------------------------------------------------- stopping a session, for real
+#
+# `claude stop` takes the SHORT session id - the `id` field of `claude agents --json`, the eight
+# characters the launch banner echoes back. Handed the FULL session UUID that
+# state/<TAG>.session holds, it matches nothing, prints "No job matching ..." and exits 1
+# WITHOUT stopping anything.
+#
+# That is how a sprint ends up with two agents in one worktree. The stop silently did nothing -
+# its output was discarded and its exit status never read - the `claude --bg --resume` below
+# forked a SECOND live session off the same conversation, and the original process carried on
+# working. Unwatched, too: state/<TAG>.session had already been repointed at the fork, so the
+# watcher followed the new session while the real work went on in the one nobody was reading.
+# Both then committed to the same branch.
+#
+# So: stop by short id, and treat "still alive" as a hard failure. Nothing may be resumed or
+# launched for a tag whose previous session is still running.
+
+# The pid the harness holds for a LIVE session. A finished one carries no pid and `state:done`.
+session_pid() {
+  claude agents --json --all 2>/dev/null | python3 -c 'import json,sys
+sid=sys.argv[1]
+try: rows=json.load(sys.stdin)
+except Exception: sys.exit(0)
+for r in rows:
+    if r.get("sessionId")==sid or r.get("id")==sid[:8]:
+        if r.get("pid") and r.get("state")!="done": print(r["pid"])
+        break' "$1"
+}
+
+# Stop a session and do not report success until its process is actually gone. Escalates only if
+# the clean stop does not take: a duplicate live session costs the sprint far more than a hard
+# kill does, and the conversation is on disk either way, so it stays resumable.
+stop_session() {
+  local sid="$1" short pid rc i
+  case "$sid" in ""|unresolved) return 0 ;; esac
+  short="${sid%%-*}"
+
+  pid="$(session_pid "$sid")"
+  claude stop "$short" >/dev/null 2>&1
+  rc=$?
+
+  # No live pid means there is nothing to wait for - the usual case when reviving a session that
+  # already died. `claude stop` reporting "No job matching" there is correct, not a failure.
+  [ -n "$pid" ] || return 0
+
+  for i in $(seq 1 20); do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 1
+  done
+
+  # Only ever signal a process that is still the claude session we looked up. A pid the OS has
+  # recycled onto something else must not be killed because a sprint wanted its slot back.
+  case "$(ps -o command= -p "$pid" 2>/dev/null)" in
+    *claude*) : ;;
+    *) return 0 ;;
+  esac
+
+  echo "stop_session: $short (pid $pid) ignored 'claude stop' (rc=$rc) - sending SIGTERM" >&2
+  kill -TERM "$pid" 2>/dev/null
+  for i in $(seq 1 10); do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 1
+  done
+
+  echo "stop_session: $short (pid $pid) survived SIGTERM - sending SIGKILL" >&2
+  kill -KILL "$pid" 2>/dev/null
+  for i in $(seq 1 5); do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 1
+  done
+
+  echo "stop_session: $short (pid $pid) will not stop" >&2
+  return 1
+}
+
+# Is this session ACTUALLY working this second?
+#
+# Two signals, and both are needed. `status` is the harness's own word for it: `busy` means a model
+# call is running right now. Do not use `state` for this - `state:working` also covers a session
+# that finished its turn and is waiting, which is exactly the kind this script exists to revive.
+#
+# And do not use the transcript alone either. A busy session can write nothing for minutes while a
+# long turn streams or a long command runs, so "the file has not grown" does NOT mean "not
+# working". The transcript's only job here is to catch the opposite case: a session still reporting
+# `busy` that has been silent longer than the watcher's stall window is not working, it is hung
+# mid-call, and that is precisely what the conductor was called here to fix.
+ACTIVE_STALL_MIN=25   # matches watch.sh's default STALL_MINUTES
+session_is_active() {
+  local sid="$1" status f last now
+  case "$sid" in ""|unresolved) return 1 ;; esac
+
+  status="$(claude agents --json --all 2>/dev/null | python3 -c 'import json,sys
+sid=sys.argv[1]
+try: rows=json.load(sys.stdin)
+except Exception: sys.exit(0)
+for r in rows:
+    if r.get("sessionId")==sid or r.get("id")==sid[:8]:
+        print(r.get("status") or ""); break' "$sid")"
+  [ "$status" = "busy" ] || return 1
+
+  f="$(ls -t "$HOME"/.claude/projects/*/"$sid".jsonl 2>/dev/null | head -1)"
+  [ -n "$f" ] || return 0            # busy with no transcript to check - assume working, hands off
+  last="$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null)"
+  [ -n "$last" ] || return 0
+  now="$(date +%s)"
+  [ $(( (now - last) / 60 )) -lt "$ACTIVE_STALL_MIN" ]
+}
+
+# NEVER REVIVE A SESSION THAT IS STILL WORKING.
+#
+# The sprint has one rule about live sessions: it does not interrupt them. A working session owns
+# its ticket AND its own window - it measures itself and hands its tag to a fresh session by
+# itself, from its own prompt. Reviving it would stop a session mid-edit and resume a COPY of its
+# conversation, which is exactly how two agents end up in one worktree.
+#
+# The watcher can misread a long build, a big install or a quiet stretch as a stall. A transcript
+# that is still growing cannot be misread. So the process, not the verdict, has the last word here.
+#
+# Everything else IS revivable. A dead session has nothing to interrupt. A session blocked on a
+# permission prompt nobody can answer is not working either - it will sit there until morning, and
+# it is not mid-edit, so stopping it costs only the prompt it was stuck on.
+if session_is_active "$OLD_SID"; then
+  echo "revive: $TAG is still WORKING ($OLD_SID, transcript grew < ${ACTIVE_WITHIN_MIN}m ago) - NOT interrupting it." >&2
+  echo "        A live session manages its own window and hands its own ticket on. There is nothing" >&2
+  echo "        to do from out here. If it is genuinely stuck it will stop growing; revive it then." >&2
+  echo "declined-still-working $CAUSE $OLD_SID -" >> "$LEDGER"
+  exit 1
+fi
+
 # Stop whatever is left of the old session before starting anything. Harmless if it is already
 # gone, and the conversation survives - `claude stop` keeps it resumable.
-[ -n "$OLD_SID" ] && claude stop "$OLD_SID" >/dev/null 2>&1
+if ! stop_session "$OLD_SID"; then
+  # Never put a second agent into a worktree that still has one. BOTH rungs below would do
+  # exactly that - resume forks the conversation, restart launches a fresh session - and the old
+  # process would go on committing to the same branch with nobody watching it. A tag that stalls
+  # where a human can see it beats two agents fighting over one worktree until morning.
+  echo "revive: $TAG - $OLD_SID will not stop; refusing to start a second session in $WT" >&2
+  echo "stop-failed $CAUSE $OLD_SID -" >> "$LEDGER"
+  exit 1
+fi
 
 # Resolve a background session id by display name, newest first. Same contract launch.sh uses:
 # the launch output format is not stable, `claude agents --json` reporting `name` is.

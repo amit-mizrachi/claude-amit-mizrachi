@@ -55,7 +55,7 @@ Next to change: <paths, and what the change is>
      cd <WORKTREE> && git status --short && git log --oneline -10
    Anything already committed for this ticket is DONE - keep it, do not redo it, do not revert
    it. Read only what you actually need; you have a fresh window but it is not infinite, and
-   you may be relayed too.
+   you will have to hand this ticket on yourself if you reach the line.
 2. Finish ticket <NN> and nothing else. Do not start the next ticket's work and do not expand
    scope because the ticket looks incomplete on its own - it was always meant to be this size.
 3. VERIFY: `<FULL VERIFY COMMAND>` must be green before you commit. Never `--no-verify`.
@@ -68,10 +68,15 @@ Next to change: <paths, and what the change is>
       <NEXT_TAG is what ticket <NN> was always going to hand off to. If there is none, skip
       this step - the conductor takes it from here.>
 
-CONTEXT: measure with `bash <WS>/context-used.sh --self <CONTEXT_WINDOW>` - the number counts UP,
-0 is fresh and 100 is full. At <WARN_AT_USED>% used, start nothing new: finish what you are on
-and stop widening your reading. At <RELAY_AT_USED>% used, relay this ticket on exactly the way it
-was relayed to you - see the CONTEXT RELAY section of <WS>/PLAN.md. A ticket may take as many
+CONTEXT - NOBODY IS WATCHING YOUR WINDOW BUT YOU. The sprint cannot send a message into a running
+session, so no reminder is coming and no script will hand this ticket on for you. Measure with
+`bash <WS>/context-used.sh --self <CONTEXT_WINDOW>` - the number counts UP, 0 is fresh and 100 is
+full - after each commit, after any fan-out returns, after any noisy build or search, before
+opening a group of unread files, and whenever you cannot remember the last check.
+
+At <WARN_AT_USED>% used, start nothing new: finish what you are on and stop widening your reading.
+At <RELAY_AT_USED>% used, hand this ticket on exactly the way it was handed to you - see the
+CONTEXT RELAY section of <WS>/PLAN.md - to <CONT_TAG> incremented by one. A ticket may take as many
 sessions as it needs, and being the third or fourth in a chain is not a sign anything is wrong.
 
 You are a continuation, so one thing deserves your attention more than it did your predecessor's:

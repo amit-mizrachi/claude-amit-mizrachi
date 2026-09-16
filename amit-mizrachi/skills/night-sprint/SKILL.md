@@ -1,7 +1,7 @@
 ---
 name: night-sprint
-description: Delivers a whole feature overnight through autonomous sessions run strictly one after another - a conductor session that writes no code but launches each ticket, revives stuck or dead sessions, nudges a session that is filling up and relays it into a fresh one, and fires the reviews, plus at least one implementer session per ticket, all on ONE branch landing as ONE pull request. Gets or builds a ticket breakdown first (via to-spec and to-tickets), decides whether to review once at the end or at checkpoints, runs every review as a pair of sessions (one finds and posts inline PR comments, one implements them), optionally runs a test session that boots the stack or runs evals, and, only when the feature needs a secret pasted, infra applied or a dashboard visited, ends by building an interactive setup wizard for those steps, committed into the same PR - skipping that session entirely when nothing needs setting up. Use when the user says "night sprint", "sprint this feature", "build this overnight", "run this while I sleep", "ticket after ticket", or wants a feature taken end to end unattended in a single PR.
-argument-hint: <feature | spec path | ticket dir | issue URL> [test: none|dev-stack|evals|<command>]
+description: Delivers a whole feature overnight through autonomous sessions run strictly one after another - a conductor session that writes no code but launches each ticket, revives sessions that died, and fires the reviews, plus at least one implementer session per ticket, each of which watches its own context window and hands its ticket to a fresh session before it fills, all on ONE branch landing as ONE pull request. Gets or builds a ticket breakdown first (via to-spec and to-tickets), decides whether to review once at the end or at checkpoints, runs every review as a pair of sessions (one finds and posts inline PR comments, one implements them), optionally runs a test session that boots the stack or runs evals, and, only when the feature needs a secret pasted, infra applied or a dashboard visited, ends by building an interactive setup wizard for those steps, committed into the same PR - skipping that session entirely when nothing needs setting up. Use when the user says "night sprint", "sprint this feature", "build this overnight", "run this while I sleep", "ticket after ticket", or wants a feature taken end to end unattended in a single PR.
+argument-hint: "<feature | spec path | ticket dir | issue URL> [test: none|dev-stack|evals|<command>]"
 ---
 
 # Night Sprint
@@ -29,6 +29,37 @@ night time, nobody is waiting, and serial execution buys correctness: no frozen 
 disjoint-file rules, no merge conflicts, no tracker. If you catch yourself fanning out
 implementers, you are in the wrong skill.
 
+## Prerequisites - check these before kickoff, not at 3am
+
+A night sprint calls other skills. Three of them do not ship with this plugin, and a missing
+skill at 3am is a session that stops with nobody awake to fix it.
+
+Only `next-prompt` ships in this plugin. The rest are named by ROLE, not by a particular
+implementation - substitute whatever you already use, and say so in `PLAN.md` at kickoff so the
+sessions invoke the right thing.
+
+| Role | What it does for the sprint | Without it |
+|---|---|---|
+| a **review-finder** skill | the FIND half of each review pair: run the reviewers over the diff and post findings as inline PR comments | nothing reviews the diff |
+| an **address-review** skill | the FIX half: work the posted findings, reply on each thread | findings get posted and never fixed |
+| **`next-prompt`** (ships here) | the conductor handing itself on when its window fills | the sprint dies when the conductor fills up |
+| a **spec** skill | turning a feature into a spec at kickoff | bring your own spec |
+| a **ticket-splitting** skill | cutting that spec into tickets | bring your own ticket breakdown |
+| a **wizard** skill | the closing `WIZARD` session's setup script | see below - it degrades |
+
+Fill the real names into `PLAN.md` before ticket 01 launches. A prompt that names a skill which
+is not installed is a session that stops at 3am with nobody awake to fix it, and that is the
+single cheapest failure to prevent.
+
+The **review pair is the one hard dependency**. A sprint without it still builds the feature and
+still opens the PR, but nothing reviews the diff - decide that deliberately rather than
+discovering it in the morning. The spec and ticket skills are only needed at kickoff, where a
+human is present and can paste in a breakdown they already have.
+
+The wizard is the one that degrades gracefully: if no wizard skill is available, the `WIZARD`
+session still collects every manual step into `state/*.manual` and `HANDOFF.md`, and the morning
+report carries them as prose instead of a runnable script.
+
 ## Kickoff (conductor, when the skill fires)
 
 1. **Ask the two things you cannot infer - FIRST, before anything else.** One
@@ -37,8 +68,10 @@ implementers, you are in the wrong skill.
    - **Permission mode** for unattended sessions: **`auto` is the default and what you should
      use unless the user says otherwise.** Record it in `PERMISSION_MODE`.
    - **Test session?** If the invocation already said (`test: none|dev-stack|evals|<cmd>`),
-     use it and do not ask. Otherwise ask: none · boot the stack locally via
-     `shapes-dev-environment` and walk the golden path · run evals · a custom command.
+     use it and do not ask. Otherwise ask: none · boot the stack locally via your repo's
+     dev-environment skill and walk the golden path · run evals · a custom command. If they
+     pick the stack, get the skill name and the boot command now and write both into `PLAN.md`;
+     the `TEST` prompt needs them and nobody will be awake to supply them.
 
    **Why `auto` and not the other two.** The valid modes are `acceptEdits`, `auto`,
    `bypassPermissions`, `manual`, `dontAsk` and `plan`, and only one of them suits an
@@ -75,10 +108,11 @@ implementers, you are in the wrong skill.
    `200000` normally and `1000000` on a 1M model. It cannot be inferred later (a 1M model records
    the same name in the transcript as the 200k one), and getting it wrong makes every rung fire at
    the wrong moment. Then the three thresholds, **all of them percent USED**, counting up from a
-   fresh 0 exactly as `/context` reports it: **`WARN_AT_USED`** (`20`) - nudge the session to
-   start nothing new. **`RELAY_AT_USED`** (`30`) - hand its tag to a fresh session.
-   **`CEILING_USED`** (`60`) - the point past which a relay fires even with nothing to hand over.
-   Defaults unless the user says otherwise.
+   fresh 0 exactly as `/context` reports it: **`WARN_AT_USED`** (`20`) - the session starts nothing
+   new. **`RELAY_AT_USED`** (`30`) - the session hands its tag to a fresh one. **`CEILING_USED`**
+   (`60`) - the session hands off even with nothing to show, and the watcher starts calling a tag
+   still sitting there `OVERDUE`. Defaults unless the user says otherwise. The first two are read
+   only by the sessions themselves, out of their own prompts; nothing external acts on them.
 4. **Decide the review cadence yourself** (see Review cadence) and state the decision.
 5. **Build the workspace and the branch** (see Coordination), including the shared worktree,
    `PLAN.md`, and **every** prompt file - ticket prompts, a FIND and a FIX prompt for each review
@@ -93,9 +127,9 @@ implementers, you are in the wrong skill.
 
 | Role | Count | Writes code | Job |
 |---|---|---|---|
-| **Conductor** (you) | 1 at a time, relayed as the night runs on | never | set up, launch, watch, revive, nudge, relay, fire reviews, report |
-| **Implementer** | 1+ per ticket, **serial** | yes | build ONE ticket green, commit, hand off to the next - or relay the ticket on when its window fills |
-| **Review finder** | 1+ per checkpoint + 1+ final | **never** | `quad-review-squad` over the diff, triage, post findings as inline PR comments |
+| **Conductor** (you) | 1 at a time, hands itself on as the night runs on | never | set up, launch, watch, revive what died, fire reviews, report. **Never interrupts a working session** |
+| **Implementer** | 1+ per ticket, **serial** | yes | build ONE ticket green, commit, hand off to the next - and watch its own window, handing the ticket to a fresh session before it fills |
+| **Review finder** | 1+ per checkpoint + 1+ final | **never** | `code-review` in squad mode over the diff, triage, post findings as inline PR comments |
 | **Review fixer** | 1 per finder | yes (fixes only) | `address-review`: implement or reject each finding and bot comment, verify, push |
 | **Tester** | 0 or 1 | no | exercise the built thing, report PASS/FAIL per step |
 | **Wizard author** | **0 or 1**, last | yes (one script) | runs only when the sprint left real setup behind: collect every manual step, author the wizard, land it in the same PR |
@@ -112,8 +146,9 @@ implementers, you are in the wrong skill.
 | Worktree | ONE, shared by every session: `.claude/worktrees/<slug>` |
 | Launching | **always** `bash <WS>/launch.sh <WS> <TAG>` - never a bare `claude --bg` |
 | Reviving | **always** `bash <WS>/revive.sh <WS> <TAG> <cause>` - never re-launch a dead tag by hand |
-| Nudging | **always** `bash <WS>/remind.sh <WS> <TAG> <used>` - one per tag, ever |
-| Relaying | **always** `bash <WS>/relay.sh <WS> <TAG> <used>` - never tell a filling session to hand off by hand |
+| Handing off | the SESSION does it, out of its own prompt, when its own gauge says so. There is no conductor-side command and there must not be one - see [Nothing interrupts a working session](#nothing-interrupts-a-working-session) |
+| One tag, one session | a tag may have MANY sessions over the night, but never two at once. `launch.sh` claims a tag atomically; a session is never interrupted, so it is never forked; `revive.sh` refuses any session whose transcript is still growing. `DUP` means the invariant broke anyway - see [One tag, one session](#one-tag-one-session) |
+| Stopping | only `revive.sh` ever stops a session, and only one that is already dead or blocked. `claude stop` takes the **short 8-char id**, never the full `sessionId` in `state/<TAG>.session` - its `stop_session` handles that. Never hand-roll a stop |
 | Context | `bash <WS>/context-used.sh <SESSION_ID\|--self> <CONTEXT_WINDOW>` - percent of window USED, counting up |
 | Follow-ups | any session appends one line to `state/FOLLOWUPS.md` for real work that is out of scope - the morning report turns them into tickets |
 | Status | each session writes `state/<TAG>.status` = `DONE`, `BLOCKED: <reason>` or `RELAYED: <TAG>c2` as its last act |
@@ -135,17 +170,18 @@ implementers, you are in the wrong skill.
 | `references/wizard-prompt.md` | the closing `WIZARD` session - collects the manual steps and authors the setup script |
 | `references/continuation-prompt.md` | a relayed ticket's successor - the sessions fill this one themselves |
 | `references/launch.sh` | atomic claim + launch + session-id capture + the branch tip at start |
-| `references/watch.sh` | the watcher: emits DONE / BLOCKED / RELAYED / WARN / FAT / STUCK / DIED / STALLED events |
-| `references/revive.sh` | the reviver: resume the dead conversation, then restart, then abandon |
-| `references/remind.sh` | the nudge: tell a filling session to start nothing new, and let it carry on |
-| `references/relay.sh` | the relay: tell a session at the handoff line to consolidate and hand off |
-| `references/context-used.sh` | the gauge: percent of a session's context window already USED |
+| `references/watch.sh` | the watcher: emits DONE / BLOCKED / RELAYED / OVERDUE / DUP / STUCK / DIED / STALLED events |
+| `references/revive.sh` | the reviver, for DEAD sessions only: resume the dead conversation, then restart, then abandon |
+| `references/context-used.sh` | the gauge: percent of a session's context window already USED. Every session runs it on ITSELF |
 
-Copy all six scripts and `continuation-prompt.md` into the workspace at setup (`cp` + `chmod +x`)
+There is deliberately no script for the context rungs. A session hands its own ticket on; see
+[Nothing interrupts a working session](#nothing-interrupts-a-working-session).
+
+Copy all four scripts and `continuation-prompt.md` into the workspace at setup (`cp` + `chmod +x`)
 and use those copies, so editing the skill never changes a sprint already running. Fill every
 `<PLACEHOLDER>` in the prompts - an unfilled placeholder is a session that wakes up at 3am not
 knowing what to build. `continuation-prompt.md` is the one exception: it stays a template, and
-each relaying session fills its own copy for its successor.
+each session that hands off fills its own copy for its successor.
 
 `launch.sh` claims a tag with an atomic `mkdir` before starting it. The previous ticket's
 session and you will sometimes both reach for the next ticket at the same moment; the claim
@@ -167,7 +203,7 @@ agents out of one worktree - never bypass it.**
 
 | | `REVIEW-<N>` (finder) | `FIX-<N>` (fixer) |
 |---|---|---|
-| Runs | `quad-review-squad` over the accumulated diff | `address-review` over the PR's comment threads |
+| Runs | `code-review` in squad mode over the accumulated diff | `address-review` over the PR's comment threads |
 | Writes code | **never** - not one file, not the verify command, no commit | yes, fixes only |
 | Output | findings triaged and posted as **inline PR comments**, plus `state/<TAG>.findings.md` | fixes committed and pushed, every thread replied to |
 | Then | launches its fixer | launches the next ticket |
@@ -200,11 +236,11 @@ short - you have to survive until morning, so log to `LOG.md` and keep your cont
 | `DONE TEST` | Apply **the wizard gate** below. |
 | **the wizard gate** | Read `state/SETUP.verdict`. `NEEDED` -> launch `WIZARD`. `NONE`, or no verdict file and no `state/*.manual` block that passes the counts-as test -> **do not launch it**: write `SKIPPED: no manual setup` to `state/WIZARD.status`, a one-line reason to `state/WIZARD.summary`, and go straight to the morning report. |
 | `DONE WIZARD` | Read `HANDOFF.md`, then write the morning report. This is the end of the sprint. |
-| `WARN <TAG> used-<N>pct` | Rung one. `remind.sh <WS> <TAG> <N>` - it tells the session to start nothing new and lets it carry on. Do **not** relay it and do **not** treat this as a problem. Fires once per tag. |
-| `FAT <TAG> used-<N>pct` | Rung two, the handoff line. `relay.sh <WS> <TAG> <N>` - it consolidates and hands the tag to `<TAG>c2`. See Context. |
+| `OVERDUE <TAG> used-<N>pct` | The session is far past its own handoff line and still has not handed off. **There is nothing to run.** You cannot interrupt a working session and must not try. Log it, note the tag in the morning report, and expect it to die or auto-compact - then treat that like any other death. |
 | `RELAYED <TAG> <CONT>` | The ticket is **still in flight**, not finished. If `<CONT>` is unclaimed, `launch.sh` it. Log the ledger row. Do **not** advance to the next ticket, and do not fire a review. |
 | `DIED <TAG> api-error` | The API dropped it, the conversation is intact. `revive.sh <WS> <TAG> api-error` - **resume, do not restart**. This is the common one; see Reviving. |
 | `DIED <TAG> ended-without-signal` | `revive.sh <WS> <TAG> ended-without-signal`. It resumes first too; if that rung is spent it restarts with a RESUME note naming what already landed. |
+| `DUP <TAG> <id> <id> ...` | **Two agents in one worktree.** Drop everything else and fix this first - see [One tag, one session](#one-tag-one-session). Nothing else the watcher says about `<TAG>` can be trusted while it holds. |
 | `STUCK <TAG> permission-prompt` | `revive.sh <WS> <TAG> permission-prompt`. If already on the permissive mode it is a *question*, not a permission - the continue prompt tells it to decide for itself and proceed. |
 | `STALLED <TAG> api-error` | Same as `DIED ... api-error` - it hit the error and never came back. Resume it. |
 | `STALLED <TAG> idle-<N>m` | Check `claude logs <id>` first. Genuinely idle -> `revive.sh <WS> <TAG> idle`. Mid-build or mid-install -> leave it, allow one more stall window, then treat as DIED. |
@@ -221,7 +257,10 @@ death costs the most. Measure yourself; do not estimate:
 Run it **at every watcher event**, not on a hunch - the events are the only clock you have, and a
 single fat review summary can take you from comfortable to past the line in one step.
 
-At **`WARN_AT_USED`% used (20 by default)**, apply your own nudge: stop doing anything beyond
+This is the same rule every other session follows, and you are where it came from: the conductor
+has always measured itself and handed itself on, because nothing could ever interrupt it either.
+
+At **`WARN_AT_USED`% used (20 by default)**, narrow yourself: stop doing anything beyond
 watching. No reading the PR diff "to understand a finding", no opening a ticket file out of
 curiosity, no investigating a failure an implementer already owns. Log the event, take the
 scripted action, move on.
@@ -258,39 +297,41 @@ sessions on a ticket than one exhausted one.
 percent USED: 0 is a fresh session, 100 is a full one, exactly as `/context` reports it. Every
 threshold in the sprint is expressed the same way, so they are small numbers that grow.
 
-| Rung | Reading | The session does | You do, on the event |
+| Rung | Reading | The session does | You do |
 |---|---|---|---|
-| **Nudge** | `WARN_AT_USED`, 20 by default | Starts nothing new: no new subsystem, no refactor past the ticket, no fresh fan-out, no wide reading. Drives what it is on to a committed state | `remind.sh <WS> <TAG> <N>` |
-| **Handoff** | `RELAY_AT_USED`, 30 by default | Consolidates, writes a filled continuation prompt, hands the tag on | `relay.sh <WS> <TAG> <N>` |
+| **Narrow** | `WARN_AT_USED`, 20 by default | Starts nothing new: no new subsystem, no refactor past the ticket, no fresh fan-out, no wide reading. Drives what it is on to a committed state | nothing |
+| **Hand off** | `RELAY_AT_USED`, 30 by default | Consolidates, writes a filled continuation prompt, launches its own successor | nothing |
 
-**Why a nudge rung exists at all.** The expensive mistake is not running out of window, it is
+**Both rungs belong to the session, and only to the session.** You have no command for either and
+there must not be one - see [Nothing interrupts a working
+session](#nothing-interrupts-a-working-session). The whole mechanism lives in the prompt: every
+prompt template carries the gauge, both rungs, the checkpoints at which to measure, and the
+five-step handoff. That is the thing to invest in when a sprint handles its window badly. Not a
+script that reaches in from outside.
+
+**Why a narrow rung exists at all.** The expensive mistake is not running out of window, it is
 running out *halfway through something*. A session that opens a new front at 22% used arrives at
 the handoff line holding work nobody can pick up, and the successor inherits a half-finished
 thing plus a description of it. Told at 20% to start nothing new, that same session arrives at
 30% holding a completed unit, and the handoff is a paragraph instead of an archaeology report.
-The nudge does not end anything and it is not a warning that something is wrong - `remind.sh`
-resumes the session with one short instruction and it carries straight on.
 
-**Two things watch the same number**, and either can act:
+**Measuring is not optional and nothing will remind it.** The prompts name the checkpoints
+explicitly - after each commit, after any fan-out returns, after any noisy build or search, before
+opening a group of unread files, before the next acceptance criterion, and whenever it cannot
+remember the last check. A session that skips them runs until the harness auto-compacts it. The
+watcher will say `OVERDUE` when that happens, which is a line for the morning report, not a lever.
 
-- **The session itself.** Every prompt tells it to measure after any large read, long build, or
-  subagent fan-out, and gives it both rungs.
-- **You.** `watch.sh` gauges every open tag each poll and emits `WARN` then `FAT`. Each fires
-  once per tag, guarded by `state/<TAG>.warned` and `state/<TAG>.relayed`, which is why a jump
-  straight past both rungs in one poll produces only the `FAT`.
-
-**The relay has a floor, and the floor is in the watcher.** A relay is worth doing only once the
-session has something to hand over. At 30% used the handoff line sits close to a session's
+**The handoff has a floor, and the floor is in the prompt.** Handing off is worth doing only once
+the session has something to hand over. At 30% used the handoff line sits close to a session's
 startup cost - `PLAN.md`, the ticket, `LOG.md`, `git log`, the two or three files whose pattern
-it must mirror - especially on a 200k window. Relayed at that point, a session hands its successor
-nothing but a list of files it read, and the successor reads them again. Do that twice and the
-ticket never gets built. So `watch.sh` holds `FAT` back until the worktree shows a commit that
-was not there when the tag launched (recorded by `launch.sh` in `state/<TAG>.headsha`) or an
-uncommitted change - and releases it regardless past `CEILING_USED` (60), because a session that
-full with nothing to show means the ticket is bigger than the plan thought, which is itself
-something the morning report should say.
+it must mirror - especially on a 200k window. Handing off at that point gives the successor
+nothing but a list of files, and the successor reads them again. Do that twice and the ticket
+never gets built. So the prompt tells the session: **if you have not changed a single file, do not
+hand off** - keep going until you have something real to pass on. Past `CEILING_USED` (60) that
+guard expires and it hands off anyway, saying plainly that the ticket was bigger than the plan
+thought, which is itself something the morning report should carry.
 
-Either way the session does the same five things: commit and push what it has (WIP with
+The session then does the same five things: commit and push what it has (WIP with
 `SIGNAL: <TAG>-RELAYED` in the body if it is not green - never stash, never revert), fill
 `continuation-prompt.md` into `prompt-<TAG>c2.txt`, write `state/<TAG>.summary`, write
 `state/<TAG>.status` = `RELAYED: <TAG>c2`, then `launch.sh <TAG>c2`.
@@ -305,9 +346,8 @@ Two more things keep this from firing wrongly, and both are worth knowing:
 - **`CONTEXT_WINDOW` must be right.** The gauge divides by it, and a transcript records the
   same model name for a 200k model and its 1M variant - it cannot be inferred. Pin it at
   kickoff. Set it to 200000 on a 1M run and every session relays after its first big read.
-- **A session one command from green finishes instead of relaying.** Both the prompt and
-  `relay.sh` say so up front. A split that saves nothing costs the sprint a whole session of
-  re-reading.
+- **A session one command from green finishes instead of handing off.** Every prompt says so up
+  front. A split that saves nothing costs the sprint a whole session of re-reading.
 
 **The gauge was renamed on purpose.** It used to be `context-left.sh` and counted DOWN - percent
 still free - so these same two rungs read 80 and 70. That polarity is easy to get backwards and
@@ -315,9 +355,87 @@ expensive when you do: a sprint configured the wrong way round either relays eve
 birth or never relays one at all. Nothing in the sprint speaks "free" any more, and a stale
 caller reaching for `context-left.sh` now fails loudly instead of silently inverting.
 
-If `relay.sh` cannot restart the conversation it says so and gives up **without** marking the
-tag. That is deliberate: a fat session is not a broken one, the harness will auto-compact it,
-and letting it run on beats abandoning work. Log the failed relay and carry on.
+## Nothing interrupts a working session
+
+**There is no way to send a message into a running background session, and the sprint no longer
+pretends otherwise.** This is the single rule that shapes everything above.
+
+It used to have a workaround. `remind.sh` and `relay.sh` ran `claude stop` and then
+`claude --bg --resume` with a new instruction - a stop-and-restart that, when it worked, replaced
+the session, and when the stop failed, **forked** it. Two agents in one worktree, editing each
+other's files, with the watcher following only one of them. That is not a bug that was fixed; it
+is a mechanism that was removed. Both scripts are gone.
+
+What replaced them is the prompt. Each session:
+
+- measures itself with `context-used.sh --self` at named checkpoints,
+- narrows its own scope at `WARN_AT_USED`,
+- and at `RELAY_AT_USED` writes its own continuation prompt and launches its own successor.
+
+The conductor already worked this way - it has always measured itself and `/next-prompt`ed a fresh
+conductor rather than being interrupted by anything. Implementers, reviewers, the tester and the
+wizard author now all work the same way. One rule for every role.
+
+**What this costs you.** You cannot change a session's mind once it is running. A session that
+misreads its ticket, or sails past its own handoff line, runs to its natural end and you watch it
+happen. That is the deliberate trade: an agent you cannot steer is strictly better than two agents
+in one worktree, and the lever was never reliable anyway.
+
+**So when a session is working, the answer is always "nothing".** `OVERDUE` fires: log it.
+A session looks slow: let it run. The only two things you may act on are a tag that has not
+started (`launch.sh`) and a session that is already gone (`revive.sh`, which refuses anything whose
+transcript is still growing).
+
+If you ever find yourself wanting to tell a working session something, the fix is upstream: put it
+in the prompt template so the next sprint's sessions already know it.
+
+## One tag, one session
+
+A tag may burn through many sessions in a night - handed on, revived - but **never two at the same
+time**. Two agents in one worktree edit each other's files without knowing, and each one commits a
+tree the other has already changed underneath it.
+
+Three things hold the invariant, one per way in:
+
+- **Starting a tag.** `launch.sh` claims it with an atomic `mkdir`. Two callers race, one wins,
+  the loser exits 0 having launched nothing.
+- **The middle of a tag.** Nothing interrupts a working session, so nothing can fork one. This is
+  the reason that rule exists.
+- **Reviving a tag.** `revive.sh` refuses any session whose transcript grew in the last few
+  minutes, and stops what is left by short id before resuming, confirming the process is gone.
+
+**What went wrong before, and why the rule is written the way it is.** The old nudge and relay
+scripts stopped a session and resumed it with a new instruction. `claude stop` matches only the
+**short 8-character id**; handed the full `sessionId` that `state/<TAG>.session` holds, it prints
+`No job matching ...` and exits 1 having stopped nothing. The scripts discarded both the message
+and the exit status, so the stop was a silent no-op and the resume forked the conversation: the
+original kept working while the watcher was repointed at the fork. It happened on three separate
+sprints, was twice diagnosed and patched in one workspace only, and so kept shipping. The scripts
+are gone now, which removes the failure rather than guarding it.
+
+**Never hand-roll a stop.** `claude stop "$(cat state/<TAG>.session)"` is the exact bug - wrong id
+form, no check. `revive.sh` is the only thing that stops a session.
+
+**When `DUP <TAG> <id> <id> ...` fires**, the invariant broke anyway. Fix it before anything else:
+
+1. **Find the live one.** For each id, compare `~/.claude/projects/*/<sessionId>.jsonl` - the one
+   with the freshest mtime and the most lines is the session actually doing the ticket. It is
+   usually **not** the one `state/<TAG>.session` points at.
+2. **Stop every other one** by short id, and verify with `claude agents --json` that exactly one
+   remains.
+3. **Repoint** `state/<TAG>.session` at the survivor, or the watcher spends the rest of the night
+   reading a corpse.
+4. **Audit the overlap.** Diff the transcripts over the window both were live and list the files
+   both touched. Append that list to the next review prompt as a mandatory extra audit.
+
+   Then, and **this is the one time you may interrupt a working session**, hand the survivor that
+   list and tell it to **re-read those files from disk** before trusting its own memory of them.
+   The rule exists to stop you steering a session whose view of the world is sound; this session's
+   view is provably wrong, because another agent overwrote its files while it was not looking.
+   Stop it by short id, confirm the process is gone, resume it with the list, and repoint
+   `state/<TAG>.session` at the session id the resume produced.
+5. **Log it** in `LOG.md` and carry it into the morning report. A night where two agents shared a
+   worktree is a night whose diff needs a closer read than usual.
 
 ## Reviving - resume the conversation before you restart the ticket
 
@@ -551,7 +669,7 @@ session's setup script is one more commit on that same branch and lands in that 
 a **Setup** section added to the description. Never a second PR for the wizard.
 
 **Never merge and never deploy** - those are the user's, always. If a required check
-(e.g. a Monday-item check) has no ticket to point at, open the PR anyway and report the red
+(e.g. a tracker-ticket check) has no ticket to point at, open the PR anyway and report the red
 check. Never fabricate a ticket id and never bypass hooks with `--no-verify`.
 
 ## Red Flags - STOP
@@ -573,11 +691,11 @@ check. Never fabricate a ticket id and never bypass hooks with `--no-verify`.
 | "The reviewer found a one-line fix, it can just make it." | Then it is not a finder any more, and the next fat review dies mid-triage exactly the way this split was built to stop. The finder posts; `FIX-<N>` fixes. No exceptions for small ones. |
 | "The fixer should re-run the squad to check nothing was missed." | That refills its window with five specialist reports and puts it back in the failure mode the split removed. The findings on the PR are the input. Reject one in a line if it is wrong. |
 | "I'll read the findings myself so I can summarise them in the report." | You are the conductor with the longest life in the sprint. The findings are on the PR and in `state/<TAG>.findings.md`; the fixer's one-line `.summary` is what the ledger needs. Reading five reports into your window is how a conductor relays at ticket 4. |
-| "`WARN` fired - I should relay that session." | No. `WARN` is a nudge, `FAT` is the handoff. `remind.sh` tells it to start nothing new and it carries on working. Relaying on the first rung throws away a session that was doing fine. |
-| "The session crossed 30% but has not committed anything - relay it anyway." | Its successor would start exactly where it did, minus the reading. The watcher holds `FAT` back for precisely this, up to `CEILING_USED`. Do not hand-relay around the floor. |
-| "T05 is nearly out of context but it's almost done - let it push through." | Almost done is a guess; the gauge is a number. Unless it is one command from green, `relay.sh` it. A session that runs out mid-edit takes everything it learned with it. |
+| "`OVERDUE` fired - I should hand that session off." | You cannot. There is no way to message a running session, and the scripts that faked it forked sessions into duplicates. Log it and let it run to its end. |
+| "The session is at 35% and has not handed off - I'll do it for it." | There is no command to do it with, and the session may be mid-handoff right now: it crosses the line, then spends real time writing its continuation prompt. `OVERDUE` waits until `CEILING_USED` for exactly that reason. |
+| "T05 is nearly out of context but it's almost done - I should step in." | Do nothing. Its prompt already tells it to finish when it is one command from green, and to hand off otherwise. It has the gauge and the rule; you have neither a lever nor better information. |
 | "T05 relayed, so T05 is finished - launch T06." | `RELAYED` is not `DONE`. The ticket is still being built under `T05c2`. Launching T06 puts two agents in one worktree on top of half a ticket. |
-| "The relay failed, so the ticket is dead - abandon it." | A fat session is not a broken one. `relay.sh` deliberately leaves the tag unmarked on failure; the harness auto-compacts and the session carries on. Log it and move on. |
+| "The session never handed off, so the ticket is dead - abandon it." | A full session is not a broken one. The harness auto-compacts it and it carries on, usually to `DONE`. Log the `OVERDUE` and move on; if it does die, `revive.sh` picks the conversation back up. |
 | "The window is 1M, close enough to leave `CONTEXT_WINDOW` at the default." | Then every session relays after its first big read and the sprint burns the night on handoffs. Pin it at kickoff; it cannot be inferred from a transcript. |
 | "`acceptEdits` is the safe default for an unattended run." | It is the mode that stalls. It still prompts on shell commands, and a background session cannot answer a prompt - it sits in `blocked` until you revive it. Use `auto`. |
 | "They picked `bypassPermissions`; I'll sort the disclaimer out when I launch." | By then they are asleep. `--bg` refuses until the one-time disclaimer is accepted in a real terminal, and neither you nor the `!` prefix can accept it for them. Ask at step 1, while they are still at the keyboard. |
@@ -619,8 +737,9 @@ check. Never fabricate a ticket id and never bypass hooks with `--no-verify`.
 - **A finder that posts its findings only as a file** - the PR is where the fixer, the bots and
   the user all already look, and an inline comment sits on the line it is about. The file is the
   backup for when the API rejects the anchors, not the deliverable.
-- **Nudging a session twice** - `remind.sh` allows one per tag and that is deliberate. A session
-  nagged repeatedly about its context spends more window reading nudges than they save.
+- **Reaching into a working session at all** - to nudge it, to relay it, to correct its ticket.
+  There is no supported way to do it, and the scripts that used to fake it turned one agent into
+  two in the same worktree. What a session needs to know belongs in its prompt, before it starts.
 - **A wizard stage that only reads, prints or checks** - delete it. If the sprint needs to know
   what is already configured, the `WIZARD` session reads it at authoring time and writes no stage
   for what is already done.
