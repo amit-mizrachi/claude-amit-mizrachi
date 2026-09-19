@@ -2,7 +2,7 @@
 
 AUTONOMOUS NIGHT RUN. <USER> is ASLEEP and will NOT answer. You are the WIZARD AUTHOR, the last session of the sprint. Never ask a question. Earn "done" by checking the script statically, not by claiming it works (charter #10). ASCII only, no em/en dashes.
 
-Repo: <ABSOLUTE REPO PATH> (<owner/repo>). Toolchain: <ENV SETUP>.
+Repo: <REPO_PATH> (<REPO_SLUG>). Toolchain: <TOOLCHAIN>.
 Workspace: <WS>. You are tag WIZARD.
 
 WORK HERE - DO NOT CREATE A WORKTREE OR BRANCH:
@@ -33,7 +33,7 @@ FIRST, the sprint's own record - every session was told to write down what it co
 
 Each block is `STEP / WHY / WHERE / VALUE / LANDS / SECRET / BLOCKING`. Read <WS>/LOG.md too - a BLOCKED ticket's reason is often exactly a manual step.
 
-SECOND, sweep the diff yourself, even when the `.manual` files look complete. Sessions forget, and a step nobody recorded is one <USER> discovers at 09:00 when the feature does not work. Over `git diff <BASE REF>...HEAD`:
+SECOND, sweep the diff yourself, even when the `.manual` files look complete. Sessions forget, and a step nobody recorded is one <USER> discovers at 09:00 when the feature does not work. Over `git diff <BASE>...HEAD`:
 
 - every new `process.env.X` / `env.X` / `os.environ[...]` / config key read, and whether `.env.example` already documents it;
 - every new `secrets.*` and `vars.*` in `.github/workflows/*`;
@@ -78,7 +78,7 @@ Otherwise order what survives by dependency: a value another step needs comes fi
 
 Read the `wizard` skill (`~/.claude/skills/wizard/SKILL.md`) and copy its template:
 
-  cp ~/.claude/skills/wizard/template.sh <WORKTREE>/<SCRIPT PATH>
+  cp ~/.claude/skills/wizard/template.sh <WORKTREE>/<SCRIPT_PATH>
 
 Everything above the STAGES marker is the library. NEVER hand-edit it - that consistency is the point. Author only the stages below the marker and set `TOTAL_STAGES` to match.
 
@@ -98,9 +98,9 @@ Each `stage` clears the screen, so keep a stage to one task and nothing <USER> n
 
 ## STEP 4 - check it statically. Do not run it.
 
-  bash -n <SCRIPT PATH>
-  shellcheck -S style <SCRIPT PATH>     # if shellcheck is available
-  chmod +x <SCRIPT PATH>
+  bash -n <SCRIPT_PATH>
+  shellcheck -S style <SCRIPT_PATH>     # if shellcheck is available
+  chmod +x <SCRIPT_PATH>
 
 DO NOT run it end to end. It opens browsers, blocks on human input, and its mutating stages act on live infrastructure. Trace it on paper instead:
 
@@ -110,7 +110,7 @@ DO NOT run it end to end. It opens browsers, blocks on human input, and its muta
 - the stage count matches `TOTAL_STAGES`;
 - every stage is an ACTION - if any stage only reads, prints, or checks, delete it.
 
-Then run `<FULL VERIFY COMMAND>` so the branch is still green with your commit on it.
+Then run `<VERIFY>` so the branch is still green with your commit on it.
 
 ## STEP 5 - land it in the SAME PR, and write the handoff.
 
@@ -134,16 +134,22 @@ Then run `<FULL VERIFY COMMAND>` so the branch is still green with your commit o
    - HOW TO KNOW IT WORKED: the check that proves the feature is live afterwards. Prose here,
      never a stage in the script.
 4. echo "<how many stages, what they configure, in one line>" > <WS>/state/WIZARD.summary
-5. echo "DONE" > <WS>/state/WIZARD.status     (or "BLOCKED: <reason>")
+5. : > <WS>/state/WIZARD.next        (empty - you are the last session in the chain)
+6. echo "DONE" > <WS>/state/WIZARD.status     (or "BLOCKED: <reason>")   LAST
+7. bash <WS>/advance.sh <WS> WIZARD
 
-Write no next tag - you are the last session. The conductor closes the sprint from here.
+That last call launches nothing, because your `.next` is empty - it records the end of the
+chain in state/EVENTS.log and lets the watcher exit cleanly. The conductor then writes the
+morning report.
 
 ## IF THERE IS NOTHING TO DO
 
 Do not write a script. Do commit anything you did yourself from the third column.
 
   echo "no manual setup required - <one sentence: what you swept and why nothing came up>" > <WS>/state/WIZARD.summary
+  : > <WS>/state/WIZARD.next
   echo "DONE" > <WS>/state/WIZARD.status
+  bash <WS>/advance.sh <WS> WIZARD
 
 Write <WS>/HANDOFF.md saying the same in two lines, so the morning report can state it positively: "nothing to set up" is a finding, not an omission.
 
@@ -156,7 +162,8 @@ Check it after the diff sweep and again after the live-state reads. At <WARN_AT_
   1. Commit and push whatever stages you have, even if the script is incomplete - mark each unfinished stage with a `TODO(WIZARDc2):` line.
   2. Fill <WS>/continuation-prompt.md into <WS>/prompt-WIZARDc2.txt. It must carry THE FULL LIST OF CANDIDATES with their verdict against both tests, which are already authored as stages, which you did yourself, and every live-state read you did WITH ITS ANSWER - that sweep is the expensive part and your successor must not repeat it.
   3. echo "<stages authored, what is left>" > <WS>/state/WIZARD.summary
-  4. echo "RELAYED: WIZARDc2" > <WS>/state/WIZARD.status   (RELAYED, never DONE)
-  5. bash <WS>/launch.sh <WS> WIZARDc2
+  4. echo "WIZARDc2" > <WS>/state/WIZARD.next
+  5. echo "RELAYED: WIZARDc2" > <WS>/state/WIZARD.status   (RELAYED, never DONE)
+  6. bash <WS>/advance.sh <WS> WIZARD
 
 Finally, post as your last message: the stage list, the paste-ready run command, the value table, what you did yourself rather than making it a stage, and anything you filed as a follow-up.

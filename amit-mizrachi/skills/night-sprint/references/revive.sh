@@ -3,16 +3,20 @@
 #
 #   revive.sh <WORKSPACE> <TAG> [CAUSE]
 #
-# CAUSE is the watcher's second field: api-error | ended-without-signal | idle | permission-prompt
-# (default: ended-without-signal). It changes only the resume budget and the wording of the
-# continue prompt.
+# CAUSE is the watcher's second field: api-error | ended-without-signal | idle |
+# permission-prompt | budget-retry (default: ended-without-signal).
 #
 # Most night-time deaths are not the session's fault - the API drops the call mid-response,
 # stalls mid-stream, or returns 529/500. The process is gone but the whole conversation is
 # still on disk: what it read, what it decided, the edit it was halfway through. Resuming that
 # conversation costs one prompt. Restarting the ticket from the top throws all of it away.
 #
-# The ladder, cheapest rung first:
+# But not every death wants a retry, and that distinction is the first thing this script
+# settles - see WHAT ACTUALLY ENDED IT below. `classify-error.sh` reads the transcript, and a
+# quota or auth failure never reaches the ladder at all: retrying those cannot succeed, and a
+# ladder spent against a spending cap is how a night loses three and a half hours.
+#
+# The ladder, cheapest rung first, for the failures a retry CAN fix:
 #   resume   `claude --bg --resume` on the same conversation, told to carry on, not start over.
 #            Budget: 2 for api-error (transient infrastructure, worth a second go), 1 otherwise.
 #   restart  a brand new session on the original ticket prompt, plus a RESUME block telling it
@@ -20,6 +24,14 @@
 #   abandon  writes `BLOCKED: ABANDONED ...` so the watcher reports it and the sprint moves on.
 #
 # Prints one line naming the rung it took, so the conductor can log it without parsing anything.
+#
+# Exit codes, because the watcher acts on them:
+#   0  a rung was taken (resume or restart), or there was nothing to revive
+#   1  refused - the session is still working, or the old one would not stop
+#   5  BUDGET-BLOCKED: out of capacity. state/PAUSED now holds the retry time; nothing new
+#      may launch until it clears, and the watcher comes back with CAUSE=budget-retry
+#   6  BLOCKED on auth. A human must re-authenticate; no retry can substitute
+#   7  out of budget for good - waited the full ladder of waits and capacity never returned
 #
 # TWO THINGS THAT MAKE HAND-REVIVING WRONG, both handled here:
 #   1. A resumed session gets a NEW session id and does NOT inherit its display name. The
@@ -33,6 +45,9 @@ set -uo pipefail
 WS="${1:?usage: revive.sh <WORKSPACE> <TAG> [CAUSE]}"
 TAG="${2:?usage: revive.sh <WORKSPACE> <TAG> [CAUSE]}"
 CAUSE="${3:-ended-without-signal}"
+
+# shellcheck source=agents.sh
+. "$WS/agents.sh"
 
 STATE="$WS/state"
 SEEN="$STATE/.watch-seen"
@@ -67,6 +82,16 @@ attempt=$(( resumes + restarts + 1 ))
 RESUME_BUDGET=1
 [ "$CAUSE" = "api-error" ] && RESUME_BUDGET=2
 
+# A resume after a quota wait is not an attempt at a broken conversation - the conversation
+# was never broken, the account was out of capacity. So it gets its own ledger key and does
+# not eat the ladder: the number of WAITS is what bounds this failure, and that cap lives in
+# the quota branch below.
+RESUME_KEY="resume"
+if [ "$CAUSE" = "budget-retry" ]; then
+  RESUME_KEY="resume-budget"
+  RESUME_BUDGET=99
+fi
+
 # The watcher must be able to report this tag's next failure too.
 clear_seen() {
   [ -f "$SEEN" ] || return 0
@@ -95,7 +120,7 @@ clear_seen() {
 
 # The pid the harness holds for a LIVE session. A finished one carries no pid and `state:done`.
 session_pid() {
-  claude agents --json --all 2>/dev/null | python3 -c 'import json,sys
+  agents_json "$WT" | python3 -c 'import json,sys
 sid=sys.argv[1]
 try: rows=json.load(sys.stdin)
 except Exception: sys.exit(0)
@@ -167,7 +192,7 @@ session_is_active() {
   local sid="$1" status f last now
   case "$sid" in ""|unresolved) return 1 ;; esac
 
-  status="$(claude agents --json --all 2>/dev/null | python3 -c 'import json,sys
+  status="$(agents_json "$WT" | python3 -c 'import json,sys
 sid=sys.argv[1]
 try: rows=json.load(sys.stdin)
 except Exception: sys.exit(0)
@@ -198,7 +223,7 @@ for r in rows:
 # permission prompt nobody can answer is not working either - it will sit there until morning, and
 # it is not mid-edit, so stopping it costs only the prompt it was stuck on.
 if session_is_active "$OLD_SID"; then
-  echo "revive: $TAG is still WORKING ($OLD_SID, transcript grew < ${ACTIVE_WITHIN_MIN}m ago) - NOT interrupting it." >&2
+  echo "revive: $TAG is still WORKING ($OLD_SID, transcript grew < ${ACTIVE_STALL_MIN}m ago) - NOT interrupting it." >&2
   echo "        A live session manages its own window and hands its own ticket on. There is nothing" >&2
   echo "        to do from out here. If it is genuinely stuck it will stop growing; revive it then." >&2
   echo "declined-still-working $CAUSE $OLD_SID -" >> "$LEDGER"
@@ -217,12 +242,93 @@ if ! stop_session "$OLD_SID"; then
   exit 1
 fi
 
+# ------------------------------------------------- WHAT ACTUALLY ENDED IT, before any rung
+#
+# The CAUSE the caller passed is the watcher's read of the symptom. The transcript is the
+# evidence, and for two whole classes of failure the difference decides whether ANY rung is
+# worth spending. A dropped socket wants a resume. A spending cap and a logged-out CLI want
+# the exact opposite: resuming is guaranteed to fail, and every attempt is one more refused
+# request. A night was lost to this - two reviews stopped on organisation spend-limit errors
+# and the recovery treated them as ordinary stalls, so the ladder burned out against a wall
+# and the incident log recorded the outage as a permission problem.
+#
+# So classify first, and let the class pick the response.
+CLASS="none"
+if [ -n "$OLD_SID" ] && [ "$OLD_SID" != "unresolved" ] && [ -x "$WS/classify-error.sh" ]; then
+  CLASS="$(bash "$WS/classify-error.sh" "$OLD_SID" 2>/dev/null || echo none)"
+fi
+KIND="${CLASS%% *}"
+DETAIL=""
+case "$CLASS" in *" "*) DETAIL="${CLASS#* }" ;; esac
+
+# A human must act, and no amount of retrying substitutes for it. Report it as the blocker
+# it is - NOT as an abandoned ticket, because nothing about the ticket is wrong.
+if [ "$KIND" = "auth" ]; then
+  echo "revive: $TAG stopped on an AUTH failure ($DETAIL) - a human must fix this, not a retry" >&2
+  echo "auth-blocked $CAUSE $OLD_SID $DETAIL" >> "$LEDGER"
+  echo "stopped on an auth failure ($DETAIL) - needs a human before the sprint can continue" \
+    > "$STATE/$TAG.summary"
+  echo "BLOCKED: auth ($DETAIL) - re-authenticate, then revive $TAG" > "$STATE/$TAG.status"
+  clear_seen
+  printf 'auth %s tag=%s\n' "$DETAIL" "$TAG" > "$STATE/PAUSED"
+  exit 6
+fi
+
+# Out of capacity, not out of road. The work in that conversation is fine and the ticket is
+# fine; there is simply no budget to run it this minute. So: park the tag, stop the sprint
+# from launching anything else into a cap that is already refusing requests, and record WHEN
+# it is worth trying again. The watcher un-pauses. Nothing here sleeps - a reviver that
+# blocked for two hours would take the monitor loop down with it.
+#
+# `budget-retry` is the watcher coming back after the wait it was told to make. The
+# transcript still ENDS on that quota error - it is the last thing the session ever said -
+# so classifying again would pause again, forever. The cause is how the caller says "I have
+# already waited; this time, try."
+if [ "$CAUSE" != "budget-retry" ] && { [ "$KIND" = "quota-session" ] || [ "$KIND" = "quota-spend" ]; }; then
+  blocks="$(grep -c '^budget-blocked ' "$LEDGER" 2>/dev/null || true)"
+  blocks="${blocks:-0}"
+  now="$(date +%s)"
+
+  if [ "$KIND" = "quota-session" ] && [ "${DETAIL:-0}" -gt "$now" ] 2>/dev/null; then
+    # The harness told us the wall-clock reset. Believe it, plus two minutes of slack.
+    retry_at=$(( DETAIL + 120 ))
+    why="session limit, resets $(date -r "$retry_at" '+%H:%M' 2>/dev/null || date -d "@$retry_at" '+%H:%M' 2>/dev/null)"
+  else
+    # No reset time exists for an org spend cap - somebody has to raise it. There is no
+    # probe cheaper than the work itself, so back off and let the next resume BE the probe:
+    # 20 minutes, then 40, then 80, capped at an hour.
+    mins=$(( 20 * (1 << blocks) ))
+    [ "$mins" -gt 60 ] && mins=60
+    retry_at=$(( now + mins * 60 ))
+    why="$KIND, retrying in ${mins}m"
+  fi
+
+  # Eight waits is most of a night. Past that, say so plainly rather than idling until noon.
+  if [ "$blocks" -ge 8 ]; then
+    echo "revive: $TAG - out of capacity for $blocks waits running; giving up on it" >&2
+    echo "budget-exhausted $CAUSE $OLD_SID $KIND" >> "$LEDGER"
+    [ -f "$STATE/$TAG.summary" ] || \
+      echo "never ran: $KIND held it for $blocks waits and capacity never came back" > "$STATE/$TAG.summary"
+    echo "BLOCKED: out of budget ($KIND) after $blocks waits" > "$STATE/$TAG.status"
+    clear_seen
+    rm -f "$STATE/PAUSED"
+    exit 7
+  fi
+
+  echo "budget-blocked $CAUSE $OLD_SID $KIND retry-at=$retry_at" >> "$LEDGER"
+  printf '%s retry-at=%s tag=%s\n' "$KIND" "$retry_at" "$TAG" > "$STATE/PAUSED"
+  printf '%s\n' "$retry_at" > "$STATE/$TAG.budget-blocked"
+  clear_seen
+  echo "revive: $TAG BUDGET-BLOCKED ($why). Sprint paused; the watcher resumes it after $retry_at."
+  exit 5
+fi
+
 # Resolve a background session id by display name, newest first. Same contract launch.sh uses:
 # the launch output format is not stable, `claude agents --json` reporting `name` is.
 resolve_sid() {
   local want="$1" sid=""
   for _ in $(seq 1 15); do
-    sid="$(claude agents --json --all --cwd "$WT" 2>/dev/null \
+    sid="$(agents_json "$WT" \
       | python3 -c 'import json,sys
 want=sys.argv[1]
 try: rows=json.load(sys.stdin)
@@ -246,6 +352,7 @@ if [ -n "$OLD_SID" ] && [ "$OLD_SID" != "unresolved" ] && [ "$resumes" -lt "$RES
     api-error) WHY="an API error - the connection dropped or the model call failed. That is infrastructure, not something you did wrong." ;;
     permission-prompt) WHY="a permission prompt. Nobody is awake to answer it, so do not wait for approval: decide it yourself, and if an action stays refused, route around it and say so in your summary." ;;
     idle) WHY="a stall - you went quiet for a long time and the sprint could not tell whether you were still working." ;;
+    budget-retry) WHY="the account ran out of capacity mid-turn - a spend or session limit, nothing to do with your work. The sprint waited for capacity and has now brought you back. Your conversation is intact." ;;
     *) WHY="something that ended your process before you wrote your status file." ;;
   esac
 
@@ -273,7 +380,7 @@ in your summary, and keep going."
 
   if [ $rc -eq 0 ] && new_sid="$(resolve_sid "$NAME")"; then
     printf '%s\n' "$new_sid" > "$SESSION_FILE"
-    echo "resume $CAUSE $OLD_SID $new_sid" >> "$LEDGER"
+    echo "$RESUME_KEY $CAUSE $OLD_SID $new_sid" >> "$LEDGER"
     clear_seen
     echo "revive: $TAG resumed as $new_sid ($NAME) - conversation kept, watcher repointed"
     exit 0
@@ -281,7 +388,7 @@ in your summary, and keep going."
 
   # Resume failed. Record the spent attempt so the next call falls through to restart rather
   # than trying the same broken rung again.
-  echo "resume $CAUSE $OLD_SID FAILED(rc=$rc)" >> "$LEDGER"
+  echo "$RESUME_KEY $CAUSE $OLD_SID FAILED(rc=$rc)" >> "$LEDGER"
   echo "revive: $TAG resume FAILED (rc=$rc, see $STATE/$TAG.revive-$attempt.log) - falling through to restart" >&2
   resumes=$(( resumes + 1 ))
   attempt=$(( attempt + 1 ))

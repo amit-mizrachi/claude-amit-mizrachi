@@ -1,104 +1,92 @@
-<REPO> - night sprint <SLUG>: ticket <NN> - <TICKET TITLE>
+<REPO> - night sprint <SLUG>: ticket <NN> - <TICKET_TITLE>
 
-AUTONOMOUS NIGHT RUN. <USER> is ASLEEP and will NOT answer. Never ask a question - make the best call, state it in your summary, and keep going. Do not stop until this ONE ticket is implemented, verified green, committed, and handed off. Earn "done" by running it (charter #10) and report failures faithfully. ASCII only, no em/en dashes.
+AUTONOMOUS NIGHT RUN. <USER> is ASLEEP and will NOT answer. Never ask a question - make the best call, state it in your summary, keep going. Do not stop until this ONE ticket is implemented, verified green, committed and handed off. Earn "done" by running it (charter #10) and report failures faithfully. ASCII only, no em/en dashes.
 
-Repo: <ABSOLUTE REPO PATH> (<owner/repo>). Toolchain: <ENV SETUP>.
+Repo: <REPO_PATH> (<REPO_SLUG>). Toolchain: <TOOLCHAIN>.
 Workspace: <WS>. You are tag <TAG> (ticket <NN> of <TOTAL>).
 
 WORK HERE - DO NOT CREATE A WORKTREE OR BRANCH:
   cd <WORKTREE>
-This worktree and its branch <BRANCH> already exist and are shared by the whole sprint. Tickets before you have already landed their commits here. You are the ONLY session touching it right now. Never create a branch, never open a second worktree, never rebase or force-push, never merge anything.
+This worktree and branch <BRANCH> already exist and are shared by the whole sprint. Earlier tickets have landed their commits here. You are the ONLY session touching it right now. Never create a branch, never open a second worktree, never rebase or force-push, never merge.
 
 READ FIRST:
-- <WS>/PLAN.md - the sprint: goal, ticket order, verify command, review cadence.
+- <WS>/PLAN.md - goal, ticket order, verify command, review cadence.
 - <WS>/tickets/<NN>-<slug>.md - YOUR ticket. Its acceptance criteria are the definition of done.
-- <REPO CONVENTIONS FILE(S)> - plus the 2-4 existing files whose pattern you should mirror.
-- `git log --oneline -15` in the worktree - what the earlier tickets actually landed, which is more current than the plan.
+- <CONVENTIONS> - plus the 2-4 existing files whose pattern you should mirror.
+- `git log --oneline -15` in the worktree - what earlier tickets actually landed, which is more current than the plan.
 
-YOUR TASK: implement ticket <NN> and nothing else. Do not start the next ticket's work, do not "while I'm here" refactor beyond what your ticket needs, and do not touch anything a later ticket owns. If you find a real problem in an earlier ticket's work that blocks you, fix the minimum needed and say so in your summary.
+YOUR TASK: implement ticket <NN> and nothing else. Do not start the next ticket's work, do not "while I'm here" refactor past what your ticket needs, do not touch anything a later ticket owns. If a real problem in an earlier ticket's work blocks you, fix the minimum needed and say so.
 
-VERIFY: `<FULL VERIFY COMMAND>` must be green before you commit. Do not bypass git hooks with --no-verify. If a pre-existing failure is unrelated to your ticket, note it in your summary rather than silently absorbing it.
+VERIFY: `<VERIFY>` must be green before you commit. Never `--no-verify`. If a pre-existing failure is unrelated to your ticket, note it in your summary rather than silently absorbing it.
 
-<GOTCHAS: the 2-4 traps that would otherwise cost this session hours - conventions, env setup, a fixture that must be regenerated, a service that must be running.>
+**LOCAL GREEN IS NOT CI GREEN.** If this repo's CI runs a formatter or lint gate that `<VERIFY>` does not, you will pass locally and turn the PR red. Run `<FORMAT_CHECK>` too, and if you find a gate CI runs that the verify command misses, say so in your summary - that mismatch is worth more to the sprint than the ticket.
 
-WRITE DOWN ANYTHING ONLY A HUMAN CAN DO, THE MOMENT YOU HIT IT. Your ticket may need an API key nobody has pasted, a terraform unit applied, a third-party app registered, a flag switched on, a migration run against a real database. You cannot do those and you must not try - but the LAST session of this sprint builds a setup wizard out of them, and it can only use what you wrote down. Append a block to <WS>/state/<TAG>.manual for each one, as you find it:
+<GOTCHAS>
 
-  cat >> <WS>/state/<TAG>.manual <<'EOF'
-  STEP:     <one line: what a human must do>
-  WHY:      <what breaks without it - the concrete failure, not "for configuration">
-  WHERE:    <the URL, dashboard path or command, as concretely as you know it>
-  VALUE:    <ENV_VAR_NAME, or "none" for a pure action>
-  LANDS:    <.env | github secret | terraform var | a service | nowhere>
-  SECRET:   <yes|no>
-  BLOCKING: <yes = the feature does not work at all without it | no>
-  EOF
+## Anything only a human can do, written down the moment you hit it
 
-ONLY WRITE A BLOCK IF THE SHIPPED FEATURE DOES NOT WORK UNTIL A HUMAN DOES IT. That is the whole test. A key the deployed feature needs counts; a value somebody fills into `.env.local` to run the app on their laptop does not, and neither does config drift that was already broken on the base ref before your ticket existed. Blocks that fail this test become wizard stages that configure nothing, and the user reads a script in the morning that does not turn anything on.
+Your ticket may need an API key nobody pasted, a terraform unit applied, a third-party app registered, a flag switched, a migration run against a real database. You cannot do those and must not try - but the last session of the sprint builds a setup wizard out of them, and it can only use what you wrote down. Append a block per item to <WS>/state/<TAG>.manual as you find it:
 
-Be concrete about WHERE. "You need a Monday API key" sends the user hunting; "Monday -> Developer centre -> your app -> OAuth -> client secret" does not. If you actually walked the path while building, that path is worth more than anything the final session can reconstruct from the diff. If you only know the hostname, say only the hostname - never invent a menu you did not see.
+    STEP:     <one line: what a human must do>
+    WHY:      <what breaks without it - the concrete failure, not "for configuration">
+    WHERE:    <URL, dashboard path or command, as concretely as you know it>
+    VALUE:    <ENV_VAR_NAME, or "none" for a pure action>
+    LANDS:    <.env | github secret | terraform var | a service | nowhere>
+    SECRET:   <yes|no>
+    BLOCKING: <yes = the feature does not work at all without it | no>
 
-NEVER put a real secret value in that file, in a commit, or in your summary. Names and paths only.
+ONLY IF THE SHIPPED FEATURE DOES NOT WORK UNTIL A HUMAN DOES IT. A key the deployed feature needs counts. A value somebody fills into `.env.local` to run the app on their laptop does not, and neither does drift that was already broken on the base ref. Blocks that fail this test become wizard stages that configure nothing.
 
-CONTEXT - YOU MANAGE YOUR OWN WINDOW, AND NOBODY ELSE CAN.
+Be concrete about WHERE. "You need a Monday API key" sends the user hunting; "Monday -> Developer centre -> your app -> OAuth -> client secret" does not. If you walked that path while building, it is worth more than anything a later session can reconstruct from the diff. If you only know the hostname, say only the hostname - never invent a menu you did not see.
 
-A ticket may take more than one session, and that is the plan, not a failure. This sprint would rather run three fresh sessions on a ticket than one exhausted one, so the handoff line is early and you should expect to reach it.
+NEVER put a real secret value in that file, a commit, or your summary. Names and paths only.
 
-NOBODY IS WATCHING THIS NUMBER BUT YOU. The sprint cannot send a message into a running session - there is no way to interrupt you, no reminder is coming, and no script will hand your ticket on for you. A session that does not measure itself runs until the harness auto-compacts it, loses the reasoning that mattered, and in the worst case dies mid-edit having written none of it down. That is the single most expensive thing that can happen tonight, and it is entirely in your hands.
+## Your window is yours, and nothing else can touch it
+
+A ticket may take more than one session. That is the plan, not a failure: this sprint would rather run three fresh sessions on a ticket than one exhausted one.
+
+**Nobody is watching this number but you.** There is no way to send a message into a running session. No reminder is coming and no script will hand your ticket on for you. A session that does not measure itself runs until the harness auto-compacts it, losing the reasoning that mattered, and at worst dies mid-edit having written none of it down.
 
 Measure, never estimate:
 
   bash <WS>/context-used.sh --self <CONTEXT_WINDOW>
 
-The number counts UP: 0 is a fresh session, 100 is a full one, exactly as `/context` reports it. Believe it over your own sense of how much room is left - that sense is consistently wrong.
+The number counts UP: 0 is fresh, 100 is full, exactly as `/context` reports it. Believe it over your own sense of how much room is left; that sense is consistently wrong.
 
-MEASURE AT EVERY ONE OF THESE, no exceptions:
-  - immediately after each commit
-  - after any subagent or fan-out returns
-  - after any search, build or test run that printed a lot of output
-  - before you open a group of files you have not read yet
-  - before you start the next acceptance criterion
-  - if you cannot remember the last time you measured
+MEASURE AT EVERY ONE OF THESE: after each commit; after any subagent or fan-out returns; after any search, build or test that printed a lot; before opening a group of files you have not read; before starting the next acceptance criterion; whenever you cannot remember the last check.
 
-There are two rungs.
+**<WARN_AT_USED>% used - START NOTHING NEW.** No new subsystem, no refactor past your ticket, no wide reading of files you have not opened. Drive what you are on right now to a committed state. The expensive mistake is not running out of window, it is running out halfway through something.
 
-RUNG 1 - <WARN_AT_USED>% USED: START NOTHING NEW. You are still comfortable, but not comfortable enough to open a new front. Do not begin a new subsystem, do not start a refactor beyond what your ticket needs, do not go reading widely through files you have not already opened. DO drive whatever you are on right now to a finished, committed state. The expensive mistake is not running out of window - it is running out halfway through something, because a half-finished thing is what makes a handoff expensive.
+**<RELAY_AT_USED>% used - HAND THE TICKET ON.** Stop taking new work and spend the rest of the window handing off well. Your successor should inherit a good handoff and a nearly full window.
 
-RUNG 2 - <RELAY_AT_USED>% USED: HAND THE TICKET ON. Stop taking new work and spend the rest of the window handing off well - you still have most of it, and that is deliberate: your successor should inherit a good handoff and a nearly full window.
+Two exceptions, only these two. **One command from green: FINISH IT** - a split that saves nothing costs a whole session of re-reading. **Not one file changed yet: do NOT hand off** - your successor would start where you did, minus your reading, which is how a ticket loops all night without being built. Keep going until you have something real to pass on. Still reading at <CEILING_USED>% used? Hand off anyway, and say plainly in the continuation prompt that this ticket is bigger than the plan thought.
 
-Two exceptions, and only these two. If you are one command from green, FINISH IT - a split that saves nothing costs the sprint a whole session of re-reading. And if you have not yet changed a single file, do NOT hand off: your successor would start exactly where you did, minus your reading, which is how a ticket loops all night without being built. Keep going in that case, and hand off once you have something real to pass on. If you are still reading at <CEILING_USED>% used, hand off anyway and say plainly in the continuation prompt that this ticket is bigger than the plan thought.
+THE HANDOFF, in this order:
+  1. Commit and push what you have. Not green? Commit as WIP whose body says `SIGNAL: <TAG>-RELAYED` and names the failing checks. Never stash, never revert.
+  2. Fill <WS>/continuation-prompt.md into <WS>/prompt-<TAG>c2.txt: what landed, which acceptance criteria are met and which are not, the real verify output, files changed and files next, every decision and dead end so your successor does not rediscover them. Your successor starts empty and cannot read this conversation - assume it knows nothing.
+  3. `echo "<what landed, what is left>" > <WS>/state/<TAG>.summary`
+  4. `echo "<TAG>c2" > <WS>/state/<TAG>.next`
+  5. `echo "RELAYED: <TAG>c2" > <WS>/state/<TAG>.status` - RELAYED, never DONE. The ticket is still in flight and DONE would release the next one.
+  6. `bash <WS>/advance.sh <WS> <TAG>`
 
-THE HANDOFF, five steps, in this order:
+Then post your summary and stop. Your successor owns the ticket now, and owns what comes after it.
 
-  1. Commit and push what you have. If it is not green, commit it anyway as WIP whose body says `SIGNAL: <TAG>-RELAYED` and names the failing checks. Never stash, never revert.
-  2. Fill <WS>/continuation-prompt.md into <WS>/prompt-<TAG>c2.txt: what landed, which acceptance criteria are met and which are not, the real verify output, the files changed and the ones next, every decision and dead end so your successor does not rediscover them, and that it must launch <NEXT_TAG> when the ticket is finally green. Your successor starts empty and cannot read this conversation - assume it knows nothing.
-  3. echo "<what landed, what is left>" > <WS>/state/<TAG>.summary
-  4. echo "RELAYED: <TAG>c2" > <WS>/state/<TAG>.status   (RELAYED, never DONE - the ticket is still in flight, and DONE would let the sprint move on with your work unfinished)
-  5. bash <WS>/launch.sh <WS> <TAG>c2
+## Found something real that is not your ticket?
 
-Then post your three lines and stop. Do NOT launch <NEXT_TAG> - your successor owns the ticket now, and owns launching what comes after it.
+Do not fix it and do not leave it unsaid. One line:
 
-FOUND SOMETHING REAL THAT IS NOT YOUR TICKET? Do not fix it and do not leave it unsaid. One line:
   echo "<severity> | <file or area> | <what is wrong> | <why it is not this ticket>" >> <WS>/state/FOLLOWUPS.md
-The morning report turns that file into tickets. This is the pressure valve for "while I'm here" - use it instead of expanding your ticket at 3am.
 
-WHEN YOU ARE DONE - do all four, in this order:
+The morning report turns that file into tickets. This is the pressure valve for "while I'm here".
 
-1. Commit to <BRANCH>. Put a line in the final commit body:
-     SIGNAL: <TAG>-DONE
-   (or `SIGNAL: <TAG>-BLOCKED: <one-line reason>` if you truly cannot finish). Push.
-2. Write your one-line ledger entry - what you actually built, in plain words:
-     echo "<what you did in one line>" > <WS>/state/<TAG>.summary
-3. Write your status LAST, because it is what releases the next session:
-     echo "DONE" > <WS>/state/<TAG>.status
-   or, if blocked:
-     echo "BLOCKED: <reason>" > <WS>/state/<TAG>.status
-4. If and only if you wrote DONE, hand off to the next ticket:
-     bash <WS>/launch.sh <WS> <NEXT_TAG>
-   That script claims the tag atomically - if the conductor already launched it, the script
-   simply says so and exits. Run it exactly once and do not second-guess the result.
-   <If this is the last ticket before a review checkpoint, NEXT_TAG is the reviewer's tag.>
-   <If there is no next tag, skip this step - the conductor takes it from here.>
+## WHEN YOU ARE DONE - in this order, and the order matters
 
-If you are blocked: still do steps 1-3 (with BLOCKED), push whatever you have so the work is not lost, and do NOT launch the next ticket - the conductor decides what happens next. A clear blocker reported at 2am is worth far more than a silent retry loop.
+1. Commit to <BRANCH> with `SIGNAL: <TAG>-DONE` in the final commit body (or `SIGNAL: <TAG>-BLOCKED: <one-line reason>`). Push.
+2. `echo "<what you built, in one line>" > <WS>/state/<TAG>.summary`
+3. `echo "<NEXT_TAG>" > <WS>/state/<TAG>.next` - written BEFORE your status. Leave it empty if nothing follows you.
+4. `echo "DONE" > <WS>/state/<TAG>.status` (or `BLOCKED: <reason>`). **LAST**, because the status is what releases the chain, and it must never be read before `.next` is correct.
+5. `bash <WS>/advance.sh <WS> <TAG>` - the one thing that starts whatever comes next. It reads the pair you just wrote, claims the tag atomically, and is a harmless no-op if the watcher got there first. Run it once and do not second-guess it.
 
-Finally, post a 3-5 line summary as your last message: what landed, what you decided on your own, what you deferred, and anything the next session must know.
+If you are BLOCKED: still do 1-4 (with BLOCKED), push whatever you have so the work is not lost, then run step 5 - it will correctly launch nothing and let the conductor decide. A clear blocker reported at 2am is worth far more than a silent retry loop.
+
+Finally, post a 3-5 line summary: what landed, what you decided on your own, what you deferred, and anything the next session must know.

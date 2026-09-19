@@ -1,0 +1,2 @@
+{"type": "assistant", "isApiErrorMessage": false, "isSidechain": false, "timestamp": "2026-09-18T10:00:00.000Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "Running the verify command now."}]}}
+{"type": "assistant", "isApiErrorMessage": false, "isSidechain": false, "timestamp": "2026-09-18T10:00:00.000Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "Done, wrote the status file."}]}}

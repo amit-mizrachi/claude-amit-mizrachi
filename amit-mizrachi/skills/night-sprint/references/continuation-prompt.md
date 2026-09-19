@@ -1,10 +1,10 @@
-<REPO> - night sprint <SLUG>: ticket <NN> CONTINUED - <TICKET TITLE>
+<REPO> - night sprint <SLUG>: ticket <NN> CONTINUED - <TICKET_TITLE>
 
-AUTONOMOUS NIGHT RUN. <USER> is ASLEEP and will NOT answer. Never ask a question - make the best call, state it in your summary, and keep going. Earn "done" by running it (charter #10) and report failures faithfully. ASCII only, no em/en dashes.
+AUTONOMOUS NIGHT RUN. <USER> is ASLEEP and will NOT answer. Never ask a question - make the best call, state it in your summary, keep going. Earn "done" by running it (charter #10) and report failures faithfully. ASCII only, no em/en dashes.
 
-You are tag <CONT_TAG>. You are NOT starting a new ticket. Ticket <NN> is already partly built: the session before you (<PREV_TAG>) ran out of context and handed it to you with a full window. Its work is already on the branch. Your job is to finish the SAME ticket.
+You are tag <CONT_TAG>. You are NOT starting a new ticket. Ticket <NN> is already partly built: <PREV_TAG> ran out of context and handed it to you with a full window. Its work is on the branch. Your job is to finish the SAME ticket.
 
-Repo: <ABSOLUTE REPO PATH> (<owner/repo>). Toolchain: <ENV SETUP>.
+Repo: <REPO_PATH> (<REPO_SLUG>). Toolchain: <TOOLCHAIN>.
 Workspace: <WS>. Predecessor: <PREV_TAG>.
 
 WORK HERE - DO NOT CREATE A WORKTREE OR BRANCH:
@@ -27,22 +27,18 @@ NOT met yet - this is your work:
 
 ## Verify status right now
 
-Command: `<FULL VERIFY COMMAND>`
-Last known result: <green | which checks fail, with the actual failure text - not a paraphrase>
+Command: `<VERIFY>`
+Last known result: <green | which checks fail, with the actual failure text, not a paraphrase>
 
 ## What I learned - do not rediscover this
 
 - <decision made, and why - so you do not re-litigate it>
-- <approach tried and ruled out, and the reason it failed>
+- <approach tried and ruled out, and why it failed>
 - <the trap, fixture, service or convention that cost the last session time>
 
 ## Manual steps found so far
 
-<Anything only a human can do that this ticket ran into - a key to paste, a unit to apply, an
-app to register. Already recorded in <WS>/state/<PREV_TAG>.manual; listed here so you do not
-record it twice. If you meet more, append them to <WS>/state/<CONT_TAG>.manual in the same
-`STEP / WHY / WHERE / VALUE / LANDS / SECRET / BLOCKING` format - the WIZARD session at the end
-of the sprint builds a setup script out of every such block. Never a real secret value.>
+<Anything only a human can do that this ticket ran into. Already recorded in <WS>/state/<PREV_TAG>.manual; listed here so you do not record it twice. If you meet more, append them to <WS>/state/<CONT_TAG>.manual in the same `STEP / WHY / WHERE / VALUE / LANDS / SECRET / BLOCKING` format. Never a real secret value.>
 
 ## Files
 
@@ -53,35 +49,20 @@ Next to change: <paths, and what the change is>
 
 1. START BY RE-ESTABLISHING GROUND TRUTH, not by re-planning:
      cd <WORKTREE> && git status --short && git log --oneline -10
-   Anything already committed for this ticket is DONE - keep it, do not redo it, do not revert
-   it. Read only what you actually need; you have a fresh window but it is not infinite, and
-   you will have to hand this ticket on yourself if you reach the line.
-2. Finish ticket <NN> and nothing else. Do not start the next ticket's work and do not expand
-   scope because the ticket looks incomplete on its own - it was always meant to be this size.
-3. VERIFY: `<FULL VERIFY COMMAND>` must be green before you commit. Never `--no-verify`.
-4. WHEN YOU ARE DONE - all four, in this order:
-   1. Commit to <BRANCH> with `SIGNAL: <CONT_TAG>-DONE` in the final commit body (or
-      `SIGNAL: <CONT_TAG>-BLOCKED: <reason>`). Push.
-   2. echo "<what you finished, in one line>" > <WS>/state/<CONT_TAG>.summary
-   3. echo "DONE" > <WS>/state/<CONT_TAG>.status      (or "BLOCKED: <reason>")
-   4. If and only if you wrote DONE: bash <WS>/launch.sh <WS> <NEXT_TAG>
-      <NEXT_TAG is what ticket <NN> was always going to hand off to. If there is none, skip
-      this step - the conductor takes it from here.>
+   Anything already committed for this ticket is DONE - keep it, do not redo it, do not revert it. Read only what you actually need.
+2. Finish ticket <NN> and nothing else. Do not start the next ticket's work and do not expand scope because the ticket looks incomplete on its own - it was always meant to be this size.
+3. VERIFY: `<VERIFY>` must be green before you commit. Never `--no-verify`. Run `<FORMAT_CHECK>` too: local green is not CI green, and a formatter gate CI runs that the verify command misses will turn the PR red after you have reported success.
+4. WHEN YOU ARE DONE - in this order:
+   1. Commit to <BRANCH> with `SIGNAL: <CONT_TAG>-DONE` in the final commit body (or `SIGNAL: <CONT_TAG>-BLOCKED: <reason>`). Push.
+   2. `echo "<what you finished, in one line>" > <WS>/state/<CONT_TAG>.summary`
+   3. `echo "<NEXT_TAG>" > <WS>/state/<CONT_TAG>.next` - what ticket <NN> was always going to hand off to. Empty if nothing follows.
+   4. `echo "DONE" > <WS>/state/<CONT_TAG>.status` (or `BLOCKED: <reason>`). LAST.
+   5. `bash <WS>/advance.sh <WS> <CONT_TAG>`
 
-CONTEXT - NOBODY IS WATCHING YOUR WINDOW BUT YOU. The sprint cannot send a message into a running
-session, so no reminder is coming and no script will hand this ticket on for you. Measure with
-`bash <WS>/context-used.sh --self <CONTEXT_WINDOW>` - the number counts UP, 0 is fresh and 100 is
-full - after each commit, after any fan-out returns, after any noisy build or search, before
-opening a group of unread files, and whenever you cannot remember the last check.
+CONTEXT - NOBODY IS WATCHING YOUR WINDOW BUT YOU. There is no way to send a message into a running session, so no reminder is coming and no script will hand this ticket on for you. Measure with `bash <WS>/context-used.sh --self <CONTEXT_WINDOW>` - the number counts UP, 0 is fresh and 100 is full - after each commit, after any fan-out returns, after any noisy build or search, before opening a group of unread files, and whenever you cannot remember the last check.
 
-At <WARN_AT_USED>% used, start nothing new: finish what you are on and stop widening your reading.
-At <RELAY_AT_USED>% used, hand this ticket on exactly the way it was handed to you - see the
-CONTEXT RELAY section of <WS>/PLAN.md - to <CONT_TAG> incremented by one. A ticket may take as many
-sessions as it needs, and being the third or fourth in a chain is not a sign anything is wrong.
+At <WARN_AT_USED>% used, start nothing new: finish what you are on, stop widening your reading. At <RELAY_AT_USED>% used, hand this ticket on exactly the way it was handed to you - see the CONTEXT RELAY section of <WS>/PLAN.md - to <CONT_TAG> incremented by one. A ticket may take as many sessions as it needs; being third or fourth in a chain is not a sign anything is wrong.
 
-You are a continuation, so one thing deserves your attention more than it did your predecessor's:
-you inherited a written handoff instead of a conversation. Read it once, act on it, and do not
-re-derive it. If you find your window filling on re-reading what this prompt already told you,
-that is the failure the relay exists to prevent, happening anyway.
+You are a continuation, so one thing deserves more of your attention than it did your predecessor's: you inherited a written handoff instead of a conversation. Read it once, act on it, do not re-derive it. If you find your window filling on re-reading what this prompt already told you, that is the failure the relay exists to prevent, happening anyway.
 
 Finally, post a 3-5 line summary: what you finished, what you decided on your own, and anything the next session must know.
