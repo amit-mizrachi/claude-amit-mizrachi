@@ -1,0 +1,3 @@
+{"type": "assistant", "isApiErrorMessage": false, "isSidechain": false, "timestamp": "2026-09-18T10:00:00.000Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "Running the verify command now."}]}}
+{"type": "assistant", "isApiErrorMessage": true, "isSidechain": false, "timestamp": "2026-09-18T10:00:00.000Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "You've hit your org's monthly spend limit \u00b7 run /usage-credits to raise it, or visit claude.ai/admin-settings/usage"}]}}
+{"type": "assistant", "isApiErrorMessage": false, "isSidechain": false, "timestamp": "2026-09-18T12:36:00.000Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "Capacity is back, continuing the review."}]}}

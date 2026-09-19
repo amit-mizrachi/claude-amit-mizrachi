@@ -1,0 +1,2 @@
+{"type": "assistant", "isApiErrorMessage": false, "isSidechain": false, "timestamp": "2026-09-18T10:00:00.000Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "Running the verify command now."}]}}
+{"type": "assistant", "isApiErrorMessage": true, "isSidechain": false, "timestamp": "2026-09-18T10:00:00.000Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "Your organization has disabled Claude subscription access for Claude Code \u00b7 Use an Anthropic API key instead, or ask your admin to enable access"}]}}
