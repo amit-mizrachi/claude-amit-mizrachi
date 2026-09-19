@@ -143,9 +143,13 @@ do_advance() {
 
 # A dead session comes back, and the conductor hears about it only when a script cannot
 # finish the job.
+# Returns 99, and ONLY 99, when it did not attempt anything because of the cooldown. The caller
+# uses that to keep the death pending: a tag whose recovery was skipped must be retried on a
+# later sweep, and the marker that says "already reported this death" must not be spent on a
+# sweep where nothing happened.
 do_revive() {
   local tag="$1" cause="$2" out rc
-  recently_acted "$tag" && { log "revive($tag) skipped - acted < ${ACT_COOLDOWN}s ago"; return 0; }
+  recently_acted "$tag" && { log "revive($tag) skipped - acted < ${ACT_COOLDOWN}s ago"; return 99; }
   mark_acted "$tag"
   out="$(bash "$WS/revive.sh" "$WS" "$tag" "$cause" 2>&1)"; rc=$?
   log "revive($tag,$cause) rc=$rc $out"
@@ -201,6 +205,15 @@ HEARTBEAT_AFTER=$(( 60 * 60 ))   # only if a whole hour passed with nothing wort
 while true; do
   sweep=$((sweep + 1))
   [ "$ACT" -eq 1 ] && check_pause
+
+  # An auth hold is the one pause nothing automatic can lift. Do not spend a revive, an advance
+  # or a `claude agents` call against it every two minutes - say so once and idle until a human
+  # logs in and runs `revive.sh <WS> <TAG> auth-retry`.
+  if [ "$ACT" -eq 1 ] && [ -f "$STATE/PAUSED" ]; then
+    case "$(head -1 "$STATE/PAUSED")" in
+      auth*) sleep "$POLL"; continue ;;
+    esac
+  fi
 
   agents="$(agents_json "$WT")"
 
@@ -337,9 +350,21 @@ for r in rows:
             *) cause=ended-without-signal ;;
           esac
           if [ "$ACT" -eq 1 ]; then
-            if did_once "$tag:DIED"; then
+            # COOLDOWN FIRST, THEN CONSUME THE DEATH. The other order loses the tag: `did_once`
+            # marked the death reported, `do_revive` then declined because it had acted three
+            # minutes earlier, and every later sweep failed the `did_once` check - so the
+            # recovery never happened and the tag sat unfinished until morning. With 120-second
+            # polls and a five-minute cooldown that is the ordinary case for a resumed session
+            # that fails immediately, and for a quota probe that hits the limit again.
+            if recently_acted "$tag"; then
+              log "DIED $tag class=$cls $sid - within cooldown, leaving the death pending"
+            elif did_once "$tag:DIED"; then
               log "DIED $tag class=$cls $sid"
-              do_revive "$tag" "$cause" || true
+              do_revive "$tag" "$cause"
+              rrc=$?
+              # Belt as well as braces: if it still declined, un-consume so a later sweep retries.
+              [ "$rrc" -eq 99 ] && sed_out="$(grep -vxF "$tag:DIED" "$SEEN" 2>/dev/null || true)" \
+                && printf '%s\n' "$sed_out" > "$SEEN"
             fi
           else
             emit_once "$tag:DIED" "DIED $tag $cause $sid (class=$cls)"

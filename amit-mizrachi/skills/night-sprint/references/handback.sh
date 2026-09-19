@@ -41,6 +41,21 @@ refuse() { echo "handback: $*" >&2; exit 1; }
 [ -f "$FINDINGS" ] || refuse "no findings file at $FINDINGS"
 [ -f "$STATE/$FIX_TAG.status" ] && refuse "$FIX_TAG already reported $(head -1 "$STATE/$FIX_TAG.status")"
 
+# NEVER HAND BACK A TAG WHOSE RENDERED PROMPT CARRIES OBLIGATIONS THIS ONE DOES NOT.
+#
+# The prompt below is a generic "fix these, verify, push, advance" contract. FIX-FINAL's rendered
+# prompt is not: it also runs accept.sh, gets one bounded repair pass on a red result, writes
+# state/ACCEPTANCE.verdict, and only takes the PR out of draft on PASS. Resuming an implementer
+# with the generic prompt silently drops every one of those, so a one-line final fix could end
+# the sprint - or launch TEST and WIZARD - with nothing having checked CI at all.
+#
+# The test is mechanical rather than a name match, so it keeps holding if the acceptance step
+# moves to another tag: if the tag's own rendered prompt mentions accept.sh, that prompt is the
+# contract and the caller must launch it.
+if [ -f "$WS/prompt-$FIX_TAG.txt" ] && grep -q 'accept\.sh' "$WS/prompt-$FIX_TAG.txt"; then
+  refuse "$FIX_TAG's rendered prompt has an acceptance gate this handback would drop - launch it instead"
+fi
+
 WT="$(tr -d '[:space:]' < "$WS/WORKTREE")"
 MODE="$(tr -d '[:space:]' < "$WS/PERMISSION_MODE" 2>/dev/null || echo auto)"
 SLUG="$(tr -d '[:space:]' < "$WS/SLUG" 2>/dev/null || echo sprint)"

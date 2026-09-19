@@ -98,12 +98,34 @@ Decide that deliberately rather than discovering it in the morning.
 
        bash <WS>/render.sh <WS> <WS>/implementer-prompt.md <WS>/prompt-T01.txt <WS>/vars-T01.env
 
-   You author only the judgement, in `vars-<TAG>.env`: each ticket's `TICKET_TITLE`, `GOTCHAS`,
-   `NEXT_TAG`, `NN`, and for reviews the `SCOPE`, `REVIEW_LANES`, `FIX_TAG`, `IMPL_TAG`,
-   `NEXT_AFTER_FIX`, `CHECKPOINT`. The renderer fills the rest from `facts.env` and **fails if
-   any slot is left unfilled**. Render every ticket prompt and every review pair now, plus
-   `WIZARD`; render `TEST` only if the user opted in. Delete the FINAL-ONLY section from a
-   checkpoint review's rendered prompt, and the two unused modes from the `TEST` prompt.
+   The renderer fills every slot from `facts.env` and **fails if one is left unfilled**, so the
+   per-tag vars file has to be complete. You author only the judgement in it; this is the full
+   set, by role, and nothing outside it is a slot:
+
+   | Role | `vars-<TAG>.env` must set |
+   |---|---|
+   | implementer `T<NN>` | `TAG`, `NN`, `TICKET_TITLE`, `GOTCHAS`, `NEXT_TAG`, `CONVENTIONS`, `TOTAL` |
+   | review finder | `TAG`, `CHECKPOINT`, `SCOPE`, `REVIEW_LANES`, `FIX_TAG`, `IMPL_TAG`, `NEXT_AFTER_FIX` |
+   | review fixer | `TAG`, `CHECKPOINT`, `FIND_TAG`, `NEXT_TAG` |
+   | `TEST` | `TOTAL`, `FIND_FINAL_TAG` |
+   | `FIX-TEST` | `TAG=FIX-TEST`, `CHECKPOINT`, `FIND_TAG=TEST`, `NEXT_TAG` (leave empty - it decides its own) |
+   | `WIZARD` | `SCRIPT_PATH` |
+   | continuation (filled by the relaying session, not you) | `CONT_TAG`, `PREV_TAG`, `NN`, `TICKET_TITLE`, `NEXT_TAG` |
+
+   **There is no `PR` slot, deliberately.** The draft PR does not exist at kickoff - it opens
+   after `T01` lands - so a prompt that baked the number in could never render. The review
+   prompts discover it themselves with `gh pr view --json number -q .number`.
+
+   **What to render now:** every ticket prompt, every review pair, and `WIZARD`. Render `TEST`
+   only if the user opted in - and **when you do, also render `prompt-FIX-TEST.txt` from
+   `review-fix-prompt.md`** with `FIND_TAG=TEST`, keeping its FIX-TEST-ONLY section and deleting
+   the FINAL-ONLY one. The tester routes an in-scope failure to `FIX-TEST`, and `launch.sh`
+   refuses a tag with no prompt file, so without this the repair route dies at
+   `launch: no prompt file`.
+
+   **What to delete from each rendered file:** the FINAL-ONLY section from a checkpoint review's
+   find and fix prompts; the FIX-TEST-ONLY section from every fixer except `FIX-TEST`; the two
+   unused modes from the `TEST` prompt.
 7. **Wire the chain.** Write each tag's successor to `state/<TAG>.next`, one tag per file
    (`T01.next` -> `T02`, the last one empty). `advance.sh` reads these; a session may overwrite
    its own before it writes its status.
@@ -233,7 +255,7 @@ waits itself, and logs all of them to `state/EVENTS.log`. **It speaks only for t
 |---|---|
 | `BLOCKED <tag> <reason>` | It hit something real - do **not** revive. Record it, skip every ticket that lists it as a blocker, continue with the rest. |
 | `DUP <tag> <id> <id> ...` | **Two agents in one worktree.** Drop everything and fix this first (below). Nothing else the runner says about `<tag>` can be trusted while it holds. |
-| `AUTH <tag>` / `AUTH-PAUSE <...>` | The CLI is logged out or its token expired. No retry can fix it and the sprint is **stopped** until a human runs `/login`. Report it, name the command, and say that clearing `state/PAUSED` then `revive.sh`-ing the tag resumes the night. |
+| `AUTH <tag>` / `AUTH-PAUSE <...>` | The CLI is logged out or its token expired. No retry can fix it and the sprint is **stopped** - the runner idles rather than spending revives against it. The tag keeps **no** terminal status, because nothing about the work is wrong. Report it and give the exact two-step recovery: `claude /login` in a real terminal, then `bash <WS>/revive.sh <WS> <tag> auth-retry`, which clears the hold and resumes the conversation. |
 | `BUDGET <tag> <class> retry-at <hh:mm>` | Out of capacity. **There is nothing to run** - the runner is waiting and will resume by itself. Log it; the morning report must explain the gap. |
 | `BUDGET-EXHAUSTED <tag>` | Capacity never came back. Report what landed and what did not. |
 | `HELD <tag>` | A successor was not launched because the sprint is paused. It launches when the pause clears. Nothing to do. |
@@ -365,12 +387,15 @@ mid-thought. Resume is not a fallback, it is the first move.
 | `transient` | dropped connection, stalled stream, 529, 500, DNS, timeout | the ladder below |
 | `quota-session <epoch>` | the rolling session limit, **with the reset time it names** | park the tag, write `state/PAUSED`, wait exactly that long, resume |
 | `quota-spend` | the org monthly spend cap. No reset time - a human must raise it | park, back off 20 / 40 / 60 minutes, let the next resume be the probe, give up after 8 waits |
-| `auth` | logged out, expired token, subscription disabled | `BLOCKED` immediately. No retry can succeed |
+| `auth` | logged out, expired token, subscription disabled | park the sprint and **write no terminal status** - a human runs `/login`, then `revive.sh <WS> <tag> auth-retry` |
 | `none` | no terminal error, or it carried on afterwards | nothing to revive |
 
 **While paused, nothing new launches.** `launch.sh` and `advance.sh` both refuse, because every
 fresh session against a cap that is already refusing requests spends one more refused request.
-The runner clears the pause and resumes the parked tags by itself.
+For quota the runner clears the pause and resumes the parked tags by itself. For **auth** it
+cannot: it idles until a human logs in and runs `revive.sh <WS> <tag> auth-retry`. That cause is
+how a caller says "I have dealt with the reason this stopped" - the transcript still ends on the
+same error, so classifying it again would park the tag for ever.
 
 **Faster polling cannot resolve a spending cap.** Naming the failure can. Two reviews once
 stopped on org spend-limit errors, recovery treated them as ordinary stalls, and 3h32m went

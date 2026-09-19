@@ -4,7 +4,8 @@
 #   revive.sh <WORKSPACE> <TAG> [CAUSE]
 #
 # CAUSE is the watcher's second field: api-error | ended-without-signal | idle |
-# permission-prompt | budget-retry (default: ended-without-signal).
+# permission-prompt (default: ended-without-signal), plus two the CALLER uses to say "I have
+# already dealt with the reason this stopped, try again now": budget-retry and auth-retry.
 #
 # Most night-time deaths are not the session's fault - the API drops the call mid-response,
 # stalls mid-stream, or returns 529/500. The process is gone but the whole conversation is
@@ -30,7 +31,8 @@
 #   1  refused - the session is still working, or the old one would not stop
 #   5  BUDGET-BLOCKED: out of capacity. state/PAUSED now holds the retry time; nothing new
 #      may launch until it clears, and the watcher comes back with CAUSE=budget-retry
-#   6  BLOCKED on auth. A human must re-authenticate; no retry can substitute
+#   6  held on auth. A human must re-authenticate, then call this again with CAUSE=auth-retry.
+#      No terminal status is written: the work is fine, only the login is not
 #   7  out of budget for good - waited the full ladder of waits and capacity never returned
 #
 # TWO THINGS THAT MAKE HAND-REVIVING WRONG, both handled here:
@@ -69,15 +71,31 @@ OLD_SID="$(tr -d '[:space:]' < "$SESSION_FILE" 2>/dev/null || echo)"
 
 resumes=0
 restarts=0
+events=0
 if [ -f "$LEDGER" ]; then
   # `grep -c` prints 0 and exits 1 when nothing matches - `|| true` swallows the status
   # without printing a second count on top of it.
   resumes="$(grep -c '^resume ' "$LEDGER" 2>/dev/null || true)"
   restarts="$(grep -c '^restart ' "$LEDGER" 2>/dev/null || true)"
+  events="$(wc -l < "$LEDGER" 2>/dev/null || true)"
   resumes="${resumes:-0}"
   restarts="${restarts:-0}"
+  events="${events:-0}"
 fi
-attempt=$(( resumes + restarts + 1 ))
+
+# THE LAUNCH GENERATION IS NOT THE LADDER BUDGET, and conflating them broke session tracking.
+#
+# `attempt` only exists to make the display name unique, and it used to be
+# `resumes + restarts + 1`. Budget retries deliberately do not increment those counters - being
+# out of capacity is not a failed attempt at the conversation - so every quota resume in a night
+# was named `ns-<slug>-<tag>-r1`. `resolve_sid` matches on that name, so the second retry
+# happily resolved the FIRST retry's finished session and recorded its id as the new one. The
+# real process ran untracked for the rest of the night.
+#
+# So the generation counts EVERY line in the ledger, which only ever grows, while the ladder
+# budgets keep counting their own kinds. `tr -d` because `wc -l` pads on macOS.
+events="$(printf '%s' "$events" | tr -d '[:space:]')"
+attempt=$(( events + 1 ))
 
 RESUME_BUDGET=1
 [ "$CAUSE" = "api-error" ] && RESUME_BUDGET=2
@@ -87,10 +105,10 @@ RESUME_BUDGET=1
 # not eat the ladder: the number of WAITS is what bounds this failure, and that cap lives in
 # the quota branch below.
 RESUME_KEY="resume"
-if [ "$CAUSE" = "budget-retry" ]; then
-  RESUME_KEY="resume-budget"
-  RESUME_BUDGET=99
-fi
+case "$CAUSE" in
+  budget-retry) RESUME_KEY="resume-budget"; RESUME_BUDGET=99 ;;
+  auth-retry)   RESUME_KEY="resume-auth";   RESUME_BUDGET=99 ;;
+esac
 
 # The watcher must be able to report this tag's next failure too.
 clear_seen() {
@@ -263,15 +281,40 @@ case "$CLASS" in *" "*) DETAIL="${CLASS#* }" ;; esac
 
 # A human must act, and no amount of retrying substitutes for it. Report it as the blocker
 # it is - NOT as an abandoned ticket, because nothing about the ticket is wrong.
-if [ "$KIND" = "auth" ]; then
+# NOTE THE ABSENCE OF A TERMINAL STATUS HERE, and it is deliberate.
+#
+# This used to write `BLOCKED: auth ...` to state/<TAG>.status while telling the user to log in
+# and then revive the tag. Those two instructions contradict each other: the status guard at the
+# top of this script exits 0 the moment a status file exists, so the documented recovery was a
+# no-op and the tag could never come back. A tag held up by a logged-out CLI is not a blocked
+# ticket - nothing about the work is wrong - so it stays OPEN, parked behind state/PAUSED, and
+# the marker file below is what the recovery clears.
+#
+# Recovery, and it is the one path that works:
+#     claude /login                      (a human, in a real terminal)
+#     bash <WS>/revive.sh <WS> <TAG> auth-retry
+# `auth-retry` skips this classification - the transcript still ENDS on the auth error, so
+# classifying again would park it again forever - and clears both markers itself.
+if [ "$CAUSE" != "auth-retry" ] && [ "$KIND" = "auth" ]; then
   echo "revive: $TAG stopped on an AUTH failure ($DETAIL) - a human must fix this, not a retry" >&2
+  echo "        After 'claude /login', run: bash $WS/revive.sh $WS $TAG auth-retry" >&2
   echo "auth-blocked $CAUSE $OLD_SID $DETAIL" >> "$LEDGER"
-  echo "stopped on an auth failure ($DETAIL) - needs a human before the sprint can continue" \
+  echo "waiting on re-authentication ($DETAIL) - not started, not blocked on the work" \
     > "$STATE/$TAG.summary"
-  echo "BLOCKED: auth ($DETAIL) - re-authenticate, then revive $TAG" > "$STATE/$TAG.status"
+  printf '%s\n' "$DETAIL" > "$STATE/$TAG.auth-blocked"
   clear_seen
   printf 'auth %s tag=%s\n' "$DETAIL" "$TAG" > "$STATE/PAUSED"
   exit 6
+fi
+
+# The human has logged in and is asking for the tag back. Clear the hold, then fall through to
+# the ordinary ladder as if this were any other recoverable death.
+if [ "$CAUSE" = "auth-retry" ]; then
+  rm -f "$STATE/$TAG.auth-blocked"
+  case "$(head -1 "$STATE/PAUSED" 2>/dev/null)" in
+    auth*) rm -f "$STATE/PAUSED"; echo "revive: cleared the auth hold on the sprint" ;;
+  esac
+  echo "auth-cleared auth-retry $OLD_SID -" >> "$LEDGER"
 fi
 
 # Out of capacity, not out of road. The work in that conversation is fine and the ticket is
@@ -325,23 +368,40 @@ fi
 
 # Resolve a background session id by display name, newest first. Same contract launch.sh uses:
 # the launch output format is not stable, `claude agents --json` reporting `name` is.
+#
+# The second argument is a space-separated list of session ids that already existed BEFORE the
+# launch, and it is the belt to the unique-name braces. A name collision resolved to a finished
+# session once left the real process untracked all night, and a name is not something this
+# script fully controls - the harness may truncate or reuse it. An id that was already there
+# cannot be the session we just started, whatever it is called.
 resolve_sid() {
-  local want="$1" sid=""
+  local want="$1" exclude="${2:-}" sid=""
   for _ in $(seq 1 15); do
     sid="$(agents_json "$WT" \
       | python3 -c 'import json,sys
 want=sys.argv[1]
+exclude=set(sys.argv[2].split())
 try: rows=json.load(sys.stdin)
 except Exception: sys.exit(0)
 best=None
 for r in rows:
-    if r.get("name")==want and (best is None or r.get("startedAt",0)>best.get("startedAt",0)):
+    if r.get("name")!=want: continue
+    if r.get("sessionId") in exclude: continue
+    if best is None or r.get("startedAt",0)>best.get("startedAt",0):
         best=r
-if best: print(best.get("sessionId",""))' "$want")"
+if best: print(best.get("sessionId",""))' "$want" "$exclude")"
     [ -n "$sid" ] && { printf '%s' "$sid"; return 0; }
     sleep 2
   done
   return 1
+}
+
+# Every session id the harness knows about right now. Snapshot this before launching anything.
+known_sids() {
+  agents_json "$WT" | python3 -c 'import json,sys
+try: rows=json.load(sys.stdin)
+except Exception: sys.exit(0)
+print(" ".join(str(r.get("sessionId") or "") for r in rows if r.get("sessionId")))'
 }
 
 # ---------------------------------------------------------------- rung 1: resume
@@ -352,6 +412,7 @@ if [ -n "$OLD_SID" ] && [ "$OLD_SID" != "unresolved" ] && [ "$resumes" -lt "$RES
     api-error) WHY="an API error - the connection dropped or the model call failed. That is infrastructure, not something you did wrong." ;;
     permission-prompt) WHY="a permission prompt. Nobody is awake to answer it, so do not wait for approval: decide it yourself, and if an action stays refused, route around it and say so in your summary." ;;
     idle) WHY="a stall - you went quiet for a long time and the sprint could not tell whether you were still working." ;;
+    auth-retry) WHY="the CLI was logged out or its token had expired - nothing to do with your work. A human has re-authenticated and the sprint has brought you back. Your conversation is intact." ;;
     budget-retry) WHY="the account ran out of capacity mid-turn - a spend or session limit, nothing to do with your work. The sprint waited for capacity and has now brought you back. Your conversation is intact." ;;
     *) WHY="something that ended your process before you wrote your status file." ;;
   esac
@@ -374,11 +435,12 @@ Still an autonomous night run. Nobody is awake to answer a question - decide, no
 in your summary, and keep going."
 
   echo "revive: $TAG rung=resume attempt=$attempt cause=$CAUSE from=$OLD_SID"
+  PRE_SIDS="$(known_sids)"
   ( cd "$WT" && claude --bg --resume "$OLD_SID" -n "$NAME" --permission-mode "$MODE" "$CONTINUE_PROMPT" ) \
     > "$STATE/$TAG.revive-$attempt.log" 2>&1
   rc=$?
 
-  if [ $rc -eq 0 ] && new_sid="$(resolve_sid "$NAME")"; then
+  if [ $rc -eq 0 ] && new_sid="$(resolve_sid "$NAME" "$PRE_SIDS")"; then
     printf '%s\n' "$new_sid" > "$SESSION_FILE"
     echo "$RESUME_KEY $CAUSE $OLD_SID $new_sid" >> "$LEDGER"
     clear_seen

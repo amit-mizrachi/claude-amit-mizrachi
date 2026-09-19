@@ -13,11 +13,16 @@ WORK HERE - DO NOT CREATE A WORKTREE OR BRANCH:
   cd <WORKTREE>
 Branch <BRANCH>, shared by the whole sprint. You hold it exclusively; no implementer is running. Never rebase, force-push, or merge.
 
+THE PR NUMBER IS NOT IN THIS PROMPT - the draft PR did not exist when it was written. Get it
+once, at the start:
+
+  PR="$(gh pr view --json number -q .number)"
+
 READ FIRST, and only this much:
 - **<WS>/state/<FIND_TAG>.findings.md** - the manifest. `ID / SEVERITY / LANE / WHERE / ISSUE / EVIDENCE / ACTION` per item. This is your work list and it is local; you do not need to fetch it from GitHub.
 - **<WS>/LOG.md** - what the sprint deferred on purpose. Do not re-litigate a conscious deferral.
 - The PR's EXTERNAL threads only - comments from bots, CI, or a human:
-    gh pr view <PR> --json comments,reviews
+    gh pr view "$PR" --json comments,reviews
   <FIND_TAG>'s own consolidated comment is the manifest you already have; do not work it twice.
 
 Read source files only as each fix requires. <FIND_TAG> did the wide reading and wrote down the result.
@@ -68,7 +73,7 @@ Your fixes are pushed. Now find out whether the branch is actually acceptable, w
 
 It compares your local HEAD to the pushed head, then reads the required checks GitHub actually ran, and writes `<WS>/state/ACCEPTANCE.verdict`.
 
-- **PASS** -> `gh pr ready <PR>` to take it out of draft, and make sure the description reflects everything the sprint delivered.
+- **PASS** -> `gh pr ready "$PR"` to take it out of draft, and make sure the description reflects everything the sprint delivered.
 - **FAIL** -> you get ONE bounded repair pass. Read the failing check's log, fix it, push, run `accept.sh` again. If it still fails, leave the PR in DRAFT and write `BLOCKED: CI red - <which checks>` as your status. **Do not take a red PR out of draft and do not report the sprint delivered.** A sprint that says "one lane is red and here is which" is worth more than one that reports 21 green stages over a red branch.
 - **UNKNOWN** -> say so plainly in your summary and leave the PR in draft.
 
@@ -77,6 +82,36 @@ It compares your local HEAD to the pushed head, then reads the required checks G
 Never merge and never deploy. Those are <USER>'s, always.
 
 Do not touch <WS>/state/SETUP.verdict unless your own fixes changed the answer: <FIND_TAG> swept the diff with all of it loaded and already wrote it. If a fix introduced or removed a setup need, update it and say so.
+
+## STEP 5 - FIX-TEST ONLY
+
+DELETE THIS WHOLE SECTION unless you are FIX-TEST, the one bounded repair pass after the tester
+found an in-scope failure. Your manifest is <WS>/state/TEST.findings.md and your finder was TEST.
+
+The tester deliberately did NOT run the wizard gate, because a gate that runs before the golden
+path passes sends the sprint to the wizard over a broken feature. That gate is yours now, and it
+runs only after you have proved the failures are gone.
+
+1. Fix the findings, verify, and push, exactly as STEP 1 and STEP 2 say.
+2. **Re-run the golden-path steps that failed.** They are named in <WS>/state/TEST-REPORT.md
+   along with how the tester got the stack or suite running. Do not re-walk steps that passed.
+3. Rewrite <WS>/state/GOLDEN.verdict with the honest result:
+     echo "PASS <n> steps (repaired by <TAG>)" > <WS>/state/GOLDEN.verdict
+     echo "FAIL step <n>: <what still breaks>"  > <WS>/state/GOLDEN.verdict
+   Append what you re-ran, and its real output, to <WS>/state/TEST-REPORT.md.
+4. **Still failing? Stop.** You get one pass, not a loop. Leave the FAIL verdict, write
+   `BLOCKED: golden path still failing - <step and error>` as your status, leave `.next` EMPTY,
+   and let the morning report say so plainly. A second repair pass is the user's call.
+5. Passing? Apply THE WIZARD GATE the tester skipped - the same two tests over every
+   <WS>/state/*.manual block:
+     TEST 1 - REQUIRED?   the shipped feature does not work until a human acts
+     TEST 2 - HUMAN-ONLY? no agent could have done it
+   Both, or it is not a stage.
+     ANY counts -> echo NEEDED > <WS>/state/SETUP.verdict  and `.next` = WIZARD
+     NONE does  -> echo NONE   > <WS>/state/SETUP.verdict
+                   echo "SKIPPED: no manual setup" > <WS>/state/WIZARD.status
+                   echo "<what was swept, why nothing came up>" > <WS>/state/WIZARD.summary
+                   and leave `.next` EMPTY - the sprint ends with you.
 
 ## CONTEXT
 

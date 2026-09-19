@@ -67,15 +67,30 @@ Leave the stack UP for your successor if you relay, and say so in the report. Sh
      echo "UNKNOWN <why you could not run it>" > <WS>/state/GOLDEN.verdict
    The morning report's headline is built from this file, not from your status.
 
-3. **If a step failed on something in scope, you get ONE bounded repair route** - and it is not yours to walk. Write the failure as a finding in <WS>/state/TEST.findings.md, using the manifest format (`ID / SEVERITY / LANE / WHERE / ISSUE / EVIDENCE / ACTION`), and set `<WS>/state/TEST.next` to `FIX-TEST`. That launches one fix session against the failures you found, and it re-runs the affected golden-path steps afterwards. Out-of-scope or pre-existing failures do NOT get a repair pass: they are report lines and FOLLOWUPS.md entries.
+3. **Did an IN-SCOPE step fail?** That decides everything below, so settle it here.
+   - Yes -> you get ONE bounded repair pass, and it is not yours to walk. Write each failure as
+     a finding in <WS>/state/TEST.findings.md using the manifest format (`ID / SEVERITY / LANE /
+     WHERE / ISSUE / EVIDENCE / ACTION`). A repair pass is now PENDING.
+   - No -> no repair pass. Out-of-scope and pre-existing failures never earn one: they are report
+     lines and FOLLOWUPS.md entries, and you already said so in WHY.
 
 4. `echo "<pass/fail counts and the headline verdict in one line>" > <WS>/state/TEST.summary`
 
-5. Write `<WS>/state/TEST.next` - **before** your status:
-   - a repair pass is needed -> `FIX-TEST`
-   - otherwise THE WIZARD GATE, from <WS>/state/SETUP.verdict (see step 6) -> `WIZARD` or empty.
+5. Write `<WS>/state/TEST.next` - **before** your status, and write it exactly once:
 
-6. THE WIZARD GATE. <FIND_FINAL_TAG> already swept the diff and wrote <WS>/state/SETUP.verdict. You may have found more, because you are the only session that tries to RUN the thing, so you settle it. Re-read every <WS>/state/*.manual block including your own, and put each through BOTH tests:
+   - **A repair pass is PENDING** -> `echo "FIX-TEST" > <WS>/state/TEST.next`, and **SKIP STEP 6
+     ENTIRELY**. Do not touch SETUP.verdict, do not write WIZARD.status, do not run the gate.
+     FIX-TEST fixes the failures, re-runs the steps that failed, rewrites GOLDEN.verdict, and
+     applies the wizard gate itself once the golden path actually passes.
+
+     This ordering is the whole point. The gate used to run unconditionally and overwrite
+     `TEST.next` with `WIZARD` or empty, so the repair pass was silently dropped at exactly the
+     moment it was needed - the tester wrote DONE, `advance.sh` followed the overwritten
+     successor, and the sprint went to the wizard with a failing golden path behind it.
+
+   - **No repair pass** -> run STEP 6 and let it set `TEST.next`.
+
+6. THE WIZARD GATE - only when no repair pass is pending. <FIND_FINAL_TAG> already swept the diff and wrote <WS>/state/SETUP.verdict. You may have found more, because you are the only session that tries to RUN the thing, so you settle it. Re-read every <WS>/state/*.manual block including your own, and put each through BOTH tests:
      TEST 1 - REQUIRED?   The shipped feature does not work until this happens.
      TEST 2 - HUMAN-ONLY? No agent could have done it - it needs a credential no agent holds, a
                           console no agent can reach, a human approval, or it is a production

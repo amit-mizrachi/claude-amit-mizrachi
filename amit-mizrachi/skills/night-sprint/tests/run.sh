@@ -328,7 +328,182 @@ case "$out" in
   *) no "it names the missing fact" "got: $out" ;;
 esac
 
-rm -rf "$RWS" "$BWS"
+
+echo
+echo "== the review of 2026-09-19: eight findings, each asserted =="
+
+# --- F1 + F2: the kickoff render contract has to be satisfiable.
+grep -q 'prompt-FIX-TEST.txt' "$HERE/../SKILL.md" \
+  && ok "F1 kickoff renders a prompt for FIX-TEST" \
+  || no "F1 kickoff renders a prompt for FIX-TEST" "launch.sh refuses a tag with no prompt file"
+
+leak="$(grep -l '<PR>' "$REF"/*prompt*.md 2>/dev/null | tr '\n' ' ')"
+# The draft PR opens only after T01 lands, so a <PR> slot can never be filled at kickoff and
+# render.sh exits 2 on it. The prompts discover the number themselves instead.
+if [ -z "$leak" ]; then ok "F2 no template carries an unfillable <PR> slot"
+else no "F2 no template carries an unfillable <PR> slot" "still in: $leak"; fi
+grep -q 'gh pr view --json number' "$REF/review-find-prompt.md" \
+  && ok "F2 the finder discovers the PR number at runtime" \
+  || no "F2 the finder discovers the PR number at runtime" "no discovery line"
+
+# Every slot must appear in SKILL.md's per-role table or be a fact bootstrap requires.
+orphans="$(python3 - "$REF" "$HERE/../SKILL.md" <<'PY'
+import glob, os, re, sys
+ref, skill = sys.argv[1], sys.argv[2]
+facts = set(re.findall(r'"([A-Z][A-Z0-9_]*)"', open(os.path.join(ref, "bootstrap.sh")).read()))
+# Anything named in a `vars-<TAG>.env` row of the kickoff table counts as documented.
+documented = set(re.findall(r'`([A-Z][A-Z0-9_]*)(?:=[^`]*)?`', open(skill).read()))
+out = set()
+for f in glob.glob(os.path.join(ref, "*prompt*.md")):
+    out |= set(re.findall(r'<([A-Z][A-Z0-9_]*)>', open(f).read())) - facts - documented
+print(" ".join(sorted(out)))
+PY
+)"
+if [ -z "$orphans" ]; then ok "F2 every template slot is documented in the kickoff contract"
+else no "F2 every template slot is documented in the kickoff contract" "undocumented: $orphans"; fi
+
+# --- F4: the wizard gate must not overwrite a pending repair pass.
+if grep -q 'SKIP STEP 6' "$REF/test-prompt.md" && grep -q 'only when no repair pass is pending' "$REF/test-prompt.md"; then
+  ok "F4 the wizard gate is conditional on no pending repair"
+else
+  no "F4 the wizard gate is conditional on no pending repair" "the gate still runs unconditionally"
+fi
+grep -q '## STEP 5 - FIX-TEST ONLY' "$REF/review-fix-prompt.md" \
+  && ok "F4 FIX-TEST inherits the gate and the golden-path re-run" \
+  || no "F4 FIX-TEST inherits the gate and the golden-path re-run" "no FIX-TEST section in the fixer"
+
+# --- F5: cooldown is checked BEFORE the death marker is consumed.
+order="$(python3 - "$REF/watch.sh" <<'PY'
+import re, sys
+src = open(sys.argv[1]).read()
+i = src.find("done|\"\")")
+block = src[i:i+2000] if i >= 0 else ""
+cool = block.find("recently_acted")
+died = block.find('did_once "$tag:DIED"')
+print("ok" if 0 <= cool < died else "bad cool=%d died=%d" % (cool, died))
+PY
+)"
+check "F5 cooldown precedes consuming the death" "ok" "$order"
+
+# --- F6: the acceptance gate reads the PR head, not a cached tracking ref.
+# Strip comments first: accept.sh explains in prose why it no longer reads @{upstream}, and a
+# grep that cannot tell code from commentary fails on its own documentation.
+code="$(sed 's/[[:space:]]*#.*$//' "$REF/accept.sh")"
+if printf '%s' "$code" | grep -q 'headRefOid' && ! printf '%s' "$code" | grep -q 'upstream'; then
+  ok "F6 acceptance compares against the PR head, not a local tracking ref"
+else
+  no "F6 acceptance compares against the PR head, not a local tracking ref" "still reading a local ref"
+fi
+grep -q 'AFTER="\$(pr_head)"' "$REF/accept.sh" \
+  && ok "F6 the head is re-read after the wait" \
+  || no "F6 the head is re-read after the wait" "a PASS could name a commit the checks never ran on"
+
+# --- F7: a unique launch generation per revive, and pre-launch ids excluded.
+MWS="$(mktemp -d)"
+MBIN="$MWS/bin"; mkdir -p "$MBIN" "$MWS/ws/state" "$MWS/wt"
+cp "$HERE/mock-claude.sh" "$MBIN/claude"; chmod +x "$MBIN/claude"
+for f in agents.sh revive.sh classify-error.sh context-used.sh launch.sh advance.sh; do
+  cp "$REF/$f" "$MWS/ws/$f"
+done
+printf '%s\n' "$MWS/wt" > "$MWS/ws/WORKTREE"
+printf 'mslug\n'        > "$MWS/ws/SLUG"
+printf 'auto\n'         > "$MWS/ws/PERMISSION_MODE"
+printf 'dummy\n'        > "$MWS/ws/prompt-T01.txt"
+export MOCK_STATE="$MWS/mock"
+mkdir -p "$MOCK_STATE"
+
+# A finished earlier retry, already named -r1, sitting in the harness's list. This is the exact
+# shape that made the second budget retry resolve the FIRST retry's session id.
+cat > "$MOCK_STATE/agents.json" <<'JSON'
+[{"sessionId":"OLD-R1-SID","id":"OLD-R1-S","name":"ns-mslug-T01-r1","state":"done","status":"idle","pid":null,"startedAt":10}]
+JSON
+printf 'OLD-SID\n' > "$MWS/ws/state/T01.session"
+# Two budget waits and one budget resume already happened. Under the old arithmetic - which
+# counted only `resume `/`restart ` lines - attempt was still 1 and the name still -r1.
+cat > "$MWS/ws/state/T01.revivals" <<'LEDGER'
+budget-blocked quota-spend OLD-SID quota-spend retry-at=1
+resume-budget budget-retry OLD-SID OLD-R1-SID
+budget-blocked quota-spend OLD-R1-SID quota-spend retry-at=2
+LEDGER
+out="$(PATH="$MBIN:$PATH" bash "$MWS/ws/revive.sh" "$MWS/ws" T01 budget-retry 2>&1)"; rc=$?
+launched_name="$(awk 'END{print $1}' "$MOCK_STATE/launches" 2>/dev/null)"
+recorded="$(tr -d '[:space:]' < "$MWS/ws/state/T01.session" 2>/dev/null)"
+check "F7 a repeated budget retry gets a fresh launch generation" "ns-mslug-T01-r4" "$launched_name"
+if [ "$recorded" != "OLD-R1-SID" ] && [ -n "$recorded" ]; then
+  ok "F7 the recorded session is the new one, not the finished -r1"
+else
+  no "F7 the recorded session is the new one, not the finished -r1" "recorded '$recorded' (rc=$rc)"
+fi
+
+# Pre-launch exclusion, independent of the name: even with a colliding name already present,
+# resolve_sid must not hand back an id that existed before the launch.
+grep -q 'exclude=set(sys.argv\[2\].split())' "$REF/revive.sh" \
+  && ok "F7 resolve_sid excludes pre-launch session ids" \
+  || no "F7 resolve_sid excludes pre-launch session ids" "name collisions can still resolve an old session"
+
+# --- F8: auth writes no terminal status, and auth-retry is a real recovery path.
+rm -rf "$MWS/ws/state"; mkdir -p "$MWS/ws/state"
+printf 'AUTH-SID\n' > "$MWS/ws/state/T01.session"
+: > "$MOCK_STATE/launches"
+cat > "$MOCK_STATE/agents.json" <<'JSON'
+[]
+JSON
+# A transcript whose last breath is a logged-out error, where the classifier will find it.
+PROJ="$HOME/.claude/projects/ns-test-authfix"
+mkdir -p "$PROJ"
+cp "$FIX/logged-out.jsonl" "$PROJ/AUTH-SID.jsonl"
+out="$(PATH="$MBIN:$PATH" bash "$MWS/ws/revive.sh" "$MWS/ws" T01 api-error 2>&1)"; rc=$?
+check "F8 an auth failure exits 6" "6" "$rc"
+if [ ! -f "$MWS/ws/state/T01.status" ]; then
+  ok "F8 auth writes NO terminal status, so the tag can still come back"
+else
+  no "F8 auth writes NO terminal status, so the tag can still come back" \
+     "wrote '$(head -1 "$MWS/ws/state/T01.status")' - the guard at the top then blocks every recovery"
+fi
+[ -f "$MWS/ws/state/T01.auth-blocked" ] && ok "F8 it records an auth-blocked marker" \
+  || no "F8 it records an auth-blocked marker" "nothing marks the hold"
+case "$(head -1 "$MWS/ws/state/PAUSED" 2>/dev/null)" in
+  auth*) ok "F8 the sprint is paused on auth" ;;
+  *) no "F8 the sprint is paused on auth" "PAUSED is '$(head -1 "$MWS/ws/state/PAUSED" 2>/dev/null)'" ;;
+esac
+
+# Now the documented recovery: after /login, revive with auth-retry. It must clear the hold and
+# actually resume, rather than tripping the classifier and parking the tag again.
+out="$(PATH="$MBIN:$PATH" bash "$MWS/ws/revive.sh" "$MWS/ws" T01 auth-retry 2>&1)"; rc=$?
+check "F8 auth-retry succeeds" "0" "$rc"
+[ ! -f "$MWS/ws/state/PAUSED" ] && ok "F8 auth-retry clears the sprint-wide hold" \
+  || no "F8 auth-retry clears the sprint-wide hold" "PAUSED survives"
+[ ! -f "$MWS/ws/state/T01.auth-blocked" ] && ok "F8 auth-retry clears the tag marker" \
+  || no "F8 auth-retry clears the tag marker" "marker survives"
+if grep -q 'ns-mslug-T01' "$MOCK_STATE/launches" 2>/dev/null; then
+  ok "F8 auth-retry actually resumes the conversation"
+else
+  no "F8 auth-retry actually resumes the conversation" "no launch recorded: $(cat "$MOCK_STATE/launches" 2>/dev/null)"
+fi
+rm -rf "$PROJ"
+
+# --- F3: handback must not drop a rendered prompt's acceptance obligations.
+HWS="$MWS/hb"; mkdir -p "$HWS/state"
+for f in agents.sh handback.sh context-used.sh; do cp "$REF/$f" "$HWS/"; done
+printf '%s\n' "$MWS/wt" > "$HWS/WORKTREE"
+printf 'mslug\n' > "$HWS/SLUG"
+printf 'auto\n' > "$HWS/PERMISSION_MODE"
+printf 'F1 something\n' > "$HWS/findings.md"
+printf 'work the list, then: bash <WS>/accept.sh <WS>\n' > "$HWS/prompt-FIX-FINAL.txt"
+out="$(PATH="$MBIN:$PATH" bash "$HWS/handback.sh" "$HWS" FIX-FINAL T07 "$HWS/findings.md" 2>&1)"; rc=$?
+check "F3 handback refuses a tag whose prompt has an acceptance gate" "1" "$rc"
+case "$out" in
+  *"acceptance gate"*) ok "F3 it says why, so the caller launches the rendered fixer" ;;
+  *) no "F3 it says why, so the caller launches the rendered fixer" "got: $out" ;;
+esac
+[ ! -d "$HWS/state/claim-FIX-FINAL" ] && ok "F3 it leaves no claim behind for the fallback" \
+  || no "F3 it leaves no claim behind for the fallback" "claim-FIX-FINAL exists, so launch.sh would no-op"
+grep -q 'a FINAL review always launches its rendered fixer' "$REF/review-find-prompt.md" \
+  && ok "F3 the finder is told not to hand back on a FINAL review" \
+  || no "F3 the finder is told not to hand back on a FINAL review" "no such rule"
+
+unset MOCK_STATE
+rm -rf "$MWS" "$RWS" "$BWS"
 
 echo
 echo "== $pass passed, $fail failed =="

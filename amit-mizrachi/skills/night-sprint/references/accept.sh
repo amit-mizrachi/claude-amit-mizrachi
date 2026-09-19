@@ -44,20 +44,27 @@ cd "$WT" || { verdict "UNKNOWN - no-worktree $WT"; exit 2; }
 LOCAL="$(git rev-parse HEAD 2>/dev/null || echo)"
 [ -n "$LOCAL" ] || { verdict "UNKNOWN - cannot read HEAD"; exit 2; }
 
-# An unpushed commit is the cheapest way to hold a green report over a red branch: CI has
-# never seen the code the report is about.
-UPSTREAM="$(git rev-parse '@{upstream}' 2>/dev/null || echo)"
-if [ -z "$UPSTREAM" ]; then
-  verdict "FAIL $LOCAL branch has no upstream - nothing was pushed"
-  exit 1
-fi
-if [ "$LOCAL" != "$UPSTREAM" ]; then
-  verdict "FAIL $LOCAL local HEAD is not the pushed head ($UPSTREAM) - push before claiming green"
-  exit 1
-fi
-
 PR="$(gh pr view --json number -q .number 2>/dev/null || echo)"
 [ -n "$PR" ] || { verdict "UNKNOWN $LOCAL no PR on this branch yet"; exit 2; }
+
+# THE AUTHORITY IS THE PR'S HEAD, NOT A LOCAL REF.
+#
+# This used to compare HEAD against `git rev-parse @{upstream}`, which reads the local
+# remote-tracking ref - a cached answer from the last fetch, not the branch as GitHub sees it
+# now. Another checkout advancing the same branch leaves both of those at A while `gh pr checks`
+# reports on B, and the verdict then says "A passed" on the strength of B's checks. So ask
+# GitHub what the PR head actually is, and require it to be the commit we are vouching for.
+pr_head() { gh pr view "$PR" --json headRefOid -q .headRefOid 2>/dev/null || echo; }
+
+REMOTE="$(pr_head)"
+if [ -z "$REMOTE" ]; then
+  verdict "UNKNOWN $LOCAL cannot read the PR head from GitHub"
+  exit 2
+fi
+if [ "$LOCAL" != "$REMOTE" ]; then
+  verdict "FAIL $LOCAL is not the PR head ($REMOTE) - push, or fetch what someone else pushed, before claiming green"
+  exit 1
+fi
 
 # Wait for the checks to settle, rather than reading a snapshot mid-run and calling a pending
 # lane a pass. `gh pr checks --watch` exits 0 when all required checks pass, 1 when any fails,
@@ -75,6 +82,15 @@ done
 # Whatever happened, record which lanes are not green - a verdict nobody can act on is half a
 # verdict. Names only; the logs stay on GitHub where they cost no context.
 failing="$(printf '%s\n' "${out:-}" | awk '$2=="fail"||$2=="failure"{printf "%s ", $1}')"
+
+# The PR can advance WHILE we wait - a bot push, another checkout, a rebase. Re-read the head
+# before writing PASS, because a pass is a statement about one specific commit and this is the
+# only moment we can still check that the commit is the one the checks ran against.
+AFTER="$(pr_head)"
+if [ "$AFTER" != "$REMOTE" ]; then
+  verdict "UNKNOWN $LOCAL the PR head moved to ${AFTER:-unknown} while the checks were running - re-run accept.sh on the new head"
+  exit 2
+fi
 
 case "$rc" in
   0) verdict "PASS $LOCAL all required checks green (PR #$PR)"; exit 0 ;;

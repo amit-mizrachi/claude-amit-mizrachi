@@ -233,7 +233,7 @@ in `state/EVENTS.log`, timestamped, which is the ledger the morning report is bu
 |---|---|
 | `BLOCKED <tag> <reason>` | record it, skip the tickets that depend on it, carry on with the rest |
 | `DUP <tag> <ids>` | two agents in one worktree - drop everything and settle it first |
-| `AUTH <tag>` / `AUTH-PAUSE` | the sprint is stopped until a human re-authenticates. Say so in the report |
+| `AUTH <tag>` / `AUTH-PAUSE` | the sprint is stopped until a human re-authenticates. Report the two-step recovery: `claude /login`, then `revive.sh <WS> <tag> auth-retry`. The tag keeps no terminal status - the work is fine, only the login is not |
 | `BUDGET <tag> <class> retry-at <hh:mm>` | nothing to do, but the morning report must explain the gap |
 | `BUDGET-EXHAUSTED <tag>` | capacity never returned; report what did and did not land |
 | `NEEDS-PR` | open the draft PR - writing a PR body is not a script's job |

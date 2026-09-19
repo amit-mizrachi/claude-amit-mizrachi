@@ -11,6 +11,14 @@ WORK HERE - DO NOT CREATE A WORKTREE OR BRANCH:
   cd <WORKTREE>
 Branch <BRANCH>, shared by the whole sprint. You hold it exclusively and you are only reading it. Never rebase, force-push, or merge.
 
+THE PR NUMBER IS NOT IN THIS PROMPT, because the draft PR does not exist at kickoff when this
+prompt is written. Discover it once, at the start, and use it everywhere below:
+
+  PR="$(gh pr view --json number -q .number)"
+
+If that comes back empty the PR has not been opened yet. Say so in your summary, write the
+manifest anyway, and skip only the posting step - the manifest is the deliverable.
+
 READ FIRST: <WS>/PLAN.md (goal + tickets), <WS>/LOG.md (what landed, and what the sprint already deferred on purpose - never re-raise a conscious deferral), and `git log --oneline` on the branch.
 
 SCOPE: <SCOPE>. Review it as one body of work.
@@ -63,7 +71,7 @@ Concrete enough that a session which never saw the review can act on it without 
 
 Post **one** consolidated comment. Not one comment per finding.
 
-  gh pr comment <PR> --body-file <WS>/state/<TAG>.findings.md
+  gh pr comment "$PR" --body-file <WS>/state/<TAG>.findings.md
 
 Add inline anchors ONLY for BLOCKER and HIGH findings, where the exact line is the point:
 
@@ -77,7 +85,7 @@ Add inline anchors ONLY for BLOCKER and HIGH findings, where the exact line is t
     ]
   }
   JSON
-  gh api --method POST repos/<REPO_SLUG>/pulls/<PR>/reviews --input "$TMPDIR/ns-<TAG>-review.json"
+  gh api --method POST repos/<REPO_SLUG>/pulls/"$PR"/reviews --input "$TMPDIR/ns-<TAG>-review.json"
 
 Three things about that call, each of which has cost a night:
 1. `event` is `COMMENT`. `APPROVE` and `REQUEST_CHANGES` are both refused on your own PR and fail the whole request.
@@ -128,21 +136,22 @@ Check it after the review lanes return; that is where the number jumps. You do n
 2. **Decide the fix route**, and write your successor to `<WS>/state/<TAG>.next` BEFORE you write your status. Nothing launches off your status until `.next` is correct; that ordering is the whole reason the two files are separate.
 
    Does the fixer have anything to do? It does if you wrote ANY finding, or if the PR carries an unaddressed comment from a bot, CI, or a human:
-     gh pr view <PR> --json comments,reviews
+     gh pr view "$PR" --json comments,reviews
 
    - **Nothing at all** - no findings, no open comments:
        echo "SKIPPED: nothing to address" > <WS>/state/<FIX_TAG>.status
        echo "<TAG> posted no findings and the PR has no open comments" > <WS>/state/<FIX_TAG>.summary
        echo "<NEXT_AFTER_FIX>" > <WS>/state/<FIX_TAG>.next
        echo "<NEXT_AFTER_FIX>" > <WS>/state/<TAG>.next
-     <For a FINAL review with nothing to address, also run `gh pr ready <PR>` yourself, since no fixer will - but only after `bash <WS>/accept.sh <WS>` says PASS.>
+     <For a FINAL review with nothing to address, also run `gh pr ready "$PR"` yourself, since no fixer will - but only after `bash <WS>/accept.sh <WS>` says PASS.>
 
-   - **A SMALL fix set** - 5 findings or fewer, no BLOCKER, and all of them inside files <IMPL_TAG> itself changed. Hand it back to the session that wrote the code rather than paying for a fresh window to re-read it:
+   - **A SMALL fix set** - 5 findings or fewer, no BLOCKER, and all of them inside files <IMPL_TAG> itself changed. **Checkpoint reviews only: a FINAL review always launches its rendered fixer**, because that prompt carries the acceptance gate and a handback would drop it. Otherwise hand it back to the session that wrote the code rather than paying for a fresh window to re-read it:
        echo "<FIX_TAG>" > <WS>/state/<TAG>.next
        bash <WS>/handback.sh <WS> <FIX_TAG> <IMPL_TAG> <WS>/state/<TAG>.findings.md \
          || bash <WS>/launch.sh <WS> <FIX_TAG>
-     The `||` is not a formality. `handback.sh` refuses when that window is too full or its
-     session is gone, and the fresh fixer is then the right answer. Do not argue with it.
+     The `||` is not a formality. `handback.sh` refuses when that window is too full, its
+     session is gone, or the tag's rendered prompt has obligations a handback would drop. The
+     fresh fixer is then the right answer. Do not argue with it.
 
    - **Anything larger** - a BLOCKER, or findings spread past what one ticket touched:
        echo "<FIX_TAG>" > <WS>/state/<TAG>.next

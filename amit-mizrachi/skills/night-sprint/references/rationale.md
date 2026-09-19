@@ -353,6 +353,59 @@ window and dies with it.
 
 ---
 
+## The review of the audit fixes, and what it caught
+
+The change set above was itself reviewed before it landed, and eight findings came back. They are
+worth recording because six of them are the same shape: **a fix that created a new coupling and
+did not follow it through to the other end.**
+
+1. **The FIX-TEST prompt was never rendered.** The tester routes an in-scope failure to a
+   `FIX-TEST` tag and `launch.sh` refuses a tag with no prompt file, so the whole repair route
+   ended at `launch: no prompt file`. The edit that was meant to add it to the kickoff contract
+   silently matched nothing - a `replace` with no assertion on a string that had already changed.
+   **Assert every mechanical edit.** An unasserted `s.replace` is a no-op waiting to be believed.
+2. **`<PR>` cannot be filled at kickoff.** Both review templates carried the slot and `render.sh`
+   exits 2 on an unfilled one, but the draft PR opens only after `T01` lands. The prompts now
+   discover the number themselves. The test suite had not caught it because it asserted each slot
+   was *known*, which is not the same as *resolvable at the moment it is needed*.
+3. **A `FIX-FINAL` handback dropped the acceptance gate.** `handback.sh` builds a generic
+   "fix, verify, push, advance" prompt. The rendered `FIX-FINAL` contract also runs `accept.sh`,
+   takes one bounded repair pass on red, and only leaves draft on PASS. Resuming an implementer
+   with the generic prompt silently discarded all of it, so a one-line final fix could end the
+   sprint without anything checking CI. It now refuses any tag whose rendered prompt mentions
+   `accept.sh` - a mechanical test, so it keeps holding if the gate moves to another tag.
+4. **The wizard gate overwrote the pending repair.** The tester set `TEST.next=FIX-TEST`, then ran
+   the gate unconditionally and overwrote it with `WIZARD` or empty. The repair pass was dropped
+   at exactly the moment it was needed. The gate is now conditional, and `FIX-TEST` owns it.
+5. **A skipped recovery consumed the death that justified it.** `did_once "$tag:DIED"` marked the
+   death reported *before* `do_revive` checked its five-minute cooldown. With 120-second polls, a
+   resumed session that fails immediately hits the second death inside the cooldown: the revive
+   was declined, the marker was spent, and every later sweep failed the `did_once` check. The tag
+   sat unfinished until morning. **Never consume the reason for an action before the action
+   succeeds.**
+6. **`@{upstream}` is a cached answer.** `accept.sh` compared HEAD against the local
+   remote-tracking ref, which is whatever the last fetch left there - not the PR as GitHub sees
+   it. Another checkout advancing the branch leaves both local refs at A while the checks report
+   on B, and the verdict then says "A passed" on B's evidence. It now reads `headRefOid` from the
+   PR and re-reads it after the wait, because the head can move while the checks run.
+7. **The launch generation was the ladder budget.** `attempt` was `resumes + restarts + 1`, and
+   budget retries deliberately do not increment those - so every quota resume in a night was named
+   `ns-<slug>-<tag>-r1`, and `resolve_sid` matched the *previous* retry's finished session. The
+   real process ran untracked. Two things were conflated because they happened to be the same
+   number once. The generation now counts every ledger line, and `resolve_sid` additionally
+   excludes every session id that existed before the launch.
+8. **The auth recovery could not run.** The auth branch wrote a terminal `<TAG>.status` while its
+   own message told the user to log in and revive the tag - but the status guard at the top of
+   `revive.sh` exits 0 the moment a status file exists, so the documented procedure was a no-op.
+   A tag held up by a logged-out CLI is not a blocked ticket: nothing about the work is wrong. It
+   now writes no status, marks the hold, and `revive.sh <WS> <TAG> auth-retry` is a real path that
+   clears both markers and resumes. The runner idles while the hold stands rather than spending
+   revives against it.
+
+The suite grew from 81 to 105 assertions, including a `claude` mock (`tests/mock-claude.sh`) so
+the recovery and session-tracking paths can be driven offline. Findings 5, 7 and 8 were all
+invisible to a reading of the diff and only showed up when someone ran the path in isolation.
+
 ## What to measure next time
 
 On comparable 3-7 ticket runs, track: total / cache / output tokens; wall time **excluding quota
