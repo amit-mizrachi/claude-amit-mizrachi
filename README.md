@@ -123,12 +123,21 @@ The parts that make it survive an unattended night:
 - **A closing wizard that is only the commands a human must run** - an apply, a paste, a click.
   No preflight stages, no status stages, no "did it work" stages: anything an agent could do, the
   sprint does itself or files as a follow-up ticket. A stage asking the user to do an agent's
-  chore reads as a requirement and is really a handover. When nothing needs setting up, the
-  session does not run at all.
+  chore reads as a requirement and is really a handover. It ends the moment the feature is on;
+  the canary window and the rollback drill are a runbook the user paces, not stages. When nothing
+  needs setting up, the session does not run at all.
+- **And that wizard is driven before it ships, not read.** A wizard is a state machine, and its
+  defects are orderings: a probe above the change it measures, a failed apply walked past into
+  the stages that assumed it. One 713-line wizard passed `bash -n`, passed shellcheck, passed a
+  human reading, and shipped four of those at once. `wizard-dryrun.sh` swaps the library half for
+  an instrumented copy, puts shims on `PATH` and nothing else, and drives the authored stages
+  once per branch - every default taken, each confirm declined in turn, each command failed in
+  turn - checking the traces against the contract each mutating stage declares. `DONE` requires a
+  `PASS`.
 - **A morning report with a full session ledger** - every session, including revived attempts,
   relays and budget waits, and what each one actually contributed.
 
-Ships the plan skeleton, six prompt templates, eleven scripts, an offline test suite, and
+Ships the plan skeleton, six prompt templates, twelve scripts, an offline test suite, and
 `references/rationale.md` - the incident behind every rule above, kept out of the runtime path so
 it costs nothing until somebody is deciding whether a rule can go.
 

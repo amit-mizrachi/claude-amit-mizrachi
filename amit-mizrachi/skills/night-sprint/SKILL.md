@@ -191,10 +191,11 @@ Decide that deliberately rather than discovering it in the morning.
 | `references/classify-error.sh` | what actually ended a session: transient / quota / auth / none |
 | `references/handback.sh` | resume the implementer for a small fix set instead of paying for a fresh window |
 | `references/accept.sh` | are the required CI checks green **at the pushed sha**? |
+| `references/wizard-dryrun.sh` | drive the setup script through every branch in a sandbox, and check it against its stage contract |
 | `references/agents.sh` | shared: ask the harness for background sessions, with the `--cwd` fallback |
 | `references/context-used.sh` | the gauge: percent of a window already USED |
 | `references/rationale.md` | **maintainer only, never loaded at runtime**: the incident behind every rule here |
-| `tests/run.sh` | offline tests for the classifier, the transition owner, the renderer and the `set -u` guards |
+| `tests/run.sh` | offline tests for the classifier, the transition owner, the renderer, the wizard harness and the `set -u` guards |
 
 **There is deliberately no script for the context rungs.** A session hands its own ticket on.
 
@@ -421,18 +422,21 @@ that delivers 7 of 9 tickets and says so plainly beats one that loops on ticket 
 
 ## Acceptance - what "delivered" means
 
-**Three different facts, three different files.** A sprint once reported all 21 stages complete
-over a red PR - and every stage was telling the truth about itself.
+**Different facts, different files.** A sprint once reported all 21 stages complete over a red
+PR - and every stage was telling the truth about itself.
 
 | File | Written by | Means |
 |---|---|---|
 | `state/<TAG>.status` | each session | that session finished, was blocked, or handed on |
 | `state/ACCEPTANCE.verdict` | `accept.sh`, run by `FIX-FINAL` | the required CI checks **at the pushed head sha**: `PASS` / `FAIL` / `UNKNOWN` |
 | `state/GOLDEN.verdict` | the `TEST` session | the golden path actually walked: `PASS` / `FAIL` / `UNKNOWN` |
+| `state/WIZARD.dryrun` | `wizard-dryrun.sh`, run by `WIZARD` | the setup script driven through every branch: `PASS` / `FAIL` |
 
-`DONE` has never meant "the branch is acceptable". **The headline verdict comes from the last
-two**, and a sprint whose stages all said DONE while `ACCEPTANCE.verdict` says FAIL did not
-deliver - the report says so in its first line.
+`DONE` has never meant "the branch is acceptable". **The headline verdict comes from
+`ACCEPTANCE.verdict` and `GOLDEN.verdict`**, and a sprint whose stages all said DONE while
+`ACCEPTANCE.verdict` says FAIL did not deliver - the report says so in its first line.
+`WIZARD.dryrun` decides one thing only, and decides it absolutely: whether the user can trust the
+setup script they are about to run.
 
 `accept.sh` compares local HEAD to the pushed head first: a green check on a commit nobody pushed
 proves nothing. `FIX-FINAL` gets **one bounded repair pass** on a FAIL, then leaves the PR in
@@ -459,6 +463,12 @@ time, writing no stage for what is already done. A three-stage wizard that appli
 secret and runs a migration is the target shape. Re-runnability comes free from the library, not
 from a status stage: `ask` and `ask_secret` offer the existing value and keep it on Enter, and
 `write_env` upserts.
+
+**It ends at the moment the feature is on.** Turning it on is setup; watching it - a canary
+window, a cost reading, a go/no-go, a rollback drill - is operating it, and that is a runbook in
+`HANDOFF.md` the user paces themselves. **At most three stages mutate anything**, because past
+three the script has become a state machine with an order nobody chose. One that did not stop
+reached ten stages and 713 lines, and shipped four ordering defects at once.
 
 **Where it sits:** `REVIEW-FINAL` -> `FIX-FINAL` -> `TEST` (if opted in) -> `WIZARD` -> report.
 After the tester deliberately: the tester is the only session that tries to run the thing, and
@@ -521,6 +531,24 @@ mutating step, because the user is awake and driving: a `confirm` that prints th
 them doing it. And no real secret value is ever written into the script, a prompt file, `LOG.md`,
 or the PR body.
 
+### The wizard is driven before it ships
+
+A wizard is a **state machine**, and its defects are orderings: a probe above the change it
+measures, a failed apply walked past into the stages that assumed it, a default that is wrong only
+in combination with a warning four stages earlier. `bash -n` and `shellcheck` settle the typos and
+**a reading cannot settle an ordering** - one 713-line wizard passed all three carrying four of
+them.
+
+So the closing session runs `wizard-dryrun.sh`, which is not the same as running the wizard:
+shims on `PATH` and nothing else, an instrumented library in place of the real one, a throwaway
+sandbox for `HOME` and the cwd. It drives the authored stages once per branch - every default
+taken, each `confirm` declined in turn, each command failed in turn - and checks the traces
+against the contract each mutating stage declares. The verdict lands in `state/WIZARD.dryrun`, and
+**`DONE` requires `PASS`**: a `FAIL` the session cannot fix is `BLOCKED` with the findings
+verbatim, which is a wizard the user knows not to trust rather than one that surprises them. The
+rules it enforces, and the tags, are in `wizard-prompt.md`; the night behind them is in
+`rationale.md`.
+
 ## Session ledger and the morning report
 
 The user wakes to one message and needs to reconstruct a night they slept through, so the report
@@ -580,6 +608,12 @@ The final message must contain, in this order:
    - **The gates**: where the script stops and waits on something to merge, deploy or approve.
    - **What the wizard will not do**, and who owns each.
    - **How to know it worked** - the check that proves the feature is live.
+   - **Afterwards, in order** - the canary window, the cost reading, the rollback drill and
+     anything else the wizard deliberately left out, as prose the user paces themselves.
+
+   **If `state/WIZARD.dryrun` reads `FAIL`, that is the first line of this item**, with the
+   findings verbatim and the run command withheld until they are fixed. A setup script nobody
+   could drive is one the user should not run at 07:00 on trust.
 
 ## The PR
 
@@ -624,6 +658,10 @@ never bypass hooks with `--no-verify`.
 | "Nothing manual came up, but I'll write a wizard for completeness." | Then the user reads a script at 07:00 to learn it does nothing. Say "no setup needed" in one line. |
 | "The `.env.example` entry is missing, that's a wizard stage." | You have a worktree, a branch and permissions. Do it and commit it. A stage asking the user to do an agent's chore reads as a requirement. |
 | "I'll put the key's value in the PR body so it's easy to find." | Never. Not the PR, not the script, not `LOG.md`, not a prompt file. |
+| "I read the wizard through twice and traced every value - it is correct." | You checked the typos. Orderings are what ship: a probe above its own restart, a failed apply walked past. `wizard-dryrun.sh` drives every branch, and nothing real is reachable from it. |
+| "It only needs `terragrunt plan` printed, then the operator applies." | Two diffs with a human pause between them. Save the plan and apply that file, or they authorise one change and get another. |
+| "The dry run flags stage 4, but I know that failure is harmless." | Then `@onfail skip-to` says so and the harness agrees. Editing the contract to fit the script is how the defect ships. |
+| "The canary and the rollback drill belong in the wizard, they're part of the rollout." | The wizard ends when the feature is on. What follows is a runbook in `HANDOFF.md`, paced by the user. Ten stages is where the ordering bugs came from. |
 
 ## Anti-Patterns
 
@@ -647,9 +685,13 @@ never bypass hooks with `--no-verify`.
   What a session needs to know belongs in its prompt, before it starts.
 - **A wizard stage that only reads, prints or checks** - delete it.
 - **Busy-watching** - do not poll by hand in a loop; arm the runner and react to escalations.
-- **A wizard that runs itself end to end to "check it works"** - it opens browsers, blocks on
-  human input, and its mutating stages act on live infrastructure. `bash -n`, `shellcheck`, and
-  a static trace of every value from source to destination. Nothing else.
-- **Hand-editing the wizard library** above the `STAGES` marker in `template.sh`.
+- **A wizard shipped on a reading** - `bash -n` and `shellcheck` first, then `wizard-dryrun.sh`
+  for the orderings neither can see. Running the real script end to end is still wrong: it opens
+  browsers, blocks on human input, and its mutating stages act on live infrastructure.
+- **A mutating stage that keeps going after its change** - what records the result is the next
+  stage, and it says `@requires` so a failed change cannot be followed by a report of its success.
+- **Hand-editing the wizard library** above the `STAGES` marker in `template.sh`. The dry run
+  models that half, so an edited one is a wizard the harness would be checking a fiction of, and
+  it refuses rather than guessing.
 - **A stage with an invented click path** - an honest "I could not verify the exact path" costs
   the user ten seconds; a wrong path costs them ten minutes and their trust in every other stage.

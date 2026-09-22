@@ -406,6 +406,73 @@ The suite grew from 81 to 105 assertions, including a `claude` mock (`tests/mock
 the recovery and session-tracking paths can be driven offline. Findings 5, 7 and 8 were all
 invisible to a reading of the diff and only showed up when someone ran the path in isolation.
 
+## The wizard of PR 1377, and why reading it was never going to work
+
+The closing `WIZARD` session of a real sprint produced `scripts/graphql-error-spans-setup.sh`:
+713 lines, ten stages. It passed `bash -n`. It passed `shellcheck`. A session read it end to end
+and traced every value from source to destination, which was exactly what the rule asked for. Two
+review bots then found **eight** unaddressed defects in it, two of them HIGH, and the script was
+pulled from the PR.
+
+1. **HIGH - the reviewed diff was not the applied diff.** `terragrunt plan` printed to the
+   screen, the operator read it, then a separate bare `terragrunt apply` ran. Between the two sits
+   a human pause: drift, or anybody else's merge, and the apply carries a broader production
+   change than the one that was authorised, destroys included.
+2. **HIGH - the apply ran from a checkout nobody verified.** Stage 5 asked which checkout held the
+   merged infra change and defaulted to the script's own parent - the sprint's feature branch,
+   the one branch that did not set `SHAPES_TRACE_CUSTOMER_FACING`. So the apply it offered was
+   precisely the action stage 1 spent nine lines warning would silently delete that live flag and
+   stop both GraphQL surfaces producing spans.
+3. **The canary measured the closed process.** Stage 6's gate is read once, at startup. Its probe
+   instructions sat above the apply that restarts the environment, so the operator drove their
+   fault against the old process and the stage went on to print open-gate evidence.
+4. **A failed baseline deploy still opened the gate** - the terragrunt helper's return value was
+   checked inside the stage and then walked past.
+5. **A failed canary and a declining metric both fell through** into the unconditional stages
+   after them, so the rollback could run without a successful gate-opening apply ever having
+   happened.
+6. **`ENV_FILE` was `${ENV_FILE:-$HOME/.shapes/...}`** below the marker. The library had already
+   assigned it, so the `:-` never fired and the rollout notes landed in `.env` inside the repo -
+   the opposite of what the comment three lines above it promised.
+
+**The root cause was the verification rule, not the six defects.** `wizard-prompt.md` said "DO NOT
+run it end to end... trace it on paper instead", and `SKILL.md` limited checking to `bash -n`,
+shellcheck and a reading. Every one of those defects is a state-machine property - an order, an
+outcome, a default that is wrong only in combination with something four stages away - and a
+reading cannot settle an ordering. The night before had already taught the same lesson on the
+recovery paths: findings 5, 7 and 8 of the audit review were invisible in the diff and appeared
+the moment `mock-claude.sh` drove the path in isolation. The wizard just never got its mock.
+
+`wizard-dryrun.sh` is that mock. It exploits the one invariant the skill already enforces - the
+library above the `STAGES` marker is byte-identical in every wizard - to replace that half with an
+instrumented copy, so the authored half runs unmodified with no blocking reads and no browser,
+every external command resolving to a shim under a `PATH` that contains nothing else. Then it
+drives the stages once per branch and checks the traces. Pointed at the 713-line script it finds
+defects 1, 2, 3 and 6 by name, and turns 4 and 5 into "stage 5 runs `terragrunt apply` and
+declares no `@requires`" - which, once declared, the fail and decline scenarios check directly.
+
+**Two things were deliberately done alongside the harness, and one deliberately not.**
+
+- **A scope cut, as test 3.** Stages 6 to 9 of that wizard were a canary window, a grouping
+  write-up, a cost reading and a rollback drill: a multi-day rollout procedure written as bash.
+  The wizard now ends when the feature is on, and at most three stages mutate anything. This is
+  what stops the state machine existing in the first place; the harness is what catches it when
+  one legitimately does.
+- **A declared contract** (`@mutates` / `@requires` / `@onfail` / `@input` / `@observes`). A
+  harness cannot infer that stage 6 depends on stage 5 having succeeded. Making the author state
+  it is also the point at which they notice - the tags are cheap on a three-stage wizard and
+  they are the only reason the containment checks can exist at all.
+- **Not done: splitting the wizard into one script per stage.** It multiplies the artifacts the
+  user must run in the right order, loses the single paste-ready command and the library's free
+  re-runnability, and does not remove the ordering - it moves it into a README where nothing at
+  all can check it.
+
+`tests/run.sh` grew from 105 to 128 assertions. Three fixture wizards carry the weight: `good`
+(passes), `bad` (the audited defects, each asserted by name), and `leaky` - a wizard whose
+contract is declared and correct, whose every line survives a reading, and which still walks a
+swallowed apply failure into the stage that depends on it. `leaky` is the one that justifies the
+harness: nothing short of driving it finds that.
+
 ## What to measure next time
 
 On comparable 3-7 ticket runs, track: total / cache / output tokens; wall time **excluding quota

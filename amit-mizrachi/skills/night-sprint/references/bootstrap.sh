@@ -27,8 +27,10 @@ REF="${2:?usage: bootstrap.sh <WORKSPACE> <SKILL_REFERENCES_DIR>}"
 mkdir -p "$WS/state" "$WS/tickets"
 
 # --- the scripts the sprint runs. agents.sh is sourced by four of them; classify-error.sh is
-#     what makes recovery correct rather than merely persistent.
-SCRIPTS="agents.sh launch.sh advance.sh watch.sh revive.sh classify-error.sh context-used.sh handback.sh accept.sh render.sh"
+#     what makes recovery correct rather than merely persistent; wizard-dryrun.sh is the only
+#     thing standing between the closing session and a shipped state-machine bug, and a
+#     workspace without it turns a gate into a paragraph nobody can run.
+SCRIPTS="agents.sh launch.sh advance.sh watch.sh revive.sh classify-error.sh context-used.sh handback.sh accept.sh render.sh wizard-dryrun.sh"
 # --- the templates. continuation-prompt.md stays a template on purpose: each session that
 #     hands off fills its own copy for its successor.
 TEMPLATES="continuation-prompt.md implementer-prompt.md review-find-prompt.md review-fix-prompt.md test-prompt.md wizard-prompt.md plan-template.md"

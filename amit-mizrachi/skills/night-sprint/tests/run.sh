@@ -506,5 +506,81 @@ unset MOCK_STATE
 rm -rf "$MWS" "$RWS" "$BWS"
 
 echo
+echo "== wizard-dryrun.sh drives the stage machine that reading could not check =="
+# The wizard that prompted this: 713 lines, `bash -n` clean, shellcheck clean, read by a review
+# session, and it still shipped an unsaved plan applied bare, a probe above the restart it was
+# measuring, a failed apply that fell through into the stages after it, and a default checkout
+# that was the one branch without the property the apply needed. Every finding below is one of
+# those, caught by driving the script rather than reading it.
+WZ="$(mktemp -d)"
+LIB="$FIX/wizard-library.sh"
+build_wizard() { cat "$LIB" "$FIX/wizard-stages-$1.sh" > "$WZ/$1.sh"; printf '%s' "$WZ/$1.sh"; }
+dryrun() { bash "$REF/wizard-dryrun.sh" "$(build_wizard "$1")" "$LIB" 2>&1; }
+
+out="$(dryrun good)"; rc=$?
+check "a well-formed wizard passes" "0" "$rc"
+case "$out" in
+  *"PASS"*) ok "and says so, so the verdict means something" ;;
+  *) no "and says so, so the verdict means something" "got: $out" ;;
+esac
+
+out="$(dryrun bad)"; rc=$?
+check "a wizard with the audited defects fails" "1" "$rc"
+for pat in "only reads or prints" \
+           "declares no @mutates" \
+           "printed and thrown away" \
+           "applies with nothing reviewed" \
+           "default below the marker never fires" \
+           "asks for DEPLOY_CHECKOUT before the change" \
+           "keeps going after the change" \
+           "asks the operator for DEPLOY_CHECKOUT" \
+           "without the wizard ever reading the checkout's revision"; do
+  if printf '%s' "$out" | grep -q "$pat"; then ok "bad wizard: $pat"
+  else no "bad wizard: $pat" "not reported"; fi
+done
+
+# The finding that only a driven run can produce: the contract is declared and correct, every
+# line passes a reading, and the failure still leaks into the stage that depends on it.
+out="$(dryrun leaky)"; rc=$?
+check "a swallowed failure that leaks into a dependent stage fails" "1" "$rc"
+for pat in "fail-4: the mutation failed, and stage 3 ran anyway" \
+           "decline-1: the mutation was declined, and stage 3 ran anyway" \
+           "declares @onfail stop, but stage 3 still acted"; do
+  if printf '%s' "$out" | grep -q "$pat"; then ok "leaky wizard: $pat"
+  else no "leaky wizard: $pat" "not reported; got: $(printf '%s' "$out" | head -4)"; fi
+done
+
+# The library above the marker is the same in every wizard, and the harness models it. A wizard
+# that edited it is one the harness would be checking a fiction of.
+sed 's/^set -euo pipefail/set -eo pipefail/' "$LIB" > "$WZ/edited-lib.sh"
+cat "$WZ/edited-lib.sh" "$FIX/wizard-stages-good.sh" > "$WZ/edited.sh"
+out="$(bash "$REF/wizard-dryrun.sh" "$WZ/edited.sh" "$LIB" 2>&1)"; rc=$?
+check "a hand-edited library is refused, not modelled" "1" "$rc"
+case "$out" in
+  *"hand-edited"*) ok "and it names that as the reason" ;;
+  *) no "and it names that as the reason" "got: $(printf '%s' "$out" | head -2)" ;;
+esac
+
+# A wizard whose every mutating stage is guarded by a path that does not exist in the sandbox
+# drives nothing, and a clean sheet over a path nothing drove is worse than any finding.
+cat "$LIB" > "$WZ/guarded.sh"
+cat >> "$WZ/guarded.sh" <<'GUARDED'
+TOTAL_STAGES=1
+banner "Guarded"
+stage "Apply, if the unit is there"
+ask UNIT "Where is the unit?"
+if [ -d "$UNIT" ]; then confirm "Apply?" && terraform apply; fi
+finish
+GUARDED
+out="$(bash "$REF/wizard-dryrun.sh" "$WZ/guarded.sh" "$LIB" 2>&1)"; rc=$?
+check "a run that reached no command is a failure, not a pass" "1" "$rc"
+case "$out" in
+  *"no scenario reached a single command"*) ok "and it says to re-run with --repo" ;;
+  *) no "and it says to re-run with --repo" "got: $(printf '%s' "$out" | head -3)" ;;
+esac
+
+rm -rf "$WZ"
+
+echo
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
