@@ -38,7 +38,7 @@ A missing key, an unset variable, a table that does not exist, a flag that is of
     BLOCKING: <yes = the feature does not work at all without it | no>
     EOF
 
-SAY WHOSE GAP IT IS, because you are also the session most likely to record one that is not this sprint's. Before you write the block, check whether the same thing fails on <BASE> - if the app could not boot on the base ref either, it is pre-existing local-dev drift, not something these tickets introduced. Record it either way, and put that answer in WHY, in those words. A local `.env` a developer fills to run the app on their laptop is NOT the same as a secret the SHIPPED feature needs, and only the second earns a wizard stage. Names and paths only, never a real secret value.
+SAY WHOSE GAP IT IS, because you are also the session most likely to record one that is not this sprint's. Before you write the block, check whether the same thing fails on <BASE> - if the app could not boot on the base ref either, it is pre-existing local-dev drift, not something these tickets introduced. Record it either way, and put that answer in WHY, in those words. A local `.env` a developer fills to run the app on their laptop is NOT the same as a secret the SHIPPED feature needs, and only the second counts. Names and paths only, never a real secret value.
 
 ## CONTEXT
 
@@ -79,29 +79,21 @@ Leave the stack UP for your successor if you relay, and say so in the report. Sh
 5. Write `<WS>/state/TEST.next` - **before** your status, and write it exactly once:
 
    - **A repair pass is PENDING** -> `echo "FIX-TEST" > <WS>/state/TEST.next`, and **SKIP STEP 6
-     ENTIRELY**. Do not touch SETUP.verdict, do not write WIZARD.status, do not run the gate.
-     FIX-TEST fixes the failures, re-runs the steps that failed, rewrites GOLDEN.verdict, and
-     applies the wizard gate itself once the golden path actually passes.
+     ENTIRELY**. Do not touch SETUP.verdict. FIX-TEST fixes the failures, re-runs the steps that
+     failed, rewrites GOLDEN.verdict, and writes the setup verdict itself once the golden path
+     actually passes.
 
-     This ordering is the whole point. The gate used to run unconditionally and overwrite
-     `TEST.next` with `WIZARD` or empty, so the repair pass was silently dropped at exactly the
-     moment it was needed - the tester wrote DONE, `advance.sh` followed the overwritten
-     successor, and the sprint went to the wizard with a failing golden path behind it.
+   - **No repair pass** -> leave `TEST.next` EMPTY and run STEP 6.
 
-   - **No repair pass** -> run STEP 6 and let it set `TEST.next`.
-
-6. THE WIZARD GATE - only when no repair pass is pending. <FIND_FINAL_TAG> already swept the diff and wrote <WS>/state/SETUP.verdict. You may have found more, because you are the only session that tries to RUN the thing, so you settle it. Re-read every <WS>/state/*.manual block including your own, and put each through BOTH tests:
+6. THE SETUP VERDICT - only when no repair pass is pending. <FIND_FINAL_TAG> already swept the diff and wrote <WS>/state/SETUP.verdict. You may have found more, because you are the only session that tries to RUN the thing, so you settle it. Re-read every <WS>/state/*.manual block including your own, and put each through BOTH tests:
      TEST 1 - REQUIRED?   The shipped feature does not work until this happens.
      TEST 2 - HUMAN-ONLY? No agent could have done it - it needs a credential no agent holds, a
                           console no agent can reach, a human approval, or it is a production
                           mutation policy puts on a person.
-   Both, or it is not a stage. A secret to paste, a deploy or infra apply, a migration, a third-party app to register, a dashboard / access / flag change, a resource no code creates - those pass both. A `.env.local` for running the app on a laptop, drift that predates the branch, a judgement call, something already set, merging and deploying - those fail test 1. Something an agent could simply have done - adding a var to `.env.example`, wiring a config key, updating a runbook - fails test 2 and belongs in FOLLOWUPS.md, never in a script that asks <USER> to do an agent's chore.
+   Both, or it does not count. A secret to paste, a deploy or infra apply, a migration, a third-party app to register, a dashboard / access / flag change, a resource no code creates - those pass both. A `.env.local` for running the app on a laptop, drift that predates the branch, a judgement call, something already set, merging and deploying - those fail test 1. Something an agent could simply have done - adding a var to `.env.example`, wiring a config key, updating a runbook - fails test 2 and belongs in FOLLOWUPS.md.
 
-     ANY of them counts -> echo NEEDED > <WS>/state/SETUP.verdict   and TEST.next = WIZARD
+     ANY of them counts -> echo NEEDED > <WS>/state/SETUP.verdict
      NONE of them does   -> echo NONE   > <WS>/state/SETUP.verdict
-                            echo "SKIPPED: no manual setup" > <WS>/state/WIZARD.status
-                            echo "<what you swept, why nothing came up>" > <WS>/state/WIZARD.summary
-                            and leave TEST.next EMPTY - the sprint ends here.
    Overriding <FIND_FINAL_TAG>'s verdict either way is fine and expected. Say so, with the reason.
 
 7. `echo "DONE" > <WS>/state/TEST.status` (or `BLOCKED: <reason>` if you could not run it at all). **LAST.** Write DONE even when tests FAILED - the failures live in TEST-REPORT.md and GOLDEN.verdict, not in your status.

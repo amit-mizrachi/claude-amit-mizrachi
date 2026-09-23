@@ -188,9 +188,9 @@ run_advance FIX-C1 >/dev/null
 check "a skipped stage still advances the chain" "T07" "$(launched)"
 
 : > "$WS/state/.launched"
-printf 'DONE\n' > "$WS/state/WIZARD.status"
-: > "$WS/state/WIZARD.next"
-rc="$(run_advance WIZARD)"
+printf 'DONE\n' > "$WS/state/TEST.status"
+: > "$WS/state/TEST.next"
+rc="$(run_advance TEST)"
 check "an empty successor ends the sprint quietly" "" "$(launched)"
 check "end of chain exits 0"                       "0" "$rc"
 
@@ -362,15 +362,15 @@ PY
 if [ -z "$orphans" ]; then ok "F2 every template slot is documented in the kickoff contract"
 else no "F2 every template slot is documented in the kickoff contract" "undocumented: $orphans"; fi
 
-# --- F4: the wizard gate must not overwrite a pending repair pass.
+# --- F4: the setup verdict must wait for a pending repair pass.
 if grep -q 'SKIP STEP 6' "$REF/test-prompt.md" && grep -q 'only when no repair pass is pending' "$REF/test-prompt.md"; then
-  ok "F4 the wizard gate is conditional on no pending repair"
+  ok "F4 the setup verdict is conditional on no pending repair"
 else
-  no "F4 the wizard gate is conditional on no pending repair" "the gate still runs unconditionally"
+  no "F4 the setup verdict is conditional on no pending repair" "the verdict still runs unconditionally"
 fi
 grep -q '## STEP 5 - FIX-TEST ONLY' "$REF/review-fix-prompt.md" \
-  && ok "F4 FIX-TEST inherits the gate and the golden-path re-run" \
-  || no "F4 FIX-TEST inherits the gate and the golden-path re-run" "no FIX-TEST section in the fixer"
+  && ok "F4 FIX-TEST inherits the setup verdict and the golden-path re-run" \
+  || no "F4 FIX-TEST inherits the setup verdict and the golden-path re-run" "no FIX-TEST section in the fixer"
 
 # --- F5: cooldown is checked BEFORE the death marker is consumed.
 order="$(python3 - "$REF/watch.sh" <<'PY'

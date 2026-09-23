@@ -1,6 +1,6 @@
 ---
 name: night-sprint
-description: Delivers a whole feature overnight through autonomous sessions run strictly one after another, all on ONE branch landing as ONE pull request. A conductor session writes no code - it sets the sprint up, then a deterministic runner launches each ticket, advances the chain, revives what dies and waits out spending limits, escalating only what needs judgement. Each implementer watches its own context window and hands its ticket to a fresh session before it fills. Gets or builds a ticket breakdown first (via a spec and a ticket-splitting skill), decides whether to review once at the end or at checkpoints, runs each review as a FIND step plus a FIX step with only the review lanes that diff actually earns, optionally runs a test session that boots the stack or runs evals, makes the required CI checks at the pushed sha decide whether the sprint delivered, and ends by building an interactive setup wizard only when the feature genuinely needs a secret pasted, infra applied or a dashboard visited. Use when the user says "night sprint", "sprint this feature", "build this overnight", "run this while I sleep", "ticket after ticket", or wants a feature taken end to end unattended in a single PR.
+description: Delivers a whole feature overnight through autonomous sessions run strictly one after another, all on ONE branch landing as ONE pull request. A conductor session writes no code - it sets the sprint up, then a deterministic runner launches each ticket, advances the chain, revives what dies and waits out spending limits, escalating only what needs judgement. Each implementer watches its own context window and hands its ticket to a fresh session before it fills. Gets or builds a ticket breakdown first (via a spec and a ticket-splitting skill), decides whether to review once at the end or at checkpoints, runs each review as a FIND step plus a FIX step with only the review lanes that diff actually earns, optionally runs a test session that boots the stack or runs evals, and makes the required CI checks at the pushed sha decide whether the sprint delivered. Use when the user says "night sprint", "sprint this feature", "build this overnight", "run this while I sleep", "ticket after ticket", or wants a feature taken end to end unattended in a single PR.
 argument-hint: "<feature | spec path | ticket dir | issue URL> [test: none|dev-stack|evals|<command>]"
 ---
 
@@ -40,7 +40,6 @@ use, and write the real names into `PLAN.md` at kickoff so the sessions invoke t
 | **`next-prompt`** (ships here) | the conductor handing itself on | the sprint dies when the conductor fills up |
 | a **spec** skill | turning a feature into a spec at kickoff | bring your own spec |
 | a **ticket-splitting** skill | cutting that spec into tickets | bring your own breakdown |
-| a **wizard** skill | the closing `WIZARD` session's setup script | degrades: manual steps become prose |
 
 A prompt naming an uninstalled skill is a session that stops at 3am with nobody awake to fix
 it, and that is the cheapest failure to prevent. The **review step is the one hard dependency**:
@@ -109,14 +108,13 @@ Decide that deliberately rather than discovering it in the morning.
    | review fixer | `TAG`, `CHECKPOINT`, `FIND_TAG`, `NEXT_TAG` |
    | `TEST` | `TOTAL`, `FIND_FINAL_TAG` |
    | `FIX-TEST` | `TAG=FIX-TEST`, `CHECKPOINT`, `FIND_TAG=TEST`, `NEXT_TAG` (leave empty - it decides its own) |
-   | `WIZARD` | `SCRIPT_PATH` |
    | continuation (filled by the relaying session, not you) | `CONT_TAG`, `PREV_TAG`, `NN`, `TICKET_TITLE`, `NEXT_TAG` |
 
    **There is no `PR` slot, deliberately.** The draft PR does not exist at kickoff - it opens
    after `T01` lands - so a prompt that baked the number in could never render. The review
    prompts discover it themselves with `gh pr view --json number -q .number`.
 
-   **What to render now:** every ticket prompt, every review pair, and `WIZARD`. Render `TEST`
+   **What to render now:** every ticket prompt and every review pair. Render `TEST`
    only if the user opted in - and **when you do, also render `prompt-FIX-TEST.txt` from
    `review-fix-prompt.md`** with `FIND_TAG=TEST`, keeping its FIX-TEST-ONLY section and deleting
    the FINAL-ONLY one. The tester routes an in-scope failure to `FIX-TEST`, and `launch.sh`
@@ -142,7 +140,6 @@ Decide that deliberately rather than discovering it in the morning.
 | **Review finder** | 1 per review | **never** | run the selected lanes, triage, write the findings manifest, post ONE PR comment, choose the fix route |
 | **Review fixer** | 0 or 1 per finder | yes (fixes only) | work the manifest, reply on external threads, verify, push |
 | **Tester** | 0 or 1 | no | exercise the built thing, report PASS/FAIL per step, write `GOLDEN.verdict` |
-| **Wizard author** | **0 or 1**, last | yes (one script) | only when real setup is left: author the wizard, land it in the same PR |
 
 ## Coordination
 
@@ -150,7 +147,7 @@ Decide that deliberately rather than discovering it in the morning.
 |---|---|
 | Workspace | `~/.claude/night-sprint/<slug>/` - `facts.env`, `PLAN.md`, `tickets/`, `prompt-<TAG>.txt`, `vars-<TAG>.env`, `state/`, `LOG.md` |
 | Pinned facts | `facts.env`, plus one-value files the scripts read: `WORKTREE`, `SLUG`, `PERMISSION_MODE`, `BRANCH`, `VERIFY`, `CONTEXT_WINDOW`, `WARN_AT_USED`, `RELAY_AT_USED`, `CEILING_USED` |
-| Tags | `T01`..`TNN`, a pair per review (`REVIEW-C1` + `FIX-C1` .. `REVIEW-FINAL` + `FIX-FINAL`), then `TEST`, `FIX-TEST` if the tester finds an in-scope failure, `WIZARD`, plus continuations `<TAG>c2`, `<TAG>c3` |
+| Tags | `T01`..`TNN`, a pair per review (`REVIEW-C1` + `FIX-C1` .. `REVIEW-FINAL` + `FIX-FINAL`), then `TEST`, `FIX-TEST` if the tester finds an in-scope failure, plus continuations `<TAG>c2`, `<TAG>c3` |
 | Successors | `state/<TAG>.next`, written at setup, rewritable by the session **before** its status |
 | Branch / worktree | ONE of each: `<type>/<slug>` off `origin/<default>`, in `.claude/worktrees/<slug>` |
 | Launching | `bash <WS>/launch.sh <WS> <TAG>` - never a bare `claude --bg` |
@@ -166,7 +163,7 @@ Decide that deliberately rather than discovering it in the morning.
 | Findings | `state/<TAG>.findings.md` - the manifest. The fixer's input, and it is LOCAL |
 | Acceptance | `state/ACCEPTANCE.verdict` (CI, from `accept.sh`) and `state/GOLDEN.verdict` (the tester) |
 | Manual steps | `state/<TAG>.manual` - appended the moment a session hits something only a human can do |
-| Setup verdict | `state/SETUP.verdict` = `NEEDED` or `NONE` - decides whether `WIZARD` runs at all |
+| Setup verdict | `state/SETUP.verdict` = `NEEDED` or `NONE` |
 | Follow-ups | `state/FOLLOWUPS.md` - one line per real-but-out-of-scope thing |
 | Durable ledger | `state/EVENTS.log` - every launch, advance, revive and pause, timestamped |
 | Watching | `bash <WS>/watch.sh <WS>` under the `Monitor` tool, `persistent: true` |
@@ -181,7 +178,6 @@ Decide that deliberately rather than discovering it in the morning.
 | `references/review-find-prompt.md` | the FIND step - selected lanes, triage, the manifest, the fix route |
 | `references/review-fix-prompt.md` | the FIX step - work the manifest, external threads, the acceptance gate |
 | `references/test-prompt.md` | the opt-in tester - pick ONE of its three modes and delete the rest |
-| `references/wizard-prompt.md` | the closing `WIZARD` session |
 | `references/continuation-prompt.md` | a relayed tag's successor - sessions fill this one themselves |
 | `references/render.sh` | fill a template from `facts.env` + per-tag vars, and refuse a half-filled one |
 | `references/launch.sh` | atomic claim + launch + session-id capture. Refuses while the sprint is paused |
@@ -440,29 +436,12 @@ draft and reports the red lanes honestly. **Local green is not CI green** - a fo
 was twice read as a warning-only lint rule - which is why `FORMAT_CHECK` is a pinned fact, and why
 a session that finds a gate CI runs which `VERIFY` misses should say so.
 
-## The manual steps, and the wizard that closes the sprint
+## The manual steps
 
 A sprint can land every ticket green and still leave the user with nothing they can run: the code
 is merged, the API key is not pasted, the terraform unit is not applied, the flag is off. Those
 steps are a human's by definition, and an unattended agent should not be doing them at 4am - but a
 sprint that ends without naming them ships a feature nobody can turn on.
-
-So when a sprint leaves any of that behind, its last session is `WIZARD`: **one interactive bash
-script, committed into the same PR**, that walks the user through each step in order, opens each
-URL, says what to click, captures what they copy back, writes it where it belongs, and confirms
-before anything irreversible.
-
-**And it contains nothing else.** Every stage is an action the user performs. No preflight or
-tool-check stages, no stage that reads live state and prints it, no stage that verifies the result
-afterwards: all of that is work an agent can do, and the `WIZARD` session does it at authoring
-time, writing no stage for what is already done. A three-stage wizard that applies a unit, sets a
-secret and runs a migration is the target shape. Re-runnability comes free from the library, not
-from a status stage: `ask` and `ask_secret` offer the existing value and keep it on Enter, and
-`write_env` upserts.
-
-**Where it sits:** `REVIEW-FINAL` -> `FIX-FINAL` -> `TEST` (if opted in) -> `WIZARD` -> report.
-After the tester deliberately: the tester is the only session that tries to run the thing, and
-"the stack would not boot without `X`" is exactly a wizard stage.
 
 **Collect as you go.** Every session appends to `state/<TAG>.manual` the moment it hits something
 it cannot do:
@@ -475,10 +454,9 @@ it cannot do:
     SECRET:   <yes|no>
     BLOCKING: <yes = the feature does not work at all without it | no>
 
-Those seven fields are exactly what a wizard stage needs. **Per-session, not reconstructed at the
-end**: the diff shows a new `process.env.FOO`, but not that FOO's key lives behind a dashboard
-toggle T04 spent an hour finding at 02:00. That knowledge exists in one session's window and dies
-with it.
+**Per-session, not reconstructed at the end**: the diff shows a new `process.env.FOO`, but not
+that FOO's key lives behind a dashboard toggle T04 spent an hour finding at 02:00. That knowledge
+exists in one session's window and dies with it.
 
 ### What counts as a manual step - both tests, every time
 
@@ -488,38 +466,33 @@ convenient": broken or unreachable in a real environment until it is done.
 **TEST 2 - HUMAN-ONLY.** No agent could have done it: a credential no agent holds, a console no
 agent can reach, a human approval, or a production mutation policy puts on a person.
 
-| Passes both - a stage | Fails test 1 - a report line | Fails test 2 - an agent's job |
+| Passes both - a manual step | Fails test 1 - a report line | Fails test 2 - an agent's job |
 |---|---|---|
 | A secret, credential or token to paste or rotate | A `.env.local` a developer fills to run the app on their laptop | Adding a var to `.env.example` |
 | A deploy, provision, terraform / terragrunt apply | Drift that predates the branch and the branch did not make matter | Writing or fixing a migration file |
 | A migration against a real database | A judgement call the user may want to reverse | Wiring a config key the code should read itself |
 | A third-party app or OAuth client to register | Anything already set - check live state first | Updating a README or runbook |
-| A dashboard setting, DNS record, access rule or flag to flip | Merging the PR and deploying - always the user's, always named, never a stage | Adding the workflow step that runs the migration |
+| A dashboard setting, DNS record, access rule or flag to flip | Merging the PR and deploying - always the user's, always named | Adding the workflow step that runs the migration |
 | A resource that must exist and no code creates it | A follow-up improvement, however good | Any code change at all |
 
-Test 1's failures produce a **ceremonial** wizard. A pure front-end refactor of an already
-deployed app needs nothing, and saying so in one line is the correct deliverable. Test 2's
-failures are worse because they look useful: **a stage asking the user to do something an agent
-could have done reads as a requirement when it is really a chore handed over.** The session that
+Test 1 keeps the list short: a pure front-end refactor of an already deployed app needs nothing,
+and saying so in one line is the correct deliverable. Test 2's failures are worse because they
+look useful: **a step asking the user to do something an agent could have done reads as a
+requirement when it is really a chore handed over.** The session that
 finds one either does it - it has a worktree, a branch and permissions - or files one line in
 `state/FOLLOWUPS.md`.
 
-### The wizard is skipped when there is nothing to set up
+### Nothing to set up is a finding
 
 `REVIEW-FINAL` applies both tests to every `state/*.manual` block and writes
 `state/SETUP.verdict` - `NEEDED` or `NONE`. It sweeps the diff there because it already has the
 whole diff loaded, which is what makes a `NONE` verdict trustworthy rather than merely unrecorded.
 A `TEST` session, if one runs, settles the verdict last.
 
-`NONE` **skips the session entirely** - no script, no handoff document, no commit. `SKIPPED: no
-manual setup` goes to `state/WIZARD.status` with a one-line reason, and the morning report states
-"nothing to set up" as a **finding**, naming what was swept to reach it.
+On `NONE` the morning report states "nothing to set up" as a **finding**, naming what was swept
+to reach it.
 
-**What the wizard will not do.** Permissions and access-control changes are described, never
-executed - charter #9 puts those on a human reviewing a diff. Everything else may be a confirmed
-mutating step, because the user is awake and driving: a `confirm` that prints the command first is
-them doing it. And no real secret value is ever written into the script, a prompt file, `LOG.md`,
-or the PR body.
+No real secret value is ever written into a prompt file, `LOG.md`, or the PR body.
 
 ## Session ledger and the morning report
 
@@ -542,7 +515,6 @@ relay**:
 | FIX-C1 | `...` | ns-<slug>-FIX-C1 | review fixer (handback) | DONE | n fixed, n rejected and why |
 | REVIEW-04 | `...` | ns-<slug>-REVIEW-04 | review finder | BUDGET-BLOCKED 1h59m | the wait, and what it finished afterwards |
 | FIX-C2 | - | - | not launched | SKIPPED | nothing to address |
-| WIZARD | - | - | not launched | SKIPPED | no manual setup - what was swept, and why nothing came up |
 
 A ticket that took three sessions and two relays is exactly what the user wants to see. Read it
 carefully though: **relays are the normal shape, not a signal.** A ticket that relayed twice is
@@ -565,20 +537,19 @@ The final message must contain, in this order:
 7. **Follow-ups** - `state/FOLLOWUPS.md`, verbatim, ready to become tickets. An empty file is a
    fine answer; say so.
 8. **What needs a human** - decisions and blockers waiting on them.
-9. **Turn it on** - the setup wizard, straight from `HANDOFF.md`. This is the part the user acts
-   on first, so it must need no thinking.
+9. **Turn it on** - every `state/*.manual` step that passes both tests, in dependency order.
+   This is the part the user acts on first, so it must need no thinking.
 
-   **If `state/WIZARD.status` reads `SKIPPED`, this whole item is one line**: "Nothing to set
-   up", plus what was swept to reach it. Then name the two things that are always the user's and
-   never wizard stages: **merge the PR, and deploy**. State it positively - "no setup needed" is a
-   finding, not an empty section.
-   - **The command**, paste-ready into a **fresh** terminal: an absolute `cd`, the toolchain
-     line, then the script. Nothing left to work out.
-   - **Every value it will ask for**, as a table: `Value | Where to get it | Secret? | Where it
+   **If `state/SETUP.verdict` reads `NONE`, this whole item is one line**: "Nothing to set
+   up", plus what was swept to reach it. Then name the two things that are always the user's:
+   **merge the PR, and deploy**. State it positively - "no setup needed" is a finding, not an
+   empty section.
+   - **The commands**, each paste-ready into a **fresh** terminal: an absolute `cd`, the
+     toolchain line, then the command. Nothing left to work out.
+   - **Every value a step needs**, as a table: `Value | Where to get it | Secret? | Where it
      lands`. "Where to get it" is the path a human walks, or the exact read command. A row that
-     just names a hostname sends the user hunting, which is the whole thing the wizard prevents.
-   - **The gates**: where the script stops and waits on something to merge, deploy or approve.
-   - **What the wizard will not do**, and who owns each.
+     just names a hostname sends the user hunting.
+   - **The gates**: which step waits on something to merge, deploy or approve.
    - **How to know it worked** - the check that proves the feature is live.
 
 ## The PR
@@ -586,9 +557,7 @@ The final message must contain, in this order:
 Open **one draft PR** as soon as `T01` lands - the runner raises `NEEDS-PR` for it. Early CI and
 early bot review give the checkpoint reviewers something real to address. Every later session
 pushes to the same branch, so the PR grows all night. `FIX-FINAL` flips it out of draft once
-`accept.sh` says PASS - never before, and the finder never does it. The `WIZARD` script is one
-more commit on the same branch in the same PR, with a **Setup** section added to the description.
-Never a second PR.
+`accept.sh` says PASS - never before, and the finder never does it. Never a second PR.
 
 **Never merge and never deploy** - those are the user's, always. If a required check has no
 ticket to point at, open the PR anyway and report the red check. Never fabricate a ticket id and
@@ -621,9 +590,7 @@ never bypass hooks with `--no-verify`.
 | "`acceptEdits` is the safe default for an unattended run." | It is the mode that stalls: it still prompts on shell commands, and a background session cannot answer. Use `auto`. |
 | "They picked `bypassPermissions`; I'll sort the disclaimer out at launch." | By then they are asleep. It needs a real terminal. Ask at step 1. |
 | "I'll write the prompts by hand, it's more precise." | 22 prompts and 29,266 words once came out of one kickoff, mostly retyped facts. `render.sh` fills them from `facts.env` and fails on an unfilled slot. You author the judgement only. |
-| "Nothing manual came up, but I'll write a wizard for completeness." | Then the user reads a script at 07:00 to learn it does nothing. Say "no setup needed" in one line. |
-| "The `.env.example` entry is missing, that's a wizard stage." | You have a worktree, a branch and permissions. Do it and commit it. A stage asking the user to do an agent's chore reads as a requirement. |
-| "I'll put the key's value in the PR body so it's easy to find." | Never. Not the PR, not the script, not `LOG.md`, not a prompt file. |
+| "I'll put the key's value in the PR body so it's easy to find." | Never. Not the PR, not `LOG.md`, not a prompt file. |
 
 ## Anti-Patterns
 
@@ -645,11 +612,6 @@ never bypass hooks with `--no-verify`.
 - **A review session that both finds and fixes**, or a fixer that re-runs the review.
 - **Reaching into a working session at all** - to nudge it, relay it, or correct its ticket.
   What a session needs to know belongs in its prompt, before it starts.
-- **A wizard stage that only reads, prints or checks** - delete it.
 - **Busy-watching** - do not poll by hand in a loop; arm the runner and react to escalations.
-- **A wizard that runs itself end to end to "check it works"** - it opens browsers, blocks on
-  human input, and its mutating stages act on live infrastructure. `bash -n`, `shellcheck`, and
-  a static trace of every value from source to destination. Nothing else.
-- **Hand-editing the wizard library** above the `STAGES` marker in `template.sh`.
-- **A stage with an invented click path** - an honest "I could not verify the exact path" costs
-  the user ten seconds; a wrong path costs them ten minutes and their trust in every other stage.
+- **A step with an invented click path** - an honest "I could not verify the exact path" costs
+  the user ten seconds; a wrong path costs them ten minutes and their trust in every other step.

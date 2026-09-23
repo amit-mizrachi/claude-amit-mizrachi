@@ -54,10 +54,9 @@ may assume every ticket before it has landed on the branch.
 | ... | | | | |
 | T<NN> | `<NN>-<slug>.md` | <...> | T<NN-1> | REVIEW-FINAL |
 | REVIEW-FINAL | - | the selected lanes over the whole PR, the ticket-by-ticket acceptance re-read, and the setup sweep. Writes no code | T<NN> | FIX-FINAL |
-| FIX-FINAL | - | works the manifest and every external comment, runs `accept.sh`, and `gh pr ready` only on PASS | REVIEW-FINAL | TEST, or the wizard gate if no test session |
-| TEST | - | <the chosen test mode>; writes `state/GOLDEN.verdict` | FIX-FINAL | FIX-TEST if an in-scope step failed, else the wizard gate |
-| FIX-TEST | - | one bounded repair pass over `state/TEST.findings.md`, then re-runs the affected golden-path steps. Only rendered when a test session was chosen | TEST | the wizard gate |
-| WIZARD | - | the setup wizard for every manual step, committed into the same PR. Skipped entirely when `state/SETUP.verdict` is NONE | TEST | end |
+| FIX-FINAL | - | works the manifest and every external comment, runs `accept.sh`, and `gh pr ready` only on PASS | REVIEW-FINAL | TEST, or end if no test session |
+| TEST | - | <the chosen test mode>; writes `state/GOLDEN.verdict` | FIX-FINAL | FIX-TEST if an in-scope step failed, else end |
+| FIX-TEST | - | one bounded repair pass over `state/TEST.findings.md`, then re-runs the affected golden-path steps. Only rendered when a test session was chosen | TEST | end |
 
 ## 4. Acceptance - the golden path the tester walks
 
@@ -114,14 +113,13 @@ app on their laptop fails the first, as does drift already broken on the base re
 call <USER> may want to reverse. Anything an agent could simply have done - adding a var to
 `.env.example`, wiring a config key, updating a runbook - fails the second: the session that
 found it either does it, or writes one line to `state/FOLLOWUPS.md` for the morning report to
-turn into a ticket. A wizard stage that asks <USER> to do an agent's chore is the worst thing
-this sprint can produce.
+turn into a ticket.
 
 Known from kickoff, before a single session runs:
 
 - <anything the conductor already knows will need the user - a key, an apply, a flag>
 
-## 5b. The wizard - the last session of the sprint, and it may not run
+## 5b. The setup verdict
 
 `REVIEW-FINAL` sweeps the branch diff for setup (new env reads, new `secrets.*` in workflows,
 new infra units, new migrations, new third-party integrations), checks what is already
@@ -130,26 +128,7 @@ does that sweep because it already has the whole diff loaded for the review, so 
 free there. If a test session runs, it settles the verdict last, because it is the only session
 that tries to run the thing.
 
-`NONE` means **no `WIZARD` session at all**: `state/WIZARD.status` gets `SKIPPED: no manual
-setup` and the morning report states "nothing to set up" as a finding, naming what was swept.
-
-`NEEDED` launches `WIZARD`, which re-applies both tests itself, then authors ONE re-runnable
-interactive script. It is committed to `<BRANCH>` and lands in the SAME PR, never a second one.
-
-**The script contains only commands <USER> must run: an apply, a paste, a click.** No preflight
-or tool-check stages, no stage that reads and prints live state, no stage that verifies the
-result afterwards - the `WIZARD` session does all of that itself at authoring time and simply
-writes no stage for anything already done or anything an agent could do. A three-stage wizard
-that applies a unit, sets a secret and runs a migration is the target shape. Re-runnability comes
-free from the library: `ask`/`ask_secret` offer the existing value and keep it on Enter, and
-`write_env` upserts.
-
-Script path: `<WORKTREE>/scripts/<slug>-setup.sh` (or wherever this repo keeps operator scripts)
-Built from: the `wizard` skill and its `template.sh` - the library above the STAGES marker is
-never hand-edited.
-
-If nothing manual comes up, `WIZARD` writes no script and says so in one line. Permissions and
-access-control changes are described by the wizard, never executed by it.
+`NONE` means the morning report states "nothing to set up" as a finding, naming what was swept.
 
 ## 6. CONTEXT RELAY - you manage your own window, and a ticket may take more than one session
 

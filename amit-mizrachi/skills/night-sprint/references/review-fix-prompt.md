@@ -88,9 +88,9 @@ Do not touch <WS>/state/SETUP.verdict unless your own fixes changed the answer: 
 DELETE THIS WHOLE SECTION unless you are FIX-TEST, the one bounded repair pass after the tester
 found an in-scope failure. Your manifest is <WS>/state/TEST.findings.md and your finder was TEST.
 
-The tester deliberately did NOT run the wizard gate, because a gate that runs before the golden
-path passes sends the sprint to the wizard over a broken feature. That gate is yours now, and it
-runs only after you have proved the failures are gone.
+The tester deliberately did NOT write the setup verdict, because a verdict written before the
+golden path passes judges a broken feature. That verdict is yours now, and you write it only
+after you have proved the failures are gone.
 
 1. Fix the findings, verify, and push, exactly as STEP 1 and STEP 2 say.
 2. **Re-run the golden-path steps that failed.** They are named in <WS>/state/TEST-REPORT.md
@@ -102,16 +102,14 @@ runs only after you have proved the failures are gone.
 4. **Still failing? Stop.** You get one pass, not a loop. Leave the FAIL verdict, write
    `BLOCKED: golden path still failing - <step and error>` as your status, leave `.next` EMPTY,
    and let the morning report say so plainly. A second repair pass is the user's call.
-5. Passing? Apply THE WIZARD GATE the tester skipped - the same two tests over every
+5. Passing? Write THE SETUP VERDICT the tester skipped - the same two tests over every
    <WS>/state/*.manual block:
      TEST 1 - REQUIRED?   the shipped feature does not work until a human acts
      TEST 2 - HUMAN-ONLY? no agent could have done it
-   Both, or it is not a stage.
-     ANY counts -> echo NEEDED > <WS>/state/SETUP.verdict  and `.next` = WIZARD
+   Both, or it does not count.
+     ANY counts -> echo NEEDED > <WS>/state/SETUP.verdict
      NONE does  -> echo NONE   > <WS>/state/SETUP.verdict
-                   echo "SKIPPED: no manual setup" > <WS>/state/WIZARD.status
-                   echo "<what was swept, why nothing came up>" > <WS>/state/WIZARD.summary
-                   and leave `.next` EMPTY - the sprint ends with you.
+   Leave `.next` EMPTY - the sprint ends with you.
 
 ## CONTEXT
 
@@ -127,10 +125,7 @@ Several sessions for one fix pass is fine. A pass that dies holding un-recorded 
 2. `echo "<n fixed, n rejected, n deferred, in one line>" > <WS>/state/<TAG>.summary`
 3. `echo "<NEXT_TAG>" > <WS>/state/<TAG>.next` - your successor, written BEFORE your status.
    <NEXT_TAG is the next ticket after a checkpoint. For the FINAL pass it is TEST if the user
-   opted into a test session; otherwise it is WIZARD when <WS>/state/SETUP.verdict reads
-   NEEDED, and EMPTY when it reads NONE - in which case also write:
-     echo "SKIPPED: no manual setup" > <WS>/state/WIZARD.status
-     echo "<what was swept, and why nothing came up>" > <WS>/state/WIZARD.summary>
+   opted into a test session, and EMPTY otherwise.>
 4. `echo "DONE" > <WS>/state/<TAG>.status` (or `BLOCKED: <reason>`). LAST.
 5. `bash <WS>/advance.sh <WS> <TAG>` - it reads the pair you just wrote and starts whatever
    comes next. Run it once and do not second-guess the result.

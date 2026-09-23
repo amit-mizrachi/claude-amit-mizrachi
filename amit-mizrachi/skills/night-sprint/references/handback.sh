@@ -47,7 +47,7 @@ refuse() { echo "handback: $*" >&2; exit 1; }
 # prompt is not: it also runs accept.sh, gets one bounded repair pass on a red result, writes
 # state/ACCEPTANCE.verdict, and only takes the PR out of draft on PASS. Resuming an implementer
 # with the generic prompt silently drops every one of those, so a one-line final fix could end
-# the sprint - or launch TEST and WIZARD - with nothing having checked CI at all.
+# the sprint - or launch TEST - with nothing having checked CI at all.
 #
 # The test is mechanical rather than a name match, so it keeps holding if the acceptance step
 # moves to another tag: if the tag's own rendered prompt mentions accept.sh, that prompt is the

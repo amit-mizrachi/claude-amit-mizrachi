@@ -25,7 +25,7 @@ VERIFY: `<VERIFY>` must be green before you commit. Never `--no-verify`. If a pr
 
 ## Anything only a human can do, written down the moment you hit it
 
-Your ticket may need an API key nobody pasted, a terraform unit applied, a third-party app registered, a flag switched, a migration run against a real database. You cannot do those and must not try - but the last session of the sprint builds a setup wizard out of them, and it can only use what you wrote down. Append a block per item to <WS>/state/<TAG>.manual as you find it:
+Your ticket may need an API key nobody pasted, a terraform unit applied, a third-party app registered, a flag switched, a migration run against a real database. You cannot do those and must not try - but the morning report hands them to <USER>, and it can only use what you wrote down. Append a block per item to <WS>/state/<TAG>.manual as you find it:
 
     STEP:     <one line: what a human must do>
     WHY:      <what breaks without it - the concrete failure, not "for configuration">
@@ -35,7 +35,7 @@ Your ticket may need an API key nobody pasted, a terraform unit applied, a third
     SECRET:   <yes|no>
     BLOCKING: <yes = the feature does not work at all without it | no>
 
-ONLY IF THE SHIPPED FEATURE DOES NOT WORK UNTIL A HUMAN DOES IT. A key the deployed feature needs counts. A value somebody fills into `.env.local` to run the app on their laptop does not, and neither does drift that was already broken on the base ref. Blocks that fail this test become wizard stages that configure nothing.
+ONLY IF THE SHIPPED FEATURE DOES NOT WORK UNTIL A HUMAN DOES IT. A key the deployed feature needs counts. A value somebody fills into `.env.local` to run the app on their laptop does not, and neither does drift that was already broken on the base ref.
 
 Be concrete about WHERE. "You need a Monday API key" sends the user hunting; "Monday -> Developer centre -> your app -> OAuth -> client secret" does not. If you walked that path while building, it is worth more than anything a later session can reconstruct from the diff. If you only know the hostname, say only the hostname - never invent a menu you did not see.
 

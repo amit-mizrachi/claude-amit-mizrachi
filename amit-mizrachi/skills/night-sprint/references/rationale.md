@@ -335,18 +335,9 @@ the wrong way round either relays every session at birth or never relays one at 
 the sprint speaks "free" any more, and a stale caller reaching for `context-left.sh` now fails
 loudly instead of silently inverting.
 
-### Why the wizard contains only actions
+### Why manual steps are written per session
 
-A nine-stage wizard that applies a unit, sets a secret, runs a migration, **and** checks `gh` is
-logged in, prints what is currently configured and verifies the result afterwards is nine screens
-of the user's morning spent on an agent's chores. Six of those stages are work an agent can do,
-and the `WIZARD` session is an agent, doing it at authoring time.
-
-The worse failure is a stage asking the user to do something an agent could have done. **It reads
-as a requirement when it is really a chore that got handed over.** Ten seconds of the user's
-reading, as a follow-up line, instead of a morning of their doing.
-
-And the reason `.manual` blocks are written per session rather than reconstructed from the diff at
+The reason `.manual` blocks are written per session rather than reconstructed from the diff at
 the end: the diff shows a new `process.env.FOO`. It does not show that FOO's key lives behind a
 dashboard toggle that T04 spent an hour finding at 02:00. That knowledge exists in one session's
 window and dies with it.
@@ -374,9 +365,9 @@ did not follow it through to the other end.**
    with the generic prompt silently discarded all of it, so a one-line final fix could end the
    sprint without anything checking CI. It now refuses any tag whose rendered prompt mentions
    `accept.sh` - a mechanical test, so it keeps holding if the gate moves to another tag.
-4. **The wizard gate overwrote the pending repair.** The tester set `TEST.next=FIX-TEST`, then ran
-   the gate unconditionally and overwrote it with `WIZARD` or empty. The repair pass was dropped
-   at exactly the moment it was needed. The gate is now conditional, and `FIX-TEST` owns it.
+4. **The setup gate overwrote the pending repair.** The tester set `TEST.next=FIX-TEST`, then ran
+   the gate unconditionally and overwrote `TEST.next`. The repair pass was dropped at exactly the
+   moment it was needed. The setup verdict now waits for a pending repair, and `FIX-TEST` owns it.
 5. **A skipped recovery consumed the death that justified it.** `did_once "$tag:DIED"` marked the
    death reported *before* `do_revive` checked its five-minute cooldown. With 120-second polls, a
    resumed session that fails immediately hits the second death inside the cooldown: the revive
