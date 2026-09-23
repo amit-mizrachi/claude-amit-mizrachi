@@ -120,11 +120,6 @@ The parts that make it survive an unattended night:
   3am not knowing how to check its own work. One kickoff once generated 22 prompts and 29,266
   words, mostly the same repo path and thresholds retyped. The model now authors only the
   judgement: each ticket's scope, gotchas and acceptance criteria.
-- **A closing wizard that is only the commands a human must run** - an apply, a paste, a click.
-  No preflight stages, no status stages, no "did it work" stages: anything an agent could do, the
-  sprint does itself or files as a follow-up ticket. A stage asking the user to do an agent's
-  chore reads as a requirement and is really a handover. When nothing needs setting up, the
-  session does not run at all.
 - **A morning report with a full session ledger** - every session, including revived attempts,
   relays and budget waits, and what each one actually contributed.
 

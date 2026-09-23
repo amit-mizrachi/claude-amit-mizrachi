@@ -31,7 +31,7 @@ mkdir -p "$WS/state" "$WS/tickets"
 SCRIPTS="agents.sh launch.sh advance.sh watch.sh revive.sh classify-error.sh context-used.sh handback.sh accept.sh render.sh"
 # --- the templates. continuation-prompt.md stays a template on purpose: each session that
 #     hands off fills its own copy for its successor.
-TEMPLATES="continuation-prompt.md implementer-prompt.md review-find-prompt.md review-fix-prompt.md test-prompt.md wizard-prompt.md plan-template.md"
+TEMPLATES="continuation-prompt.md implementer-prompt.md review-find-prompt.md review-fix-prompt.md test-prompt.md plan-template.md"
 
 missing=""
 for f in $SCRIPTS $TEMPLATES; do
