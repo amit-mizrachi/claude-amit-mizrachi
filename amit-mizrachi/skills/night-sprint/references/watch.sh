@@ -388,7 +388,46 @@ for r in rows:
     fi
   fi
 
-  if [ "$open_n" -eq 0 ] && ls "$STATE"/*.session >/dev/null 2>&1; then
+  # PATCHED (machina-feedback sprint, 2026-09-23): the SWEEP 0 race. `open_n` only counts tags
+  # that already have a .session file, so the gap between a status landing and its successor's
+  # .session being written (launch.sh resolves the id AFTER the claim, a relay launches its own
+  # continuation) read as "nothing running" and the runner exited with work outstanding. Before
+  # counting a sweep as quiet, ask whether any wired successor or claimed tag still has no status.
+  pending="$(python3 - "$STATE" <<'PYOUT'
+import os, sys, glob
+st = sys.argv[1]
+def status(t):
+    p = os.path.join(st, t + ".status")
+    return open(p).readline().strip() if os.path.exists(p) else None
+out = set()
+for sp in glob.glob(os.path.join(st, "*.status")):
+    tag = os.path.basename(sp)[:-len(".status")]
+    line = status(tag) or ""
+    nxt = ""
+    if line.startswith("RELAYED"):
+        nxt = line.split(":", 1)[1].strip() if ":" in line else ""
+    elif line.startswith("DONE") or line.startswith("SKIPPED"):
+        np = os.path.join(st, tag + ".next")
+        nxt = open(np).read().strip() if os.path.exists(np) else ""
+    if nxt and status(nxt) is None:
+        out.add(nxt)
+for cd in glob.glob(os.path.join(st, "claim-*")):
+    tag = os.path.basename(cd)[len("claim-"):]
+    if status(tag) is None:
+        out.add(tag)
+print(" ".join(sorted(out)))
+PYOUT
+)"
+  if [ "$open_n" -eq 0 ] && [ -n "$pending" ]; then
+    log "not quiet: outstanding without a live .session: $pending"
+    stranded=$((${stranded:-0} + 1))
+    # Several sweeps with a wired successor and no session means nothing is going to start it.
+    [ "$stranded" -ge 5 ] && emit_once "stranded:$pending" "STRANDED $pending - wired or claimed, no session and no status; launch or unclaim it"
+  else
+    stranded=0
+  fi
+
+  if [ "$open_n" -eq 0 ] && [ -z "$pending" ] && ls "$STATE"/*.session >/dev/null 2>&1; then
     quiet=$((quiet + 1))
     if [ "$quiet" -ge "$QUIET_LIMIT" ]; then
       say "SWEEP 0 tags= all-sessions-terminal (quiet for $quiet sweeps)"

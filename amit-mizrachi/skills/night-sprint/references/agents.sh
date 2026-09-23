@@ -20,20 +20,14 @@
 # shellcheck shell=bash
 
 agents_json() {
-  local wt="${1:-}" out=""
-
-  if [ -n "$wt" ]; then
-    out="$(claude agents --json --all --cwd "$wt" 2>/dev/null || true)"
-    case "$(printf '%s' "$out" | tr -d '[:space:]')" in
-      ""|"[]") out="" ;;   # empty is exactly the failure mode - do not trust it, ask again
-    esac
-  fi
-
-  [ -n "$out" ] && out="$(printf '%s' "$out" | tr -d '\000')"
-  if [ -z "$out" ]; then
-    out="$(claude agents --json --all 2>/dev/null || true)"
-  fi
-
+  # PATCHED (machina-feedback sprint, 2026-09-23): the WORKTREE argument is accepted and IGNORED.
+  # `claude agents --cwd <wt>` has returned `[]` on this harness, and has also returned ONE
+  # UNRELATED row - a non-empty answer the old fallback trusted, which made the runner call the
+  # sprint's own live sessions dead. Every caller already matches rows by name or session id, so
+  # the unfiltered list is both sufficient and correct.
+  local out=""
+  out="$(claude agents --json --all 2>/dev/null || true)"
+  out="$(printf '%s' "$out" | tr -d '\000')"
   case "$(printf '%s' "$out" | tr -d '[:space:]')" in
     "") printf '[]' ;;
     *)  printf '%s' "$out" ;;

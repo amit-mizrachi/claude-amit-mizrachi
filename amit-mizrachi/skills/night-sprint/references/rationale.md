@@ -406,6 +406,23 @@ The suite grew from 81 to 105 assertions, including a `claude` mock (`tests/mock
 the recovery and session-tracking paths can be driven offline. Findings 5, 7 and 8 were all
 invisible to a reading of the diff and only showed up when someone ran the path in isolation.
 
+## Two runner bugs that kept coming back (fixed 2026-09-23, machina-feedback kickoff)
+
+**`claude agents --cwd` is not a filter you can trust.** Over many sprints it returned `[]` for a
+worktree that had live sessions in it, and at least once returned ONE UNRELATED row. The earlier
+fallback only caught the empty case, so a non-empty wrong answer was trusted and the runner called
+the sprint's own live sessions dead. `agents_json` now ignores its argument and always lists every
+background session; every caller already matches by name or session id.
+
+**`SWEEP 0` could exit with work outstanding.** `open_n` counts only tags that have a `.session`
+file. A successor's `.session` is written after `launch.sh` resolves the id, and a relaying session
+launches its own continuation, so there is a window where every visible tag is terminal and the
+next one has not appeared. Three quiet sweeps was a mitigation, not a fix. The runner now asks,
+before counting a sweep as quiet, whether any wired successor (`.next` of a DONE/SKIPPED tag, or
+the target of a RELAYED) or any claimed tag still has no status. If so it is not quiet; after five
+such sweeps it escalates `STRANDED <tags>` once, because a wired tag nothing is starting is a
+judgement, not a wait.
+
 ## What to measure next time
 
 On comparable 3-7 ticket runs, track: total / cache / output tokens; wall time **excluding quota

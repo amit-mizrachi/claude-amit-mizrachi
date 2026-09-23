@@ -261,6 +261,7 @@ waits itself, and logs all of them to `state/EVENTS.log`. **It speaks only for t
 | `HELD <tag>` | A successor was not launched because the sprint is paused. It launches when the pause clears. Nothing to do. |
 | `REVIVE-REFUSED <tag>` | The reviver would not touch it - usually because it is still working. Read `state/EVENTS.log` and decide. |
 | `NEEDS-PR` | Open the **draft** PR. Early CI and early bot review are why it opens after the first ticket rather than at the end. |
+| `STRANDED <tags>` | A successor is wired (or a tag claimed) but no session and no status appeared for five sweeps. Something failed to launch it: check `state/<tag>.launch.log` and `EVENTS.log`, then launch it with `launch.sh` (remove a stale `state/claim-<tag>` first only if no session exists). |
 | `SWEEP 0 tags= all-sessions-terminal` | The runner **exited** - nothing is running. Tags left? Launch the next and **re-arm it**. Sprint complete? Write the morning report. Never leave the sprint with no armed runner and work outstanding. |
 | `SWEEP <n> tags=...` | A heartbeat, and only after a full hour with nothing to say. Nothing to do. |
 
