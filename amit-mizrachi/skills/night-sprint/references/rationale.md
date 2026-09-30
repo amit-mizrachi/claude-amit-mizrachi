@@ -414,6 +414,24 @@ the target of a RELAYED) or any claimed tag still has no status. If so it is not
 such sweeps it escalates `STRANDED <tags>` once, because a wired tag nothing is starting is a
 judgement, not a wait.
 
+## Tests run once, at the end (2026-09-30)
+
+Every implementer, continuation and checkpoint fixer used to run the full verify command before
+each commit. On a nine-ticket sprint that is the suite paid for a dozen times or more, each run's
+output landing in a window that relays at 30% used - and every run but the last tested a branch
+that was about to change again. Only the final run tests what ships.
+
+Now no session runs tests until `FIX-FINAL`. Earlier sessions run the static checks only
+(`FORMAT_CHECK`, plus a typecheck or compile), which stay cheap and catch the breakage that would
+otherwise stop the next ticket from building. `FIX-FINAL` runs `VERIFY` once over the finished
+branch, owns every red test whichever ticket caused it, and only then runs `accept.sh`. The
+kickoff confirms the command resolves instead of running it.
+
+The trade is deliberate: a test a ticket broke is found at the end, not by that ticket, and the
+session fixing it did not write it. `FIX-FINAL` relays like any other session, so a long red list
+costs more sessions, not a lost night. `handback.sh` only ever serves checkpoint fixes, so its
+prompt now carries `FORMAT_CHECK`, which `bootstrap.sh` derives for it.
+
 ## What to measure next time
 
 On comparable 3-7 ticket runs, track: total / cache / output tokens; wall time **excluding quota
@@ -428,10 +446,9 @@ Two things not implemented from the audit, deliberately left for a separate chan
   for routine implementation and reporting is worth doing, but changing the model affects speed
   and cost and does **not** by itself reduce the amount of context sent. Verify the installed
   CLI's supported controls before wiring it into both the launch and revive paths.
-- **Cheaper verification.** `nx affected` is already in use in the runs measured, so check cache
-  hit rates and timings before promising large test savings. Targeted checks against the ticket's
-  starting SHA, with broad checks at contract checkpoints and final acceptance, is the shape -
-  but the parity problem above was the urgent half, and that is what got fixed.
+- **Cheaper verification.** Partly done: tests now run once, in `FIX-FINAL` (see above). Still
+  open is measuring what that saved - tokens and wall time per sprint - against the cost of
+  red tests found late.
 
 Artifacts behind all of the above: `~/Documents/night-sprint-audit-2026-09-19/` - `report.md`,
 `report.html`, `sessions.csv`, `summary.json`.

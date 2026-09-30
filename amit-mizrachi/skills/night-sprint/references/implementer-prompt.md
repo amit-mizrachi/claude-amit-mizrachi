@@ -1,6 +1,6 @@
 <REPO> - night sprint <SLUG>: ticket <NN> - <TICKET_TITLE>
 
-AUTONOMOUS NIGHT RUN. <USER> is ASLEEP and will NOT answer. Never ask a question - make the best call, state it in your summary, keep going. Do not stop until this ONE ticket is implemented, verified green, committed and handed off. Earn "done" by running it (charter #10) and report failures faithfully. ASCII only, no em/en dashes.
+AUTONOMOUS NIGHT RUN. <USER> is ASLEEP and will NOT answer. Never ask a question - make the best call, state it in your summary, keep going. Do not stop until this ONE ticket is implemented, its static checks green, committed and handed off. Earn "done" by running it (charter #10) and report failures faithfully. ASCII only, no em/en dashes.
 
 Repo: <REPO_PATH> (<REPO_SLUG>). Toolchain: <TOOLCHAIN>.
 Workspace: <WS>. You are tag <TAG> (ticket <NN> of <TOTAL>).
@@ -17,9 +17,11 @@ READ FIRST:
 
 YOUR TASK: implement ticket <NN> and nothing else. Do not start the next ticket's work, do not "while I'm here" refactor past what your ticket needs, do not touch anything a later ticket owns. If a real problem in an earlier ticket's work blocks you, fix the minimum needed and say so.
 
-VERIFY: `<VERIFY>` must be green before you commit. Never `--no-verify`. If a pre-existing failure is unrelated to your ticket, note it in your summary rather than silently absorbing it.
+DO NOT RUN TESTS. TESTS RUN ONCE, AT THE END, IN FIX-FINAL. Not `<VERIFY>`, not one test file, not "just the tests for this ticket". FIX-FINAL runs the whole suite over the finished branch and fixes whatever is red, whichever ticket caused it. Write the tests your ticket's acceptance criteria call for; do not run them.
 
-**LOCAL GREEN IS NOT CI GREEN.** If this repo's CI runs a formatter or lint gate that `<VERIFY>` does not, you will pass locally and turn the PR red. Run `<FORMAT_CHECK>` too, and if you find a gate CI runs that the verify command misses, say so in your summary - that mismatch is worth more to the sprint than the ticket.
+BEFORE YOU COMMIT, run the static checks only: `<FORMAT_CHECK>`, and the repo's typecheck or compile step for the code you touched if it has one. Those must be green. Never `--no-verify`. If a pre-existing failure is unrelated to your ticket, note it in your summary rather than silently absorbing it.
+
+**LOCAL GREEN IS NOT CI GREEN.** If you find a formatter or lint gate CI runs that `<FORMAT_CHECK>` misses, say so in your summary - that mismatch is worth more to the sprint than the ticket.
 
 <GOTCHAS>
 
@@ -63,7 +65,7 @@ Two exceptions, only these two. **One command from green: FINISH IT** - a split 
 
 THE HANDOFF, in this order:
   1. Commit and push what you have. Not green? Commit as WIP whose body says `SIGNAL: <TAG>-RELAYED` and names the failing checks. Never stash, never revert.
-  2. Fill <WS>/continuation-prompt.md into <WS>/prompt-<TAG>c2.txt: what landed, which acceptance criteria are met and which are not, the real verify output, files changed and files next, every decision and dead end so your successor does not rediscover them. Your successor starts empty and cannot read this conversation - assume it knows nothing.
+  2. Fill <WS>/continuation-prompt.md into <WS>/prompt-<TAG>c2.txt: what landed, which acceptance criteria are met and which are not, the real static check output, files changed and files next, every decision and dead end so your successor does not rediscover them. Your successor starts empty and cannot read this conversation - assume it knows nothing.
   3. `echo "<what landed, what is left>" > <WS>/state/<TAG>.summary`
   4. `echo "<TAG>c2" > <WS>/state/<TAG>.next`
   5. `echo "RELAYED: <TAG>c2" > <WS>/state/<TAG>.status` - RELAYED, never DONE. The ticket is still in flight and DONE would release the next one.

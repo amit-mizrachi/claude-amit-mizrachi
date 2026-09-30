@@ -16,8 +16,8 @@
 | Worktree | `<WORKTREE>` - the ONLY worktree, shared by every session |
 | Workspace | `<WS>` |
 | Toolchain | `<env setup, e.g. source ~/.nvm/nvm.sh && nvm use 22>` |
-| Verify | `<VERIFY>` - the one full check every session must pass, confirmed runnable at kickoff |
-| Format / CI parity | `<FORMAT_CHECK>` - the formatter or lint gate CI runs that `Verify` does not. Local green is not CI green, and that gap has turned a green report into a red PR |
+| Verify | `<VERIFY>` - the full check, tests included. It runs ONCE, at the end, in FIX-FINAL (and FIX-TEST after it). Confirmed to resolve at kickoff, not run |
+| Format / CI parity | `<FORMAT_CHECK>` - the formatter or lint gate CI runs that `Verify` does not. Every session before FIX-FINAL runs this (plus a typecheck or compile if the repo has one) instead of tests. Local green is not CI green, and that gap has turned a green report into a red PR |
 | Permission mode | `<auto - the default; only something else if the user asked for it>` |
 | Context window | `<200000 | 1000000>` - the sprint model's window, pinned because it cannot be read off a transcript |
 | Warn at | `<20>`% of the window USED - the session is nudged to start nothing new |
@@ -72,7 +72,9 @@ row, an eval score.>
 
 1. Work in `<WORKTREE>` on `<BRANCH>`. Never create a branch or worktree. Never rebase,
    force-push, or merge.
-2. Implement only your own tag's scope. Verify with the verify command; never `--no-verify`.
+2. Implement only your own tag's scope. **Do not run tests until FIX-FINAL** - tests run once,
+   at the end. Before FIX-FINAL, run the static checks (format / lint, typecheck or compile)
+   before each commit; FIX-FINAL and FIX-TEST run the verify command. Never `--no-verify`.
 3. Final commit body carries `SIGNAL: <TAG>-DONE` or `SIGNAL: <TAG>-BLOCKED: <reason>`. Push.
 4. Write `state/<TAG>.summary` (one line, what you did), then `state/<TAG>.status`
    (`DONE` / `BLOCKED: <reason>`) LAST - the status is what releases the next session.
@@ -170,7 +172,7 @@ At `<RELAY_AT_USED>`% used, the session:
 1. commits and pushes what it has - WIP with `SIGNAL: <TAG>-RELAYED` in the body if not green;
    never stashes and never reverts;
 2. fills `<WS>/continuation-prompt.md` into `<WS>/prompt-<TAG>c2.txt` - what landed, criteria
-   met and not met, real verify output, files changed and next, every decision and dead end,
+   met and not met, real static check output, files changed and next, every decision and dead end,
    and the `NEXT_TAG` to launch when the ticket is finally green;
 3. writes `state/<TAG>.summary`, then `state/<TAG>.next`, then `state/<TAG>.status` =
    `RELAYED: <TAG>c2` - **`RELAYED`, never `DONE`**: the ticket is still in flight and `DONE`

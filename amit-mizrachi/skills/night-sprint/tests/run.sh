@@ -317,6 +317,18 @@ done
 check "PERMISSION_MODE defaults to auto" "auto" "$(cat "$BWS/PERMISSION_MODE")"
 check "CONTEXT_WINDOW derived from facts.env" "1000000" "$(cat "$BWS/CONTEXT_WINDOW")"
 check "VERIFY derived whole, spaces and all" "pnpm nx affected -t typecheck test lint" "$(cat "$BWS/VERIFY")"
+check "FORMAT_CHECK derived for handback" "pnpm format:check" "$(cat "$BWS/FORMAT_CHECK" 2>/dev/null)"
+
+# Tests run once, at the end, in FIX-FINAL. Nothing before it may be told to run the suite.
+for f in implementer-prompt.md continuation-prompt.md review-fix-prompt.md; do
+  grep -q 'TESTS RUN ONCE, AT THE END, IN FIX-FINAL\|Tests run once in this sprint, at the end, in FIX-FINAL' "$REF/$f" \
+    && ok "$f carries the tests-once rule" || no "$f carries the tests-once rule" "rule missing"
+done
+if grep -q '\$VERIFY' "$REF/handback.sh"; then
+  no "handback (checkpoint fixes only) does not run the test suite" "handback.sh still uses \$VERIFY"
+else
+  ok "handback (checkpoint fixes only) does not run the test suite"
+fi
 [ -x "$BWS/launch.sh" ] && ok "scripts are executable" || no "scripts are executable" "launch.sh not +x"
 
 # A missing required fact must stop kickoff, not surface at 3am.
