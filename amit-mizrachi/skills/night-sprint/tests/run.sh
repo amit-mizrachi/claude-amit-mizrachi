@@ -697,6 +697,10 @@ good; edit "page [S1]" "page [S3]"
 check "citing a source Sources does not define: FAIL" "1" "$(rc_of)"
 good; edit "https://acme.example/pricing" "the pricing page"
 check "a source with no locator: FAIL" "1" "$(rc_of)"
+good; edit "https://acme.example/pricing" "repo:web/src/pricing/table.tsx:42 @8a2256f"
+check "a repo:<path>:<line> @<sha> locator: PASS" "0" "$(rc_of)"
+good; edit "https://acme.example/pricing" "repo: see the code"
+check "a bare repo: with no path: FAIL" "1" "$(rc_of)"
 good; edit "## Gaps" "## Holes"
 check "a missing section: FAIL" "1" "$(rc_of)"
 good
@@ -747,6 +751,27 @@ CP="$HERE/../../product-research/references/conductor-prompt.md"
 printf 'NS_DIR=%s\n' "$HERE/.." > "$QWS/vars-CONDUCTOR.env"
 bash "$QWS/render.sh" "$QWS" "$CP" "$QWS/prompt-CONDUCTOR.txt" "$QWS/vars-CONDUCTOR.env" >/dev/null 2>&1
 check "product-research's conductor prompt renders from the same facts" "0" "$?"
+NM="$HERE/../../night-marathon/references"
+cat >> "$QWS/facts.env" <<ENV
+FEATURE=Seat-based pricing table on the billing page
+MARATHON_MODE=review
+REPO_PATH=$QWS/repo-src
+BASE=main
+REPO_SNAPSHOT=$QWS/repo
+REPO_SHA=8a2256f
+BUILD_TEST=none
+DEPTH=5
+NS_DIR=$HERE/..
+NM_DIR=$HERE/../../night-marathon
+ENV
+for pair in "conductor-prompt.md:NM-CONDUCTOR" "plan-synth-prompt.md:SYNTH" "build-prompt.md:NM-BUILD"; do
+  tpl="${pair%%:*}"; tag="${pair##*:}"
+  bash "$QWS/render.sh" "$QWS" "$NM/$tpl" "$QWS/prompt-$tag.txt" "$QWS/vars-SYNTH.env" >/dev/null 2>&1
+  check "night-marathon's $tpl renders from the research facts" "0" "$?"
+done
+grep -q 'night-marathon picks: pricing-20261001' "$QWS/prompt-SYNTH.txt" \
+  && ok "the plan prompt pins the picks header the conductor parses" \
+  || no "the plan prompt pins the picks header the conductor parses" "header missing"
 rm -rf "$QWS"
 
 echo

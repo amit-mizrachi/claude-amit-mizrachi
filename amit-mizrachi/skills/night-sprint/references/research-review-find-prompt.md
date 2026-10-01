@@ -21,7 +21,7 @@ Connectors are READ ONLY, exactly as the ticket prompts say: you re-open sources
 
 This is the one review lane research has, and it replaces the code lanes entirely.
 
-1. **Does each source say what the claim says?** Re-open the source behind EVERY claim the Answer sections rest on, and a sample of at least a third of the rest. A claim that overstates its source, misreads a number or date, or cites a page that does not load is a finding.
+1. **Does each source say what the claim says?** Re-open the source behind EVERY claim the Answer sections rest on, and a sample of at least a third of the rest. A claim that overstates its source, misreads a number or date, or cites a page that does not load is a finding. A `repo:<path>:<line> @<sha>` source is re-opened by reading that path at that commit (`git show <sha>:<path>` in the repo the sources name).
 2. **Contradictions.** Two findings files that disagree, or a claim that a source elsewhere in the sprint contradicts.
 3. **Weak support.** A claim an Answer depends on with a single source, or only [INFERENCE] where evidence should exist.
 4. **Coverage.** Every ticket's acceptance criteria and every question in spec.md: answered, or honestly listed as a gap? An unanswered question presented as answered is a BLOCKER.
