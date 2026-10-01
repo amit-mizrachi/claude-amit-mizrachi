@@ -116,6 +116,9 @@ The parts that make it survive an unattended night:
   warning-only lint rule. So `accept.sh` compares local HEAD to the **pushed** head and then reads
   the required checks GitHub actually ran, writing `state/ACCEPTANCE.verdict`; the tester writes
   `state/GOLDEN.verdict` separately. The morning report's headline comes from those two files.
+- **Finished sessions are closed.** Once a tag is terminal and the chain has moved past it, the
+  runner stops its session with `claude stop` (the conversation is kept, so `claude attach` still
+  works). At the end only the conductor, with the morning report, is left running.
 - **Tests run once, at the end.** Implementers, continuations and checkpoint fixers run only the
   static checks (format / lint, typecheck or compile). `FIX-FINAL` runs the full suite over the
   finished branch and fixes whatever is red, whichever ticket caused it.

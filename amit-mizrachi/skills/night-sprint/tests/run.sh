@@ -524,6 +524,58 @@ grep -q 'a FINAL review always launches its rendered fixer' "$REF/review-find-pr
   && ok "F3 the finder is told not to hand back on a FINAL review" \
   || no "F3 the finder is told not to hand back on a FINAL review" "no such rule"
 
+# --- Finished sessions are closed, and only once their last turn has ended.
+CWS="$MWS/cl"; mkdir -p "$CWS/state"
+for f in agents.sh close.sh; do cp "$REF/$f" "$CWS/"; done
+printf 'c1053d00-0000-4000-8000-000000000001\n' > "$CWS/state/T01.session"
+: > "$MOCK_STATE/stops"
+# The real harness shape of a session that ended its turn: `state:done`, but a process still up.
+row() { printf '[{"sessionId":"c1053d00-0000-4000-8000-000000000001","id":"c1053d00","name":"ns-mslug-T01","state":"done","status":"%s","pid":%s,"startedAt":1}]' "$1" "$2" > "$MOCK_STATE/agents.json"; }
+cl() { PATH="$MBIN:$PATH" bash "$CWS/close.sh" "$CWS" T01 "$@" >/dev/null 2>&1; echo $?; }
+stops() { wc -l < "$MOCK_STATE/stops" | tr -d '[:space:]'; }
+
+row idle 999999
+check "close refuses a tag with no status" "3" "$(cl)"
+check "close stopped nothing for a live ticket" "0" "$(stops)"
+
+printf 'DONE\n' > "$CWS/state/T01.status"
+row busy 999999
+check "close waits while the session is still finishing its turn" "1" "$(cl)"
+check "close stopped nothing mid-turn - that turn launches the successor" "0" "$(stops)"
+
+check "close --force stops it anyway (the runner's last pass)" "0" "$(cl --force)"
+check "close stops by the SHORT id" "stop c1053d00" "$(cat "$MOCK_STATE/stops")"
+[ -f "$CWS/state/.closed-T01" ] && ok "close marks the tag closed" \
+  || no "close marks the tag closed" "no .closed-T01"
+check "close is once per tag" "0" "$(cl)"
+check "a second close sends no second stop" "1" "$(stops)"
+
+rm -f "$CWS/state/.closed-T01"; : > "$MOCK_STATE/stops"
+row idle 999999
+check "close stops an idle finished session" "0" "$(cl)"
+check "close sent exactly one stop" "1" "$(stops)"
+
+rm -f "$CWS/state/.closed-T01"; : > "$MOCK_STATE/stops"
+row idle null
+check "close of a session with no process succeeds" "0" "$(cl)"
+check "close sends no stop to a session that is already gone" "0" "$(stops)"
+
+code="$(sed 's/[[:space:]]*#.*$//' "$REF/close.sh")"
+printf '%s' "$code" | grep -q 'claude rm' \
+  && no "close never uses 'claude rm'" "rm deletes the worktree every sprint session shares" \
+  || ok "close never uses 'claude rm'"
+order="$(python3 - "$REF/watch.sh" <<'PY'
+import sys
+src = open(sys.argv[1]).read()
+adv = src.find('do_advance "$tag"; arc=$?')
+cls = src.find('do_close "$tag" || true')
+force = src.find('do_close "$tag" --force')
+sweep0 = src.find('say "SWEEP 0')
+print("ok" if 0 <= adv < cls and 0 <= force < sweep0 else "bad adv=%d close=%d force=%d sweep0=%d" % (adv, cls, force, sweep0))
+PY
+)"
+check "the runner closes after advancing, and force-closes before it exits" "ok" "$order"
+
 unset MOCK_STATE
 rm -rf "$MWS" "$RWS" "$BWS"
 
