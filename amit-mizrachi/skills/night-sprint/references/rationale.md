@@ -432,6 +432,23 @@ session fixing it did not write it. `FIX-FINAL` relays like any other session, s
 costs more sessions, not a lost night. `handback.sh` only ever serves checkpoint fixes, so its
 prompt now carries `FORMAT_CHECK`, which `bootstrap.sh` derives for it.
 
+## Finished sessions are closed (2026-10-01)
+
+A session that writes its status and ends its turn does not exit. The harness keeps it as
+`state:done status:idle` with a live process, so a sprint of twenty tags ended with twenty idle
+sessions in the agent view - every ticket, review, fixer and continuation - and the conductor
+with the morning report somewhere among them.
+
+Now the runner closes each tag's session once the tag is terminal and `advance.sh` has run for
+it, through `close.sh`. It uses `claude stop`, which keeps the conversation (`claude attach`
+still reopens a BLOCKED session), never `claude rm`, which deletes the session's worktree - the
+one worktree the whole sprint shares. It never stops a session that is still `busy`: a session
+writes its status and THEN calls `advance.sh` in the same turn, and a stop there can kill the
+successor's launch between the claim and the session id. A `busy` session is left for the next
+sweep, unless its status is older than the stall window. Before the runner exits it makes one
+forced pass, when every tag is terminal and nothing is left to launch. `stop_session` moved from
+`revive.sh` to `agents.sh` so both scripts stop a session the same way.
+
 ## What to measure next time
 
 On comparable 3-7 ticket runs, track: total / cache / output tokens; wall time **excluding quota

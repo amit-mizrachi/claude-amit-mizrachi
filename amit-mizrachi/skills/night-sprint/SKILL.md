@@ -175,7 +175,7 @@ tests what actually ships.
 | Handing a small fix set back | `bash <WS>/handback.sh <WS> <FIX_TAG> <IMPL_TAG> <manifest>` |
 | Handing off | the SESSION does it, from its own prompt, when its own gauge says so. There is no conductor-side command and there must not be one |
 | One tag, one session | many sessions per tag over a night, never two at once. `launch.sh` claims atomically; a session is never interrupted so never forked; `revive.sh` refuses any session whose transcript is still growing |
-| Stopping | only `revive.sh` ever stops a session, and only a dead or blocked one. Never hand-roll a stop: `claude stop` takes the **short 8-char id**, never the full `sessionId` |
+| Stopping | only `revive.sh` (a dead or blocked session, before it revives it) and `close.sh` (a session whose tag is terminal and whose turn has ended) ever stop a session, both through `stop_session` in `agents.sh`. Never hand-roll a stop: `claude stop` takes the **short 8-char id**, never the full `sessionId`. Never `claude rm` - it deletes the shared worktree |
 | Context | `bash <WS>/context-used.sh <SESSION_ID\|--self> <CONTEXT_WINDOW>` - percent USED, counting up |
 | Status | `state/<TAG>.status` = `DONE` / `BLOCKED: <reason>` / `RELAYED: <TAG>c2` / `SKIPPED: <why>`, written **last** |
 | Summary | `state/<TAG>.summary` - ONE line, what it actually did, for the ledger |
@@ -203,6 +203,7 @@ tests what actually ships.
 | `references/advance.sh` | the single transition owner: read `.status` + `.next`, start the successor |
 | `references/watch.sh` | the runner: does the routine, escalates the exceptions |
 | `references/revive.sh` | the reviver, for dead sessions only: resume, then restart, then abandon |
+| `references/close.sh` | stops a finished session once its tag is terminal, so only the conductor is left at the end |
 | `references/classify-error.sh` | what actually ended a session: transient / quota / auth / none |
 | `references/handback.sh` | resume the implementer for a small fix set instead of paying for a fresh window |
 | `references/accept.sh` | are the required CI checks green **at the pushed sha**? |
@@ -263,8 +264,8 @@ gets a reply, because somebody outside the sprint is waiting on it.
 
 ## Monitor loop - what the runner escalates, and what you do
 
-Arm one persistent `Monitor` on `watch.sh`. It handles launches, advances, revivals and quota
-waits itself, and logs all of them to `state/EVENTS.log`. **It speaks only for these:**
+Arm one persistent `Monitor` on `watch.sh`. It handles launches, advances, revivals, quota
+waits and closing finished sessions itself, and logs all of them to `state/EVENTS.log`. **It speaks only for these:**
 
 | Event | Do |
 |---|---|
@@ -277,7 +278,8 @@ waits itself, and logs all of them to `state/EVENTS.log`. **It speaks only for t
 | `REVIVE-REFUSED <tag>` | The reviver would not touch it - usually because it is still working. Read `state/EVENTS.log` and decide. |
 | `NEEDS-PR` | Open the **draft** PR. Early CI and early bot review are why it opens after the first ticket rather than at the end. |
 | `STRANDED <tags>` | A successor is wired (or a tag claimed) but no session and no status appeared for five sweeps. Something failed to launch it: check `state/<tag>.launch.log` and `EVENTS.log`, then launch it with `launch.sh` (remove a stale `state/claim-<tag>` first only if no session exists). |
-| `SWEEP 0 tags= all-sessions-terminal` | The runner **exited** - nothing is running. Tags left? Launch the next and **re-arm it**. Sprint complete? Write the morning report. Never leave the sprint with no armed runner and work outstanding. |
+| `UNCLOSED <tags>` | The runner's last pass could not stop these finished sessions. The work is not affected. Name them in the morning report so the user can `claude stop <id>` them. |
+| `SWEEP 0 tags= all-sessions-terminal` | The runner **exited** and has closed every finished session - nothing but you is running. Tags left? Launch the next and **re-arm it**. Sprint complete? Write the morning report. Never leave the sprint with no armed runner and work outstanding. |
 | `SWEEP <n> tags=...` | A heartbeat, and only after a full hour with nothing to say. Nothing to do. |
 
 Everything else - `DONE`, `RELAYED`, `SKIPPED`, `DIED`, `STALLED`, `STUCK`, `OVERDUE` - the
