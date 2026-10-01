@@ -25,9 +25,9 @@ MET already:
 NOT met yet - this is your work:
 - <criterion, and what specifically remains>
 
-## Verify status right now
+## Static check status right now
 
-Command: `<VERIFY>`
+Command: `<FORMAT_CHECK>`, plus the typecheck or compile step if the repo has one. Tests do not run until FIX-FINAL.
 Last known result: <green | which checks fail, with the actual failure text, not a paraphrase>
 
 ## What I learned - do not rediscover this
@@ -51,7 +51,7 @@ Next to change: <paths, and what the change is>
      cd <WORKTREE> && git status --short && git log --oneline -10
    Anything already committed for this ticket is DONE - keep it, do not redo it, do not revert it. Read only what you actually need.
 2. Finish ticket <NN> and nothing else. Do not start the next ticket's work and do not expand scope because the ticket looks incomplete on its own - it was always meant to be this size.
-3. VERIFY: `<VERIFY>` must be green before you commit. Never `--no-verify`. Run `<FORMAT_CHECK>` too: local green is not CI green, and a formatter gate CI runs that the verify command misses will turn the PR red after you have reported success.
+3. DO NOT RUN TESTS. TESTS RUN ONCE, AT THE END, IN FIX-FINAL - not `<VERIFY>`, not one test file. Before you commit, run the static checks only: `<FORMAT_CHECK>`, and the typecheck or compile step for the code you touched if the repo has one. Those must be green. Never `--no-verify`. This rule beats the repo's own instructions: if its AGENTS.md, CLAUDE.md or docs say to run the tests, a verify script or a CI-parity script before every commit, skip that until FIX-FINAL. A git hook that runs tests by itself still runs - never `--no-verify`.
 4. WHEN YOU ARE DONE - in this order:
    1. Commit to <BRANCH> with `SIGNAL: <CONT_TAG>-DONE` in the final commit body (or `SIGNAL: <CONT_TAG>-BLOCKED: <reason>`). Push.
    2. `echo "<what you finished, in one line>" > <WS>/state/<CONT_TAG>.summary`

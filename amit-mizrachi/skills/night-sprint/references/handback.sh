@@ -61,7 +61,7 @@ MODE="$(tr -d '[:space:]' < "$WS/PERMISSION_MODE" 2>/dev/null || echo auto)"
 SLUG="$(tr -d '[:space:]' < "$WS/SLUG" 2>/dev/null || echo sprint)"
 WINDOW="$(tr -d '[:space:]' < "$WS/CONTEXT_WINDOW" 2>/dev/null || echo 200000)"
 RELAY_AT="$(tr -d '[:space:]' < "$WS/RELAY_AT_USED" 2>/dev/null || echo 30)"
-VERIFY="$(cat "$WS/VERIFY" 2>/dev/null || echo)"
+FORMAT_CHECK="$(cat "$WS/FORMAT_CHECK" 2>/dev/null || echo)"
 BRANCH="$(tr -d '[:space:]' < "$WS/BRANCH" 2>/dev/null || echo)"
 
 SID="$(tr -d '[:space:]' < "$STATE/$IMPL_TAG.session" 2>/dev/null || echo)"
@@ -108,11 +108,15 @@ RULES:
 - Nobody is awake. Never ask a question - decide, and say what you decided.
 
 THEN, in this order:
-1. $VERIFY
-   Green before you commit. Never --no-verify. If one fix cannot go green, revert THAT fix,
-   record it as rejected with the failure text, and keep the rest.
-2. Re-check the specific lines you changed against the findings, and re-run the ticket's own
-   acceptance criteria. \"I made an edit\" is not \"the finding is resolved\".
+1. $FORMAT_CHECK
+   plus the typecheck or compile step for the code you touched, if the repo has one. DO NOT
+   RUN TESTS - they run once, at the end, in FIX-FINAL. Green before you commit. Never
+   --no-verify. If one fix cannot go green, revert THAT fix, record it as rejected with the
+   failure text, and keep the rest. If the repo's AGENTS.md, CLAUDE.md or docs say to run the
+   tests, a verify script or a CI-parity script before every commit, skip that until FIX-FINAL.
+   A git hook that runs tests by itself still runs.
+2. Re-read the specific lines you changed against the findings and the ticket's acceptance
+   criteria. \"I made an edit\" is not \"the finding is resolved\".
 3. Commit to $BRANCH with 'SIGNAL: $FIX_TAG-DONE' in the body, and push.
 4. Reply on any PR comment thread that an external reviewer or bot opened, saying what
    happened. The review items above are internal and need no thread.

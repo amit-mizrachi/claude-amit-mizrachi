@@ -55,7 +55,7 @@ Decide that deliberately rather than discovering it in the morning.
 ## Kickoff (conductor, when the skill fires)
 
 1. **Ask the two things you cannot infer - FIRST.** One `AskUserQuestion`, before you read a
-   ticket or run a verify command. Kickoff takes a while and the user drifts away during it.
+   ticket or check a verify command. Kickoff takes a while and the user drifts away during it.
    - **Permission mode**: **`auto` is the default and what to use unless the user says
      otherwise.** Record it in `PERMISSION_MODE`. `acceptEdits` still prompts on shell commands
      and a background session cannot answer a prompt, so it stalls in `blocked` all night.
@@ -78,8 +78,9 @@ Decide that deliberately rather than discovering it in the morning.
        VERIFY, FORMAT_CHECK, CONVENTIONS, TOTAL,
        CONTEXT_WINDOW, WARN_AT_USED, RELAY_AT_USED, CEILING_USED
 
-   **Confirm `VERIFY` actually runs before you launch anything** - a wrong one poisons every
-   ticket in the chain. **`FORMAT_CHECK` is the formatter or lint gate CI runs that `VERIFY`
+   **Confirm `VERIFY` resolves before you launch anything** - the target exists and the runner
+   starts (a list, collect-only or dry-run mode) - **but do not run the suite**: tests run once,
+   at the end, in `FIX-FINAL`. A wrong command still poisons the one run that counts. **`FORMAT_CHECK` is the formatter or lint gate CI runs that `VERIFY`
    does not**; find it now, because local green that is not CI green is how a sprint reports 21
    finished stages over a red PR.
 
@@ -142,10 +143,22 @@ Decide that deliberately rather than discovering it in the morning.
 | Role | Count | Writes code | Job |
 |---|---|---|---|
 | **Conductor** (you) | 1 at a time, hands itself on | never | set up, arm the runner, handle escalations, report. **Never interrupts a working session** |
-| **Implementer** | 1+ per ticket, **serial** | yes | build ONE ticket green, commit, hand off - and watch its own window |
+| **Implementer** | 1+ per ticket, **serial** | yes | build ONE ticket, static checks green (no tests), commit, hand off - and watch its own window |
 | **Review finder** | 1 per review | **never** | run the selected lanes, triage, write the findings manifest, post ONE PR comment, choose the fix route |
-| **Review fixer** | 0 or 1 per finder | yes (fixes only) | work the manifest, reply on external threads, verify, push |
+| **Review fixer** | 0 or 1 per finder | yes (fixes only) | work the manifest, reply on external threads, check, push. `FIX-FINAL` runs the test suite, the first time anything does |
 | **Tester** | 0 or 1 | no | exercise the built thing, report PASS/FAIL per step, write `GOLDEN.verdict` |
+
+### Tests run once, at the end
+
+**No session runs tests until `FIX-FINAL`.** Implementers, continuations and checkpoint fixers
+run only the static checks before they commit: `FORMAT_CHECK`, plus a typecheck or compile when
+the repo has one. `FIX-FINAL` runs `VERIFY` over the finished branch, fixes every red test
+whichever ticket caused it, and only then runs `accept.sh`. `FIX-TEST` comes after it and may
+re-run `VERIFY`. The kickoff confirms `VERIFY` resolves; it does not run it.
+
+A suite run per ticket is the same suite paid for once per session, and most of a night's
+test output is green noise in a window that has better uses. One run over the whole branch
+tests what actually ships.
 
 ## Coordination
 
@@ -585,7 +598,8 @@ never bypass hooks with `--no-verify`.
 | "It stalled - retry harder and poll faster." | Classify it first. A spending cap cannot be solved by a faster watchdog, and a ladder spent against one loses hours while reporting a permission problem. |
 | "T05 died on an API error, I'll relaunch the ticket." | Resume it - `revive.sh` does. The conversation is on disk; a fresh session re-reads the codebase and repeats every decision the dead one made. |
 | "I'll resume it by hand, it's one `claude --bg --resume`." | Resume mints a **new session id** and drops the name. By hand, `state/<tag>.session` points at a corpse while a real session runs unwatched. |
-| "The tests are red but the ticket is basically done." | Green or `BLOCKED: <reason>`. There is no third state. |
+| "I'll just run the tests for this ticket before I commit." | Tests run once, at the end, in `FIX-FINAL`. Before that, static checks only. |
+| "The checks are red but the ticket is basically done." | Green or `BLOCKED: <reason>`. There is no third state. |
 | "Every stage said DONE, so the sprint is delivered." | `DONE` means a session finished. Acceptance is `ACCEPTANCE.verdict` and `GOLDEN.verdict`. 21 green stages once shipped a red PR. |
 | "`VERIFY` passes, so CI will pass." | It did not, twice, on formatting read as a warning-only lint rule. Run `FORMAT_CHECK`, and check the pushed sha with `accept.sh`. |
 | "T05 relayed, so T05 is finished - launch T06." | `RELAYED` is not `DONE`. The ticket is still being built under `T05c2`. `advance.sh` knows; nothing else gets to decide. |

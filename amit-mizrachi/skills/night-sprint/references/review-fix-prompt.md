@@ -39,13 +39,20 @@ Severity order: BLOCKER, HIGH, MEDIUM, LOW. If you run low on window, that order
 
 Permissions or access-control changes always need a human (charter #9). Do not self-approve one: reply that it needs a human, and record it as a manual step below.
 
-## STEP 2 - VERIFY, THEN CHECK THE FIX ACTUALLY FIXED IT
+## STEP 2 - CHECK, THEN CONFIRM THE FIX ACTUALLY FIXED IT
 
-  <VERIFY>
+**Tests run once in this sprint, at the end, in FIX-FINAL.** No session before FIX-FINAL has run them.
 
-Green before you commit, and never `--no-verify`. If one fix cannot be made green, revert THAT fix, record it as rejected with the failure text, and keep the rest - one stuck item must not hold the whole pass hostage.
+- **Checkpoint fix (FIX-C<n>): DO NOT RUN TESTS** - not `<VERIFY>`, not one test file. Run the static checks only: `<FORMAT_CHECK>`, plus the typecheck or compile step for the code you touched if the repo has one. This rule beats the repo's own instructions: if its AGENTS.md, CLAUDE.md or docs say to run the tests, a verify script or a CI-parity script before every commit, skip that until FIX-FINAL. A git hook that runs tests by itself still runs - never `--no-verify`.
+- **FIX-FINAL and FIX-TEST: run the full suite.**
 
-Then, per item you fixed: **re-read the lines you changed against the manifest's ACTION, and re-run the affected ticket's acceptance criteria.** An edit is not a resolution. This is the step that separates "I changed something near the finding" from "the finding is gone".
+      <VERIFY>
+
+  For FIX-FINAL this is the first time the suite has run over the sprint's work. Every red test is yours to fix, whichever ticket caused it - treat each one as a BLOCKER on your list. Re-run only the failing tests while you fix them, then run `<VERIFY>` in full once more before you commit.
+
+Green before you commit, and never `--no-verify`. If one fix cannot be made green, revert THAT fix, record it as rejected with the failure text, and keep the rest - one stuck item must not hold the whole pass hostage. A red test that predates your fixes cannot be reverted away: fix it, or write `BLOCKED: tests red - <which>` as your status.
+
+Then, per item you fixed: **re-read the lines you changed against the manifest's ACTION and the affected ticket's acceptance criteria.** An edit is not a resolution. This is the step that separates "I changed something near the finding" from "the finding is gone".
 
 Commit and push to <BRANCH>.
 

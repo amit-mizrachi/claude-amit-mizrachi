@@ -61,7 +61,7 @@ import os, re, sys
 
 ws = sys.argv[1]
 # Read by the scripts as bare one-value files.
-derive = ["WORKTREE", "SLUG", "BRANCH", "VERIFY", "PERMISSION_MODE", "MODE",
+derive = ["WORKTREE", "SLUG", "BRANCH", "VERIFY", "FORMAT_CHECK", "PERMISSION_MODE", "MODE",
           "CONTEXT_WINDOW", "WARN_AT_USED", "RELAY_AT_USED", "CEILING_USED"]
 # Needed by the prompt templates; an unset one is a session that cannot do its job.
 required = ["REPO", "REPO_PATH", "REPO_SLUG", "SLUG", "USER", "WS", "WORKTREE", "BRANCH",
@@ -100,6 +100,8 @@ if absent:
     raise SystemExit(1)
 
 for k in derive:
+    if k not in vals:  # FORMAT_CHECK in research mode: there is no repo CI to match
+        continue
     with open(os.path.join(ws, k), "w") as fh:
         fh.write(vals[k] + "\n")
 
