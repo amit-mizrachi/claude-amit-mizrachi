@@ -1,8 +1,9 @@
 # amit-mizrachi
 
-Three [Claude Code](https://claude.com/claude-code) skills for running work you are not
-sitting and watching - handing a session off, taking a feature through the night, and keeping
-a big effort's map legible - plus the macOS hook that stops your machine sleeping through it.
+Five [Claude Code](https://claude.com/claude-code) skills for running work you are not
+sitting and watching - handing a session off, turning a feature into a spec and tickets, taking
+it through the night, and keeping a big effort's map legible - plus the macOS hook that stops
+your machine sleeping through it.
 
 ## Install
 
@@ -12,7 +13,8 @@ a big effort's map legible - plus the macOS hook that stops your machine sleepin
 ```
 
 Start a new session (or `/clear`). The skills then appear as `amit-mizrachi:next-prompt`,
-`amit-mizrachi:night-sprint`, and `amit-mizrachi:mywayfinder`.
+`amit-mizrachi:night-sprint`, `amit-mizrachi:to-spec`, `amit-mizrachi:to-tickets`, and
+`amit-mizrachi:mywayfinder`.
 
 ## What's in it
 
@@ -127,6 +129,31 @@ Ships the plan skeleton, six prompt templates, eleven scripts, an offline test s
 `references/rationale.md` - the incident behind every rule above, kept out of the runtime path so
 it costs nothing until somebody is deciding whether a rule can go.
 
+### `to-spec` and `to-tickets`
+
+Bundled from Matt Pocock's [`mattpocock/skills`](https://github.com/mattpocock/skills) (MIT),
+so `night-sprint` can cut its own tickets on a machine that has nothing else installed.
+
+- **`to-spec`** turns what the conversation already settled into a spec - problem, solution, a
+  long list of user stories, implementation and testing decisions, out of scope - without
+  interviewing you again.
+- **`to-tickets`** cuts a spec, plan or conversation into **tracer-bullet** tickets: thin
+  vertical slices that each land green on their own, each naming the tickets that block it, in
+  dependency order. Wide mechanical refactors get expand - migrate - contract instead.
+
+Two changes from upstream:
+
+- **Agents can invoke them**, not only a human typing the slash command. Upstream sets
+  `disable-model-invocation: true`; here it is gone, so a conductor session or any agent can
+  call them. When no human can answer (a headless or background session, or a caller that owns
+  the approval gate), they decide for themselves instead of waiting on a question: `to-spec`
+  lists its choices as assumptions, and `to-tickets` publishes and marks the breakdown **not yet
+  approved by a human**. With a human in the session they still ask.
+- **No setup step is required.** Upstream expects `/setup-matt-pocock-skills` to have written
+  the repo's tracker config to `docs/agents/issue-tracker.md`. That is still honoured when it
+  exists; when it does not, both fall back to local markdown under `.scratch/<feature-slug>/`,
+  which is exactly where `night-sprint` looks for tickets.
+
 ### `mywayfinder`
 
 The chart layer on top of `wayfinder`. It takes an effort's blocking graph and publishes it as
@@ -169,7 +196,7 @@ Nothing below is required. Where a skill is missing, the caller degrades and say
 | Skill | Used by | For |
 |---|---|---|
 | `wayfinder` | `mywayfinder` | the map itself (**required**) |
-| `to-spec`, `to-tickets` | `night-sprint` | cutting a feature into tickets when none exist yet |
+| `to-spec`, `to-tickets` | `night-sprint` | cutting a feature into tickets when none exist yet - ships here |
 | a review skill (e.g. `code-review`) | `night-sprint` | the FIND half of each review pair |
 | `address-review` (or equivalent) | `night-sprint` | the FIX half of each review pair |
 | a dev-environment skill | `night-sprint` | the optional test session that boots the stack |
@@ -206,4 +233,6 @@ skill loaded with no `name` and no `description` and only ever fired when invoke
 
 ## License
 
-MIT - see [LICENSE](LICENSE).
+MIT - see [LICENSE](LICENSE). `to-spec` and `to-tickets` are adapted from
+[`mattpocock/skills`](https://github.com/mattpocock/skills), also MIT - see
+[`amit-mizrachi/THIRD_PARTY_NOTICES.md`](amit-mizrachi/THIRD_PARTY_NOTICES.md).
