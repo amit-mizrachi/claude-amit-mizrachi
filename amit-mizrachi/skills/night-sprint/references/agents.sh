@@ -5,6 +5,7 @@
 # Provides:          agents_json [WORKTREE]   -> a JSON array on stdout, never empty output
 #                    session_pid SID          -> the pid of a LIVE session, or nothing
 #                    stop_session SID         -> stop it, and return 0 only once it is gone
+#                    remove_session SID       -> stop it and take it off the agent list
 #
 # WHY THIS EXISTS. Three scripts need the same list, and they used to each call
 # `claude agents --json --all --cwd "$WT"` their own way. That filter has been observed to
@@ -109,5 +110,48 @@ stop_session() {
   done
 
   echo "stop_session: $short (pid $pid) will not stop" >&2
+  return 1
+}
+
+# ---------------------------------------------------------------- removing a finished session
+#
+# A stopped session stays on the agent list as `state:done` until something removes it, so
+# stopping alone still leaves one row per tag in the morning. `claude rm` takes it off the list.
+#
+# `rm` does NOT delete the sprint's worktree. It deletes only a worktree the session created
+# itself (`claude --worktree`). A sprint session is launched with `cd "$WT" && claude --bg`, so it
+# runs in a worktree it does not own. Checked on 2.1.280: after `claude rm` on a `done idle`
+# session in `.claude/worktrees/<slug>`, the worktree, its branch, an unpushed commit and an
+# untracked file were all still there. The transcript stays on disk too, so
+# `claude --bg --resume <sessionId>` still continues the conversation; only `claude attach <id>`
+# stops working, because there is no listed job left to attach to.
+
+# session_listed SID -> 0 if the agent list still has a row for it. An unreadable list counts as
+# listed, so a bad read makes a removal retry instead of passing.
+session_listed() {
+  agents_json | python3 -c 'import json,sys
+sid=sys.argv[1]
+try: rows=json.load(sys.stdin)
+except Exception: sys.exit(0)
+sys.exit(0 if any(r.get("sessionId")==sid or r.get("id")==sid[:8] for r in rows) else 1)' "$1"
+}
+
+# remove_session SID -> 0 once it is off the list (or was never on it), 1 if it is still there.
+# Stops it first through stop_session, so a live process gets the same wait and escalation.
+remove_session() {
+  local sid="$1" short i
+  case "$sid" in ""|unresolved) return 0 ;; esac
+  short="${sid%%-*}"
+
+  session_listed "$sid" || return 0
+  stop_session "$sid" || return 1
+
+  for i in 1 2 3; do
+    claude rm "$short" >/dev/null 2>&1
+    session_listed "$sid" || return 0
+    sleep 1
+  done
+
+  echo "remove_session: $short is still listed after 'claude rm'" >&2
   return 1
 }

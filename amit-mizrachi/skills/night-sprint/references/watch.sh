@@ -12,7 +12,7 @@
 # So this script now DOES the routine and reports the exceptions:
 #
 #   it does     advance the chain on a terminal status (via advance.sh)
-#               close a finished session once the chain has moved past it (via close.sh)
+#               remove a finished session from the agent list once the chain has moved past it (via close.sh)
 #               revive a dead or stalled session (via revive.sh, whose ladder bounds it)
 #               pause the sprint on a quota failure, wait out the limit, resume afterwards
 #   it reports  a real blocker, two agents on one tag, an auth failure, a budget that never
@@ -142,10 +142,10 @@ do_advance() {
   return "$rc"
 }
 
-# A finished session is stopped, so the night ends with the conductor and nothing else.
-# close.sh owns the guard - it leaves a session alone while it is still finishing the turn that
-# launches its successor - so this only logs what did not close yet. A stop that keeps failing
-# is reported once at the end, not every sweep.
+# A finished session is removed from the agent list, so the night ends with the conductor and
+# nothing else. close.sh owns the guard - it leaves a session alone while it is still finishing
+# the turn that launches its successor - so this only logs what did not close yet. A removal that
+# keeps failing is reported once at the end, not every sweep.
 do_close() {
   local tag="$1" out rc
   out="$(bash "$WS/close.sh" "$WS" "$tag" "${2:-}" 2>&1)"; rc=$?
@@ -255,7 +255,7 @@ while true; do
           [ "$arc" -ne 4 ] && : > "$STATE/.advanced-$tag"
         fi
         # The chain has moved past this tag, so its session has nothing left to do. BLOCKED
-        # included: `claude stop` keeps the conversation, and `claude attach` reopens it.
+        # included: `claude rm` keeps the transcript, so `claude --resume <sessionId>` reopens it.
         [ -f "$STATE/.advanced-$tag" ] && [ ! -f "$STATE/.closed-$tag" ] && { do_close "$tag" || true; }
         # A blocker is the one terminal state a script must not absorb: a ticket stopped for a
         # real reason, its dependents have to be skipped, and only a model can decide which.
@@ -447,7 +447,7 @@ PYOUT
     if [ "$quiet" -ge "$QUIET_LIMIT" ]; then
       # Last pass before the runner goes: every tag is terminal and nothing is left to launch,
       # so nothing can be mid-handoff. Close whatever the sweeps above left open - a session
-      # still `busy` on its final message included - so only the conductor is left running.
+      # still `busy` on its final message included - so only the conductor is left on the list.
       if [ "$ACT" -eq 1 ]; then
         unclosed=""
         for sf in "$STATE"/*.session; do
@@ -455,7 +455,7 @@ PYOUT
           [ -f "$STATE/.closed-$tag" ] && continue
           do_close "$tag" --force || unclosed="$unclosed $tag"
         done
-        [ -n "$unclosed" ] && say "UNCLOSED${unclosed} - these sessions would not stop; see EVENTS.log"
+        [ -n "$unclosed" ] && say "UNCLOSED${unclosed} - these sessions are still on the agent list; see EVENTS.log"
       fi
       say "SWEEP 0 tags= all-sessions-terminal (quiet for $quiet sweeps)"
       exit 0

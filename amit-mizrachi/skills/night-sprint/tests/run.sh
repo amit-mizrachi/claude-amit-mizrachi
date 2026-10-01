@@ -524,46 +524,75 @@ grep -q 'a FINAL review always launches its rendered fixer' "$REF/review-find-pr
   && ok "F3 the finder is told not to hand back on a FINAL review" \
   || no "F3 the finder is told not to hand back on a FINAL review" "no such rule"
 
-# --- Finished sessions are closed, and only once their last turn has ended.
+# --- Finished sessions are removed from the agent list, and only once their last turn has ended.
 CWS="$MWS/cl"; mkdir -p "$CWS/state"
 for f in agents.sh close.sh; do cp "$REF/$f" "$CWS/"; done
 printf 'c1053d00-0000-4000-8000-000000000001\n' > "$CWS/state/T01.session"
-: > "$MOCK_STATE/stops"
+: > "$MOCK_STATE/stops"; : > "$MOCK_STATE/rms"
 # The real harness shape of a session that ended its turn: `state:done`, but a process still up.
 row() { printf '[{"sessionId":"c1053d00-0000-4000-8000-000000000001","id":"c1053d00","name":"ns-mslug-T01","state":"done","status":"%s","pid":%s,"startedAt":1}]' "$1" "$2" > "$MOCK_STATE/agents.json"; }
 cl() { PATH="$MBIN:$PATH" bash "$CWS/close.sh" "$CWS" T01 "$@" >/dev/null 2>&1; echo $?; }
 stops() { wc -l < "$MOCK_STATE/stops" | tr -d '[:space:]'; }
+rms() { wc -l < "$MOCK_STATE/rms" | tr -d '[:space:]'; }
+listed() { python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$MOCK_STATE/agents.json"; }
+reset_close() { rm -f "$CWS/state/.closed-T01"; : > "$MOCK_STATE/stops"; : > "$MOCK_STATE/rms"; }
 
 row idle 999999
 check "close refuses a tag with no status" "3" "$(cl)"
 check "close stopped nothing for a live ticket" "0" "$(stops)"
+check "close removed nothing for a live ticket" "0" "$(rms)"
 
 printf 'DONE\n' > "$CWS/state/T01.status"
 row busy 999999
 check "close waits while the session is still finishing its turn" "1" "$(cl)"
 check "close stopped nothing mid-turn - that turn launches the successor" "0" "$(stops)"
+check "close removed nothing mid-turn" "0" "$(rms)"
 
-check "close --force stops it anyway (the runner's last pass)" "0" "$(cl --force)"
+check "close --force removes it anyway (the runner's last pass)" "0" "$(cl --force)"
 check "close stops by the SHORT id" "stop c1053d00" "$(cat "$MOCK_STATE/stops")"
+check "close removes by the SHORT id" "rm c1053d00" "$(cat "$MOCK_STATE/rms")"
+check "the removed session is off the agent list" "0" "$(listed)"
 [ -f "$CWS/state/.closed-T01" ] && ok "close marks the tag closed" \
   || no "close marks the tag closed" "no .closed-T01"
 check "close is once per tag" "0" "$(cl)"
 check "a second close sends no second stop" "1" "$(stops)"
+check "a second close sends no second rm" "1" "$(rms)"
 
-rm -f "$CWS/state/.closed-T01"; : > "$MOCK_STATE/stops"
+reset_close
 row idle 999999
-check "close stops an idle finished session" "0" "$(cl)"
-check "close sent exactly one stop" "1" "$(stops)"
+check "close removes an idle finished session" "0" "$(cl)"
+check "close sent exactly one rm" "1" "$(rms)"
+check "the idle session is off the agent list" "0" "$(listed)"
 
-rm -f "$CWS/state/.closed-T01"; : > "$MOCK_STATE/stops"
+# A stopped session is still a listed job - taking it off the list is the whole point.
+reset_close
 row idle null
-check "close of a session with no process succeeds" "0" "$(cl)"
-check "close sends no stop to a session that is already gone" "0" "$(stops)"
+check "close removes a session that exited but is still listed" "0" "$(cl)"
+check "close sent rm to the exited session" "rm c1053d00" "$(cat "$MOCK_STATE/rms")"
+check "the exited session is off the agent list" "0" "$(listed)"
 
-code="$(sed 's/[[:space:]]*#.*$//' "$REF/close.sh")"
-printf '%s' "$code" | grep -q 'claude rm' \
-  && no "close never uses 'claude rm'" "rm deletes the worktree every sprint session shares" \
-  || ok "close never uses 'claude rm'"
+reset_close
+printf '[]' > "$MOCK_STATE/agents.json"
+check "close of a session already off the list succeeds" "0" "$(cl)"
+check "close sends no stop to a session that is off the list" "0" "$(stops)"
+check "close sends no rm to a session that is off the list" "0" "$(rms)"
+[ -f "$CWS/state/.closed-T01" ] && ok "close marks a session that is off the list closed" \
+  || no "close marks a session that is off the list closed" "no .closed-T01"
+
+# An rm that does not take: the row stays, so close fails and leaves the tag for the next sweep.
+reset_close
+row idle null
+printf '1\n' > "$MOCK_STATE/rm-sticks"
+check "close fails when the session stays listed after rm" "1" "$(cl)"
+[ -f "$CWS/state/.closed-T01" ] && no "close leaves a still-listed tag unmarked" "marked closed" \
+  || ok "close leaves a still-listed tag unmarked"
+rm -f "$MOCK_STATE/rm-sticks"
+
+# rm keeps the shared worktree only because a sprint session did not create it. The flags that
+# delete a worktree anyway must never appear.
+grep -n -e '--force-remove-worktree' -e '--discard-unpushed' "$REF"/*.sh >/dev/null \
+  && no "no script deletes a worktree through claude rm" "found --force-remove-worktree or --discard-unpushed" \
+  || ok "no script deletes a worktree through claude rm"
 order="$(python3 - "$REF/watch.sh" <<'PY'
 import sys
 src = open(sys.argv[1]).read()

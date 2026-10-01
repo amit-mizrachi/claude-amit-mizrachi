@@ -434,6 +434,9 @@ prompt now carries `FORMAT_CHECK`, which `bootstrap.sh` derives for it.
 
 ## Finished sessions are closed (2026-10-01)
 
+> Superseded the same day by "Finished sessions are removed, not only stopped" below: the
+> `claude rm` worry in this entry was wrong.
+
 A session that writes its status and ends its turn does not exit. The harness keeps it as
 `state:done status:idle` with a live process, so a sprint of twenty tags ended with twenty idle
 sessions in the agent view - every ticket, review, fixer and continuation - and the conductor
@@ -469,3 +472,24 @@ Two things not implemented from the audit, deliberately left for a separate chan
 
 Artifacts behind all of the above: `~/Documents/night-sprint-audit-2026-09-19/` - `report.md`,
 `report.html`, `sessions.csv`, `summary.json`.
+
+## Finished sessions are removed, not only stopped (2026-10-01)
+
+The first version of `close.sh` ran `claude stop` and nothing else. That ended the processes but
+did not fix what the user saw: a stopped session is still a listed job (`state:done`, no pid), so
+the morning agent view still had one row per tag. It also marked a session that had already
+exited as "already gone" while its row was still on the list.
+
+It avoided `claude rm` because `rm` "deletes the session's worktree". That was never tested, and it
+is wrong for a sprint. Checked on Claude Code 2.1.280 with a throwaway repo: a `claude --bg` session
+started inside `.claude/worktrees/<slug>` (as `launch.sh` does), left `done idle`, then
+`claude rm <id>`. The session left the list and its process exited. The worktree, its branch, an
+unpushed commit and an untracked file were all still there. `rm` deletes only a worktree that the
+session created itself (`claude --worktree`). A sprint session runs in one it did not create. The
+transcript also stays on disk, and `claude --bg --resume <sessionId>` continued the removed
+session with its full context, so revive.sh and a human can still reopen a BLOCKED session. Only
+`claude attach <id>` stops working.
+
+So `close.sh` now calls `remove_session` (agents.sh): `stop_session` first, so a live process gets
+the same wait and escalation, then `claude rm <short id>`, then a check that the row is gone. It
+also removes a session that is listed but has already exited. The busy-turn guard is unchanged.

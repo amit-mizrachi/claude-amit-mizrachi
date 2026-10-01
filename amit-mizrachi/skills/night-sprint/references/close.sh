@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# night-sprint closer - stop the process of a session that has already finished its ticket.
+# night-sprint closer - take a session that has already finished its ticket off the agent list.
 #
 #   close.sh <WORKSPACE> <TAG> [--force]
 #
 # Exit codes, because the watcher acts on them:
 #   0  closed, or there was nothing left to close
-#   1  not yet - the session is still finishing its last turn, or it would not stop
+#   1  not yet - the session is still finishing its last turn, or it would not go away
 #   3  the tag has not reported a terminal status, so it is not ours to close
 #
 # WHY THIS EXISTS. A session that writes its status and ends its turn does not exit. It sits
@@ -13,7 +13,12 @@
 # left twenty of those behind - every ticket, every review, every fixer, every continuation -
 # so the morning agent view was a wall of finished sessions with the conductor somewhere in
 # it. Once a tag is terminal its session has nothing left to do: the chain has moved on and
-# the work is on the branch. Only the conductor should be left running at the end.
+# the work is on the branch. Only the conductor should be left on the list at the end.
+#
+# Stopping is not enough. A stopped session is still a listed job (`state:done`, no pid), so
+# the first version of this script, which only ran `claude stop`, ended the processes and still
+# left the wall of rows. So it removes: `remove_session` in agents.sh stops the session and then
+# runs `claude rm`.
 #
 # THE ONE RULE: never stop a session in the middle of a turn. A session writes its status
 # and THEN, still inside that turn, calls advance.sh, which launches the successor. Stopping
@@ -22,9 +27,10 @@
 # which means it is hung, not finishing. `--force` skips the wait; the watcher uses it only
 # on its way out, when every tag is terminal and nothing is left to launch.
 #
-# `claude stop`, never `claude rm`. Stop keeps the conversation, so `claude attach <id>`
-# still opens a finished or BLOCKED session in the morning. `rm` also deletes the session's
-# worktree, and in a sprint that is the ONE worktree every session shares.
+# `claude rm` does not touch the shared worktree - it deletes only a worktree the session
+# created itself, and sprint sessions are launched inside one they did not create (see
+# agents.sh). The transcript stays on disk, so a removed BLOCKED session is still reopened with
+# `cd <worktree> && claude --resume <sessionId>`, and revive.sh can still `--resume` it.
 #
 # Writes:
 #   state/.closed-<TAG> - so each tag is closed once
@@ -61,20 +67,20 @@ esac
 row="$(agents_json | python3 -c 'import json,sys
 sid=sys.argv[1]
 try: rows=json.load(sys.stdin)
-except Exception: sys.exit(0)
+except Exception: print("unknown -"); sys.exit(0)
 for r in rows:
     if r.get("sessionId")==sid or r.get("id")==sid[:8]:
-        print("live" if r.get("pid") else "gone", r.get("status") or "-"); break' "$sid")"
+        print("live" if r.get("pid") else "exited", r.get("status") or "-"); break' "$sid")"
 live="${row%% *}"
 status="${row#* }"
 
-if [ "$live" != "live" ]; then
+if [ -z "$row" ]; then
   : > "$MARK"
-  note "already gone ($sid)"
+  note "already off the list ($sid)"
   exit 0
 fi
 
-if [ "$status" = "busy" ] && [ "$FORCE" -eq 0 ]; then
+if [ "$live" = "live" ] && [ "$status" = "busy" ] && [ "$FORCE" -eq 0 ]; then
   written="$(stat -f %m "$STATE/$TAG.status" 2>/dev/null || stat -c %Y "$STATE/$TAG.status" 2>/dev/null)"
   age=$(( ( $(date +%s) - ${written:-0} ) / 60 ))
   if [ "$age" -lt "$STALL_MIN" ]; then
@@ -83,10 +89,10 @@ if [ "$status" = "busy" ] && [ "$FORCE" -eq 0 ]; then
   fi
 fi
 
-if stop_session "$sid"; then
+if remove_session "$sid"; then
   : > "$MARK"
-  note "stopped $sid ($(head -1 "$STATE/$TAG.status"))"
+  note "removed $sid ($(head -1 "$STATE/$TAG.status"))"
   exit 0
 fi
-note "FAILED to stop $sid"
+note "FAILED to remove $sid"
 exit 1
