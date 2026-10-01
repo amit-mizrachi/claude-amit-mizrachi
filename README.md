@@ -1,9 +1,9 @@
 # amit-mizrachi
 
-Five [Claude Code](https://claude.com/claude-code) skills for running work you are not
+Six [Claude Code](https://claude.com/claude-code) skills for running work you are not
 sitting and watching - handing a session off, turning a feature into a spec and tickets, taking
-it through the night, and keeping a big effort's map legible - plus the macOS hook that stops
-your machine sleeping through it.
+it through the night, researching a product question end to end, and keeping a big effort's map
+legible - plus the macOS hook that stops your machine sleeping through it.
 
 ## Install
 
@@ -13,8 +13,8 @@ your machine sleeping through it.
 ```
 
 Start a new session (or `/clear`). The skills then appear as `amit-mizrachi:next-prompt`,
-`amit-mizrachi:night-sprint`, `amit-mizrachi:to-spec`, `amit-mizrachi:to-tickets`, and
-`amit-mizrachi:mywayfinder`.
+`amit-mizrachi:night-sprint`, `amit-mizrachi:product-research`, `amit-mizrachi:to-spec`,
+`amit-mizrachi:to-tickets`, and `amit-mizrachi:mywayfinder`.
 
 ## What's in it
 
@@ -129,6 +129,44 @@ Ships the plan skeleton, six prompt templates, eleven scripts, an offline test s
 `references/rationale.md` - the incident behind every rule above, kept out of the runtime path so
 it costs nothing until somebody is deciding whether a rule can go.
 
+It also has a **research mode** (`mode: research`), which `product-research` drives: the same
+runner, but each ticket is a research question, the worktree is a local repo with no remote,
+`VERIFY` is a citation check, the one review re-opens the sources, and the sprint ends in a
+published artifact instead of a PR. See `references/research-mode.md`.
+
+### `product-research`
+
+Researches a product question with **one approval** and no supervision. In your session it
+asks what to research, what decision it informs, who reads it, which sources to use (it offers
+the connectors you actually have, plus the web) and how deep to go. Then it writes a one-page
+brief and asks you to approve it. **That is the last question.**
+
+After the approval, a background conductor takes over:
+
+1. `to-spec` turns the brief into a research spec, and `to-tickets` cuts it into 3-8 research
+   questions - both told that the caller owns the approval gate, so neither asks anything.
+2. A `night-sprint` in research mode answers the questions one session at a time. Each writes a
+   findings file in which **every claim ends in a source citation** (a URL, or a connector
+   reference such as a Slack permalink) or is marked as inference, and `research-check.sh`
+   refuses anything else.
+3. A final review re-opens the sources to check they say what the findings claim, and a fixer
+   corrects what they do not.
+4. `SYNTH` writes one page - the answer and what it means for the decision, findings by theme
+   with confidence, where the evidence disagrees, the gaps, every source - and publishes it as
+   a private artifact. You get the link in a push notification and in `REPORT.md`.
+
+Three rules hold everywhere in the run:
+
+- **Connectors are read only.** No session sends, posts, drafts, edits, comments or reacts. A
+  question only a person could answer becomes a gap in the report.
+- **Nothing is invented.** A source that would not open is a gap, not a citation.
+- **The workspace is `~/claude-research/<slug>/`, never under `~/.claude`.** Claude Code
+  guards writes there, and a background session stops on that prompt with nobody awake to
+  answer it.
+
+Needs Claude Code with the `claude` command (it starts background sessions with `claude --bg`)
+and an account where `auto` permission mode is available. A plain claude.ai chat cannot run it.
+
 ### `to-spec` and `to-tickets`
 
 Bundled from Matt Pocock's [`mattpocock/skills`](https://github.com/mattpocock/skills) (MIT),
@@ -202,6 +240,8 @@ Nothing below is required. Where a skill is missing, the caller degrades and say
 | a dev-environment skill | `night-sprint` | the optional test session that boots the stack |
 | `artifact-design` | `mywayfinder` | built into Claude Code |
 | `next-prompt` | `night-sprint` | the conductor relay - ships here |
+| `night-sprint`, `to-spec`, `to-tickets` | `product-research` | the whole run after the approval - all ship here |
+| `artifact-design`, `dataviz` | `product-research` | the final page - built into Claude Code |
 
 `night-sprint` also references review and dev-environment skills generically. Substitute
 whatever your repo uses; the sprint reads the names out of its own prompt files, which you fill

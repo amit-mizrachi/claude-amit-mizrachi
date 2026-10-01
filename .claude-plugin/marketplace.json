@@ -1,6 +1,6 @@
 {
   "name": "amit-mizrachi",
-  "description": "Amit Mizrachi's personal Claude Code plugins - session handoff, spec and ticket cutting, overnight feature delivery, wayfinder charting, and machine-awake hooks.",
+  "description": "Amit Mizrachi's personal Claude Code plugins - session handoff, spec and ticket cutting, overnight feature delivery, product research, wayfinder charting, and machine-awake hooks.",
   "owner": {
     "name": "Amit Mizrachi",
     "url": "https://github.com/amit-mizrachi"
@@ -9,7 +9,7 @@
     {
       "name": "amit-mizrachi",
       "source": "./amit-mizrachi",
-      "description": "Amit Mizrachi's Claude Code skills: next-prompt, night-sprint, to-spec, to-tickets, mywayfinder, plus a sliding 8h macOS caffeinate hook."
+      "description": "Amit Mizrachi's Claude Code skills: next-prompt, night-sprint, product-research, to-spec, to-tickets, mywayfinder, plus a sliding 8h macOS caffeinate hook."
     }
   ]
 }
