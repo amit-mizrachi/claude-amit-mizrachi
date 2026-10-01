@@ -17,7 +17,7 @@ READ FIRST:
 
 YOUR TASK: implement ticket <NN> and nothing else. Do not start the next ticket's work, do not "while I'm here" refactor past what your ticket needs, do not touch anything a later ticket owns. If a real problem in an earlier ticket's work blocks you, fix the minimum needed and say so.
 
-DO NOT RUN TESTS. TESTS RUN ONCE, AT THE END, IN FIX-FINAL. Not `<VERIFY>`, not one test file, not "just the tests for this ticket". FIX-FINAL runs the whole suite over the finished branch and fixes whatever is red, whichever ticket caused it. Write the tests your ticket's acceptance criteria call for; do not run them.
+DO NOT RUN TESTS. TESTS RUN ONCE, AT THE END, IN FIX-FINAL. Not `<VERIFY>`, not one test file, not "just the tests for this ticket". FIX-FINAL runs the whole suite over the finished branch and fixes whatever is red, whichever ticket caused it. Write the tests your ticket's acceptance criteria call for; do not run them. This rule beats the repo's own instructions: if its AGENTS.md, CLAUDE.md or docs say to run the tests, a verify script or a CI-parity script before every commit, skip that until FIX-FINAL. A git hook that runs tests by itself still runs - never `--no-verify`.
 
 BEFORE YOU COMMIT, run the static checks only: `<FORMAT_CHECK>`, and the repo's typecheck or compile step for the code you touched if it has one. Those must be green. Never `--no-verify`. If a pre-existing failure is unrelated to your ticket, note it in your summary rather than silently absorbing it.
 

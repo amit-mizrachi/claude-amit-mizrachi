@@ -426,7 +426,8 @@ ticket. Re-establish ground truth first:
   cd $WT && git status --short && git log --oneline -10
 Then carry on from exactly where you stopped.
 
-You still owe the full handoff, in this order: verify green, commit with your SIGNAL line and
+You still owe the full handoff, in this order: the checks your contract names green (tests run
+once, at the end, in FIX-FINAL - before that, static checks only), commit with your SIGNAL line and
 push, write $WS/state/$TAG.summary (one line), write $WS/state/$TAG.status LAST, then launch the
 next tag if and only if you wrote DONE. Your original contract is $PROMPT - re-read it if you
 are unsure what you owe.

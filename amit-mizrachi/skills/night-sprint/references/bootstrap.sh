@@ -100,6 +100,8 @@ if absent:
     raise SystemExit(1)
 
 for k in derive:
+    if k not in vals:  # FORMAT_CHECK in research mode: there is no repo CI to match
+        continue
     with open(os.path.join(ws, k), "w") as fh:
         fh.write(vals[k] + "\n")
 

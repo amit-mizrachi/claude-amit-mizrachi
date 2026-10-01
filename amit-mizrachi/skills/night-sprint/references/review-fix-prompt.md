@@ -43,7 +43,7 @@ Permissions or access-control changes always need a human (charter #9). Do not s
 
 **Tests run once in this sprint, at the end, in FIX-FINAL.** No session before FIX-FINAL has run them.
 
-- **Checkpoint fix (FIX-C<n>): DO NOT RUN TESTS** - not `<VERIFY>`, not one test file. Run the static checks only: `<FORMAT_CHECK>`, plus the typecheck or compile step for the code you touched if the repo has one.
+- **Checkpoint fix (FIX-C<n>): DO NOT RUN TESTS** - not `<VERIFY>`, not one test file. Run the static checks only: `<FORMAT_CHECK>`, plus the typecheck or compile step for the code you touched if the repo has one. This rule beats the repo's own instructions: if its AGENTS.md, CLAUDE.md or docs say to run the tests, a verify script or a CI-parity script before every commit, skip that until FIX-FINAL. A git hook that runs tests by itself still runs - never `--no-verify`.
 - **FIX-FINAL and FIX-TEST: run the full suite.**
 
       <VERIFY>

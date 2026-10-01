@@ -320,10 +320,20 @@ check "VERIFY derived whole, spaces and all" "pnpm nx affected -t typecheck test
 check "FORMAT_CHECK derived for handback" "pnpm format:check" "$(cat "$BWS/FORMAT_CHECK" 2>/dev/null)"
 
 # Tests run once, at the end, in FIX-FINAL. Nothing before it may be told to run the suite.
-for f in implementer-prompt.md continuation-prompt.md review-fix-prompt.md; do
+for f in implementer-prompt.md continuation-prompt.md review-fix-prompt.md review-find-prompt.md; do
   grep -q 'TESTS RUN ONCE, AT THE END, IN FIX-FINAL\|Tests run once in this sprint, at the end, in FIX-FINAL' "$REF/$f" \
     && ok "$f carries the tests-once rule" || no "$f carries the tests-once rule" "rule missing"
 done
+# The repo's own "run the tests before you commit" must not win over the sprint's rule.
+for f in implementer-prompt.md continuation-prompt.md review-fix-prompt.md handback.sh; do
+  grep -q 'skip that until FIX-FINAL' "$REF/$f" \
+    && ok "$f overrides a repo rule to test before commit" || no "$f overrides a repo rule to test before commit" "override missing"
+done
+if grep -q 'verify green' "$REF/revive.sh"; then
+  no "revive does not tell a resumed session to run the suite" "revive.sh still says verify green"
+else
+  ok "revive does not tell a resumed session to run the suite"
+fi
 if grep -q '\$VERIFY' "$REF/handback.sh"; then
   no "handback (checkpoint fixes only) does not run the test suite" "handback.sh still uses \$VERIFY"
 else
