@@ -30,16 +30,17 @@ are changing the skill, not when you are running a sprint.
 
 ## Prerequisites - check these before kickoff, not at 3am
 
-Only `next-prompt` ships in this plugin. The rest are named by ROLE; substitute whatever you
-use, and write the real names into `PLAN.md` at kickoff so the sessions invoke the right thing.
+`next-prompt`, `to-spec` and `to-tickets` ship in this plugin. The rest are named by ROLE;
+substitute whatever you use, and write the real names into `PLAN.md` at kickoff so the sessions
+invoke the right thing.
 
 | Role | What it does | Without it |
 |---|---|---|
 | a **code-review** skill | the review lanes the FIND step runs | nothing reviews the diff |
 | an **address-review** skill | replies on external bot / human PR threads | external comments go unanswered |
 | **`next-prompt`** (ships here) | the conductor handing itself on | the sprint dies when the conductor fills up |
-| a **spec** skill | turning a feature into a spec at kickoff | bring your own spec |
-| a **ticket-splitting** skill | cutting that spec into tickets | bring your own breakdown |
+| a **spec** skill (`to-spec` ships here) | turning a feature into a spec at kickoff | bring your own spec |
+| a **ticket-splitting** skill (`to-tickets` ships here) | cutting that spec into tickets | bring your own breakdown |
 
 A prompt naming an uninstalled skill is a session that stops at 3am with nobody awake to fix
 it, and that is the cheapest failure to prevent. The **review step is the one hard dependency**:
