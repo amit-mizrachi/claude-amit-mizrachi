@@ -183,7 +183,7 @@ tests what actually ships.
 | Handing a small fix set back | `bash <WS>/handback.sh <WS> <FIX_TAG> <IMPL_TAG> <manifest>` |
 | Handing off | the SESSION does it, from its own prompt, when its own gauge says so. There is no conductor-side command and there must not be one |
 | One tag, one session | many sessions per tag over a night, never two at once. `launch.sh` claims atomically; a session is never interrupted so never forked; `revive.sh` refuses any session whose transcript is still growing |
-| Stopping | only `revive.sh` (a dead or blocked session, before it revives it) and `close.sh` (a session whose tag is terminal and whose turn has ended) ever stop a session, both through `stop_session` in `agents.sh`. Never hand-roll a stop: `claude stop` takes the **short 8-char id**, never the full `sessionId`. Never `claude rm` - it deletes the shared worktree |
+| Stopping | only `revive.sh` (a dead or blocked session, before it revives it) and `close.sh` (a session whose tag is terminal and whose turn has ended) ever stop a session, both through `stop_session` in `agents.sh`; `close.sh` then takes it off the agent list with `remove_session` (`claude rm`). Never hand-roll a stop or a removal: `claude stop` and `claude rm` take the **short 8-char id**, never the full `sessionId`. `claude rm` keeps the shared worktree (a sprint session runs in it but did not create it) and the transcript, so a removed session still resumes with `claude --resume <sessionId>` |
 | Context | `bash <WS>/context-used.sh <SESSION_ID\|--self> <CONTEXT_WINDOW>` - percent USED, counting up |
 | Status | `state/<TAG>.status` = `DONE` / `BLOCKED: <reason>` / `RELAYED: <TAG>c2` / `SKIPPED: <why>`, written **last** |
 | Summary | `state/<TAG>.summary` - ONE line, what it actually did, for the ledger |
@@ -211,7 +211,7 @@ tests what actually ships.
 | `references/advance.sh` | the single transition owner: read `.status` + `.next`, start the successor |
 | `references/watch.sh` | the runner: does the routine, escalates the exceptions |
 | `references/revive.sh` | the reviver, for dead sessions only: resume, then restart, then abandon |
-| `references/close.sh` | stops a finished session once its tag is terminal, so only the conductor is left at the end |
+| `references/close.sh` | removes a finished session from the agent list (stop, then `claude rm`) once its tag is terminal, so only the conductor is left at the end |
 | `references/classify-error.sh` | what actually ended a session: transient / quota / auth / none |
 | `references/handback.sh` | resume the implementer for a small fix set instead of paying for a fresh window |
 | `references/accept.sh` | are the required CI checks green **at the pushed sha**? |
@@ -286,8 +286,8 @@ waits and closing finished sessions itself, and logs all of them to `state/EVENT
 | `REVIVE-REFUSED <tag>` | The reviver would not touch it - usually because it is still working. Read `state/EVENTS.log` and decide. |
 | `NEEDS-PR` | Open the **draft** PR. Early CI and early bot review are why it opens after the first ticket rather than at the end. |
 | `STRANDED <tags>` | A successor is wired (or a tag claimed) but no session and no status appeared for five sweeps. Something failed to launch it: check `state/<tag>.launch.log` and `EVENTS.log`, then launch it with `launch.sh` (remove a stale `state/claim-<tag>` first only if no session exists). |
-| `UNCLOSED <tags>` | The runner's last pass could not stop these finished sessions. The work is not affected. Name them in the morning report so the user can `claude stop <id>` them. |
-| `SWEEP 0 tags= all-sessions-terminal` | The runner **exited** and has closed every finished session - nothing but you is running. Tags left? Launch the next and **re-arm it**. Sprint complete? Write the morning report. Never leave the sprint with no armed runner and work outstanding. |
+| `UNCLOSED <tags>` | The runner's last pass could not remove these finished sessions from the agent list. The work is not affected. Name them in the morning report so the user can `claude rm <id>` them. |
+| `SWEEP 0 tags= all-sessions-terminal` | The runner **exited** and has removed every finished session - nothing but you is on the agent list. Tags left? Launch the next and **re-arm it**. Sprint complete? Write the morning report. Never leave the sprint with no armed runner and work outstanding. |
 | `SWEEP <n> tags=...` | A heartbeat, and only after a full hour with nothing to say. Nothing to do. |
 
 Everything else - `DONE`, `RELAYED`, `SKIPPED`, `DIED`, `STALLED`, `STUCK`, `OVERDUE` - the

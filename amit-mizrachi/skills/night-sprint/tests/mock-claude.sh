@@ -9,8 +9,11 @@
 #   launches      one line per `--bg` invocation: `<name> <resumed-sid>`. Tests read this.
 #   next-sid      the sessionId the NEXT --bg launch should register (default: a fresh uuid-ish)
 #   register      if 1, a --bg launch appends its new session to agents.json. Default 1.
+#   stops         one line per `stop`: `stop <id>`. Tests read this.
+#   rms           one line per `rm`: `rm <id>`. `rm` also drops the matching row from agents.json,
+#                 unless rm-sticks holds 1 (an rm that does not take).
 #
-# It supports only what the sprint's scripts actually call: `agents --json`, `stop`, and
+# It supports only what the sprint's scripts actually call: `agents --json`, `stop`, `rm`, and
 # `--bg --resume`. Anything else exits 0 quietly so a stray call cannot fail a test for the
 # wrong reason.
 
@@ -27,6 +30,20 @@ case "${1:-}" in
     ;;
   stop)
     printf '%s\n' "stop ${2:-}" >> "$S/stops"
+    exit 0
+    ;;
+  rm)
+    printf '%s\n' "rm ${2:-}" >> "$S/rms"
+    [ "$(cat "$S/rm-sticks" 2>/dev/null || echo 0)" = "1" ] && exit 0
+    python3 - "$S/agents.json" "${2:-}" <<'PY'
+import json, sys
+path, short = sys.argv[1], sys.argv[2]
+try:
+    rows = json.load(open(path))
+except Exception:
+    rows = []
+json.dump([r for r in rows if r.get("id") != short], open(path, "w"))
+PY
     exit 0
     ;;
 esac
