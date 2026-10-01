@@ -506,5 +506,175 @@ unset MOCK_STATE
 rm -rf "$MWS" "$RWS" "$BWS"
 
 echo
+echo "== research mode: bootstrap builds a local repo, no PR, and its own fact set =="
+QWS="$(mktemp -d)"
+research_facts() {
+  cat > "$QWS/facts.env" <<ENV
+MODE=research
+SLUG=pricing-20261001
+USER=Amit
+WS=$QWS
+WORKTREE=$QWS/work
+BRANCH=research/pricing-20261001
+VERIFY=bash $QWS/research-check.sh $QWS
+RESEARCH_TITLE=How competitors price seats
+QUESTION=How do the top five competitors price per seat?
+DECISION=Whether to move to per-seat pricing
+AUDIENCE=the product team
+SOURCES=Web (WebSearch, WebFetch); Slack; Google Drive
+TOTAL=3
+CONTEXT_WINDOW=200000
+WARN_AT_USED=20
+RELAY_AT_USED=30
+CEILING_USED=60
+ENV
+}
+drop_fact() { grep -v "^$1=" "$QWS/facts.env" > "$QWS/facts.env.tmp"; mv "$QWS/facts.env.tmp" "$QWS/facts.env"; }
+
+research_facts
+out="$(bash "$REF/bootstrap.sh" "$QWS" "$REF" 2>&1)"; rc=$?
+check "research bootstrap succeeds without any repo facts" "0" "$rc"
+check "MODE derived" "research" "$(cat "$QWS/MODE" 2>/dev/null)"
+check "the worktree is a local repo on the sprint branch" "research/pricing-20261001" \
+  "$(git -C "$QWS/work" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+check "it has a HEAD for launch.sh to record" "0" \
+  "$(git -C "$QWS/work" rev-parse HEAD >/dev/null 2>&1; echo $?)"
+check "it has no remote" "" "$(git -C "$QWS/work" remote 2>/dev/null)"
+[ -f "$QWS/state/.pr-asked" ] && ok "the runner's NEEDS-PR ask is pre-answered" \
+  || no "the runner's NEEDS-PR ask is pre-answered" "no state/.pr-asked"
+for need in research-check.sh research-ticket-prompt.md research-continuation-prompt.md \
+            research-review-find-prompt.md research-review-fix-prompt.md research-synth-prompt.md \
+            research-plan-template.md; do
+  [ -f "$QWS/$need" ] && ok "copied $need" || no "copied $need" "absent from $QWS"
+done
+out="$(bash "$REF/bootstrap.sh" "$QWS" "$REF" 2>&1)"; rc=$?
+check "re-running bootstrap keeps the existing repo" "0" "$rc"
+check "and does not add a second root commit" "1" "$(git -C "$QWS/work" rev-list --count HEAD)"
+
+drop_fact QUESTION
+out="$(bash "$REF/bootstrap.sh" "$QWS" "$REF" 2>&1)"; rc=$?
+check "a missing research fact fails bootstrap" "1" "$rc"
+case "$out" in *QUESTION*) ok "it names the missing research fact" ;; *) no "it names the missing research fact" "got: $out" ;; esac
+research_facts
+drop_fact MODE
+printf 'MODE=essay\n' >> "$QWS/facts.env"
+out="$(bash "$REF/bootstrap.sh" "$QWS" "$REF" 2>&1)"; rc=$?
+check "an unknown MODE fails bootstrap" "1" "$rc"
+research_facts
+bash "$REF/bootstrap.sh" "$QWS" "$REF" >/dev/null 2>&1
+
+CWS="$(mktemp -d)"
+cat > "$CWS/facts.env" <<ENV
+REPO=r
+REPO_PATH=/tmp/repo
+REPO_SLUG=owner/repo
+SLUG=codesprint
+USER=Amit
+WS=$CWS
+WORKTREE=/tmp/wt
+BRANCH=feat/x
+BASE=origin/main
+TOOLCHAIN=none
+VERIFY=true
+FORMAT_CHECK=true
+ENV
+bash "$REF/bootstrap.sh" "$CWS" "$REF" >/dev/null 2>&1
+check "a code sprint defaults to MODE=code" "code" "$(cat "$CWS/MODE" 2>/dev/null)"
+[ ! -f "$CWS/state/.pr-asked" ] && ok "a code sprint still gets its NEEDS-PR ask" \
+  || no "a code sprint still gets its NEEDS-PR ask" "code-mode bootstrap wrote .pr-asked"
+rm -rf "$CWS"
+
+echo
+echo "== research-check.sh: every claim names its source =="
+F="$QWS/work/findings/01-acme.md"
+rc_of() { bash "$QWS/research-check.sh" "$QWS" "$@" >/dev/null 2>&1; echo $?; }
+# edit <old> <new>: one literal replacement in the findings file.
+edit() { python3 -c 'import sys; p,a,b=sys.argv[1:4]; s=open(p).read(); assert a in s, a; open(p,"w").write(s.replace(a,b,1))' "$F" "$1" "$2"; }
+good() {
+  cat > "$F" <<'MD'
+# 01: How Acme prices
+
+**Question:** How does Acme price seats?
+
+## Answer
+Acme charges per seat with a volume discount [S1][S2].
+**Confidence:** medium - two sources, one is a forum post.
+
+## Findings
+- Acme lists $12 per seat per month on its pricing page [S1]
+- Customers in Slack say the discount starts at 50 seats [S2]
+- So a 100-seat team likely pays under $1,200 a month [INFERENCE]
+
+## Gaps
+- Enterprise pricing is not public.
+
+## Sources
+- [S1] Acme pricing - https://acme.example/pricing - accessed 2026-10-01
+- [S2] #sales thread - connector:Slack #sales 2026-09-30 p1727700000 - accessed 2026-10-01
+MD
+}
+check "no findings files: FAIL" "1" "$(rc_of)"
+good
+check "a well-cited findings file: PASS" "0" "$(rc_of)"
+good; edit "- So a 100-seat team" "- An uncited claim
+- So a 100-seat team"
+check "an uncited finding: FAIL" "1" "$(rc_of)"
+good; edit "page [S1]" "page [S3]"
+check "citing a source Sources does not define: FAIL" "1" "$(rc_of)"
+good; edit "https://acme.example/pricing" "the pricing page"
+check "a source with no locator: FAIL" "1" "$(rc_of)"
+good; edit "## Gaps" "## Holes"
+check "a missing section: FAIL" "1" "$(rc_of)"
+good
+check "--final with no artifact: FAIL" "1" "$(rc_of --final)"
+mkdir -p "$QWS/artifact" && echo '<!doctype html><title>x</title>' > "$QWS/artifact/index.html"
+check "--final with an artifact but no URL: FAIL" "1" "$(rc_of --final)"
+echo "https://claude.ai/artifact/abc" > "$QWS/state/ARTIFACT.url"
+check "--final with an artifact and its URL: PASS" "0" "$(rc_of --final)"
+
+echo
+echo "== research templates render with nothing left unfilled =="
+cat > "$QWS/vars-T01.env" <<'ENV'
+TAG=T01
+NN=01
+TICKET_TITLE=How Acme prices
+GOTCHAS=None known.
+NEXT_TAG=T02
+TOTAL=3
+ENV
+cat > "$QWS/vars-REVIEW-FINAL.env" <<'ENV'
+TAG=REVIEW-FINAL
+FIX_TAG=FIX-FINAL
+NEXT_AFTER_FIX=SYNTH
+ENV
+cat > "$QWS/vars-FIX-FINAL.env" <<'ENV'
+TAG=FIX-FINAL
+FIND_TAG=REVIEW-FINAL
+NEXT_TAG=SYNTH
+ENV
+printf 'TAG=SYNTH\n' > "$QWS/vars-SYNTH.env"
+cat > "$QWS/vars-T01c2.env" <<'ENV'
+CONT_TAG=T01c2
+PREV_TAG=T01
+NN=01
+TICKET_TITLE=How Acme prices
+NEXT_TAG=T02
+ENV
+for pair in "research-ticket-prompt.md:T01" "research-review-find-prompt.md:REVIEW-FINAL" \
+            "research-review-fix-prompt.md:FIX-FINAL" "research-synth-prompt.md:SYNTH" \
+            "research-continuation-prompt.md:T01c2"; do
+  tpl="${pair%%:*}"; tag="${pair##*:}"
+  bash "$QWS/render.sh" "$QWS" "$QWS/$tpl" "$QWS/prompt-$tag.txt" "$QWS/vars-$tag.env" >/dev/null 2>&1
+  check "renders $tpl" "0" "$?"
+done
+grep -q 'READ ONLY' "$QWS/prompt-T01.txt" && ok "the ticket prompt carries the read-only connector rule" \
+  || no "the ticket prompt carries the read-only connector rule" "no READ ONLY line"
+CP="$HERE/../../product-research/references/conductor-prompt.md"
+printf 'NS_DIR=%s\n' "$HERE/.." > "$QWS/vars-CONDUCTOR.env"
+bash "$QWS/render.sh" "$QWS" "$CP" "$QWS/prompt-CONDUCTOR.txt" "$QWS/vars-CONDUCTOR.env" >/dev/null 2>&1
+check "product-research's conductor prompt renders from the same facts" "0" "$?"
+rm -rf "$QWS"
+
+echo
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

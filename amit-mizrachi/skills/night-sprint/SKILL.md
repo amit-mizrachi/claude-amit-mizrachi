@@ -1,7 +1,7 @@
 ---
 name: night-sprint
-description: Delivers a whole feature overnight through autonomous sessions run strictly one after another, all on ONE branch landing as ONE pull request. A conductor session writes no code - it sets the sprint up, then a deterministic runner launches each ticket, advances the chain, revives what dies and waits out spending limits, escalating only what needs judgement. Each implementer watches its own context window and hands its ticket to a fresh session before it fills. Gets or builds a ticket breakdown first (via a spec and a ticket-splitting skill), decides whether to review once at the end or at checkpoints, runs each review as a FIND step plus a FIX step with only the review lanes that diff actually earns, optionally runs a test session that boots the stack or runs evals, and makes the required CI checks at the pushed sha decide whether the sprint delivered. Use when the user says "night sprint", "sprint this feature", "build this overnight", "run this while I sleep", "ticket after ticket", or wants a feature taken end to end unattended in a single PR.
-argument-hint: "<feature | spec path | ticket dir | issue URL> [test: none|dev-stack|evals|<command>]"
+description: Delivers a whole feature overnight through autonomous sessions run strictly one after another, all on ONE branch landing as ONE pull request. A conductor session writes no code - it sets the sprint up, then a deterministic runner launches each ticket, advances the chain, revives what dies and waits out spending limits, escalating only what needs judgement. Each implementer watches its own context window and hands its ticket to a fresh session before it fills. Gets or builds a ticket breakdown first (via a spec and a ticket-splitting skill), decides whether to review once at the end or at checkpoints, runs each review as a FIND step plus a FIX step with only the review lanes that diff actually earns, optionally runs a test session that boots the stack or runs evals, and makes the required CI checks at the pushed sha decide whether the sprint delivered. Also runs in research mode (`mode: research`), where each ticket is a research question answered from cited sources and the sprint ends in one published artifact instead of a PR. Use when the user says "night sprint", "sprint this feature", "build this overnight", "run this while I sleep", "ticket after ticket", or wants a feature taken end to end unattended in a single PR.
+argument-hint: "<feature | spec path | ticket dir | issue URL> [test: none|dev-stack|evals|<command>] [mode: research]"
 ---
 
 # Night Sprint
@@ -24,6 +24,11 @@ across concurrent sessions to save wall-clock. This one deliberately does not: i
 nobody is waiting, and serial execution buys correctness - no frozen contracts, no disjoint-file
 rules, no merge conflicts, no tracker. If you catch yourself fanning out implementers, you are
 in the wrong skill.
+
+**Research mode.** If the invocation says `mode: research`, `facts.env` has `MODE=research`, or
+`product-research` launched you, read `references/research-mode.md` now. It replaces the
+kickoff, the reviews, acceptance and the PR below; the runner, the context rungs and everything
+about reviving apply unchanged.
 
 `references/rationale.md` holds the incident history behind every rule here. Read it when you
 are changing the skill, not when you are running a sprint.
