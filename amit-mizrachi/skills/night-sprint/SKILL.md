@@ -1,7 +1,7 @@
 ---
 name: night-sprint
 description: Delivers a whole feature overnight through autonomous sessions run strictly one after another, all on ONE branch landing as ONE pull request. A conductor session writes no code - it sets the sprint up, then a deterministic runner launches each ticket, advances the chain, revives what dies and waits out spending limits, escalating only what needs judgement. Each implementer watches its own context window and hands its ticket to a fresh session before it fills. Gets or builds a ticket breakdown first (via a spec and a ticket-splitting skill), decides whether to review once at the end or at checkpoints, runs each review as a FIND step plus a FIX step with only the review lanes that diff actually earns, optionally runs a test session that boots the stack or runs evals, and makes the required CI checks at the pushed sha decide whether the sprint delivered. Also runs in research mode (`mode: research`), where each ticket is a research question answered from cited sources and the sprint ends in one published artifact instead of a PR. Use when the user says "night sprint", "sprint this feature", "build this overnight", "run this while I sleep", "ticket after ticket", or wants a feature taken end to end unattended in a single PR.
-argument-hint: "<feature | spec path | ticket dir | issue URL> [test: none|dev-stack|evals|<command>] [mode: research]"
+argument-hint: "<feature | spec path | ticket dir | issue URL> [test: none|dev-stack|evals|<command>] [permission: auto|<mode>] [approval: delegated] [mode: research]"
 ---
 
 # Night Sprint
@@ -28,7 +28,8 @@ in the wrong skill.
 **Research mode.** If the invocation says `mode: research`, `facts.env` has `MODE=research`, or
 `product-research` launched you, read `references/research-mode.md` now. It replaces the
 kickoff, the reviews, acceptance and the PR below; the runner, the context rungs and everything
-about reviving apply unchanged.
+about reviving apply unchanged. A calling skill may render `SYNTH` from its own template
+(`night-marathon` does, to publish a plan instead of a findings page); the chain is the same.
 
 `references/rationale.md` holds the incident history behind every rule here. Read it when you
 are changing the skill, not when you are running a sprint.
@@ -54,8 +55,15 @@ Decide that deliberately rather than discovering it in the morning.
 
 ## Kickoff (conductor, when the skill fires)
 
+0. **Started by another skill?** If the invocation or your prompt says `approval: delegated`,
+   the calling skill (for example `night-marathon`) already ran the approval gate with the user and
+   no human can answer now. Then ask nothing at any step: take `permission:` and `test:` from the
+   invocation (`auto` if `permission:` is absent), run the spec and ticket-splitting skills
+   headless and tell them the caller owns the approval gate, and write every call you would
+   have asked about into `LOG.md`. The no-unseen-plan rule in step 2 is met by the caller.
 1. **Ask the two things you cannot infer - FIRST.** One `AskUserQuestion`, before you read a
    ticket or check a verify command. Kickoff takes a while and the user drifts away during it.
+   Skip any question the invocation already answered (`permission:`, `test:`).
    - **Permission mode**: **`auto` is the default and what to use unless the user says
      otherwise.** Record it in `PERMISSION_MODE`. `acceptEdits` still prompts on shell commands
      and a background session cannot answer a prompt, so it stalls in `blocked` all night.

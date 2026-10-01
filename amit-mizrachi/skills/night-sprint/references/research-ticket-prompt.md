@@ -57,8 +57,9 @@ Write ONE file: findings/<NN>-<slug>.md, exactly these sections:
     ## Sources
     - [S1] <title> - <https://... URL> - accessed <YYYY-MM-DD>
     - [S2] <title> - connector:<Name> <a stable reference: channel + date + permalink, file name, ticket id> - accessed <YYYY-MM-DD>
+    - [S3] <what the code shows> - repo:<path>:<line> @<short sha> - accessed <YYYY-MM-DD>   (only when the allowed sources include a repo)
 
-Every Findings bullet ends in at least one [S<n>] or in [INFERENCE]. Every [S<n>] you cite is defined under Sources with a URL or a connector reference someone could follow. Never invent a source, a URL, a quote or a number. A source you could not open is a gap, not a citation.
+Every Findings bullet ends in at least one [S<n>] or in [INFERENCE]. Every [S<n>] you cite is defined under Sources with a URL, a connector reference or a repo location someone could follow. Never invent a source, a URL, a quote or a number. A source you could not open is a gap, not a citation.
 
 VERIFY: `<VERIFY>` must PASS before you commit. It checks the format and that every claim is cited; it cannot check that a source says what you claim, so that part is on you. REVIEW-FINAL re-opens your sources.
 

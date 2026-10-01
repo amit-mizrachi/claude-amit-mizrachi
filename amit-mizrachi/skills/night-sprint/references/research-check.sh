@@ -17,7 +17,7 @@
 #   ## Answer     the direct answer to the ticket's question
 #   ## Findings   one bullet per claim; each ends in [S<n>] citations, or [INFERENCE]
 #   ## Gaps       what could not be found or reached (may say "None")
-#   ## Sources    one bullet per source: - [S<n>] <title> - <https://... | connector:<Name> <ref>> - accessed <YYYY-MM-DD>
+#   ## Sources    one bullet per source: - [S<n>] <title> - <https://... | connector:<Name> <ref> | repo:<path>:<line> @<sha>> - accessed <YYYY-MM-DD>
 
 set -uo pipefail
 
@@ -66,8 +66,8 @@ for path in files:
     if not defined:
         fails.append("%s: '## Sources' lists no [S<n>] entries" % name)
     for sid, rest in defined.items():
-        if not re.search(r"https?://|connector:", rest):
-            fails.append("%s: %s has no locator (an https:// URL or connector:<Name> <ref>)" % (name, sid))
+        if not re.search(r"https?://|connector:|repo:\S", rest):
+            fails.append("%s: %s has no locator (an https:// URL, connector:<Name> <ref>, or repo:<path>:<line> @<sha>)" % (name, sid))
 
     bullets = [l for l in sec["findings"] if re.match(r"^\s*[-*]\s+\S", l)]
     if not bullets:

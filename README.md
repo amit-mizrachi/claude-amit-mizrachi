@@ -1,9 +1,10 @@
 # amit-mizrachi
 
-Six [Claude Code](https://claude.com/claude-code) skills for running work you are not
+Seven [Claude Code](https://claude.com/claude-code) skills for running work you are not
 sitting and watching - handing a session off, turning a feature into a spec and tickets, taking
-it through the night, researching a product question end to end, and keeping a big effort's map
-legible - plus the macOS hook that stops your machine sleeping through it.
+it through the night, researching a product question end to end, taking a feature from idea to
+plan to PR, and keeping a big effort's map legible - plus the macOS hook that stops your machine
+sleeping through it.
 
 ## Install
 
@@ -14,7 +15,7 @@ legible - plus the macOS hook that stops your machine sleeping through it.
 
 Start a new session (or `/clear`). The skills then appear as `amit-mizrachi:next-prompt`,
 `amit-mizrachi:night-sprint`, `amit-mizrachi:product-research`, `amit-mizrachi:to-spec`,
-`amit-mizrachi:to-tickets`, and `amit-mizrachi:mywayfinder`.
+`amit-mizrachi:to-tickets`, `amit-mizrachi:night-marathon`, and `amit-mizrachi:mywayfinder`.
 
 ## What's in it
 
@@ -173,6 +174,38 @@ Three rules hold everywhere in the run:
 Needs Claude Code with the `claude` command (it starts background sessions with `claude --bg`)
 and an account where `auto` permission mode is available. A plain claude.ai chat cannot run it.
 
+### `night-marathon`
+
+Takes a feature from an idea to one PR, with **one approval** at the start. In your session it
+asks for the feature, the mode, how to test the build, which connectors may hold earlier talk
+about it, and how deep to research. It writes a brief; you approve it. Then:
+
+1. **Research.** A `night-sprint` in research mode answers what the plan needs to know. The
+   repo is a source, read from a detached snapshot of `origin/<base>` and cited as
+   `repo:<path>:<line> @<sha>`. When the feature has UI, one question is always the UI kit:
+   the token files, the component packages, and the screens the new UI must look like.
+2. **Plan.** The research sprint's last stage publishes a **short, UI-first** artifact instead of
+   a findings page: mockups drawn from the repo's real tokens and components, in their real page
+   shell, in every state that exists, each captioned with its components and import paths. Only
+   the decisions that change what users see, are expensive to reverse, or split the evidence
+   reach the page - at most five, each with a recommendation and a **Pick this** radio. The rest
+   are decided and listed in one collapsed line each. A sticky bar copies your picks as text.
+3. **Build.** A code `night-sprint` runs `to-spec` and `to-tickets` on the chosen plan (local
+   files only - nothing is posted to a tracker at night), with every UI ticket pointing at its
+   mockup, and delivers one PR.
+
+Two modes decide what happens between 2 and 3:
+
+- **`autonomous`** (default) - the conductor takes every recommended option and starts the build.
+  You get the plan link, then the PR.
+- **`review`** - the conductor stops and sends you the plan link. Pick on the page, press **Copy
+  decisions**, `claude attach` to the conductor and paste. Picking is the approval; the build
+  then runs without asking.
+
+`night-sprint` gained what this needs: a kickoff with `approval: delegated`, where a calling
+skill has already run the approval gate and nothing is asked, and `repo:` source locators in the
+research citation check.
+
 ### `to-spec` and `to-tickets`
 
 Bundled from Matt Pocock's [`mattpocock/skills`](https://github.com/mattpocock/skills) (MIT),
@@ -248,6 +281,8 @@ Nothing below is required. Where a skill is missing, the caller degrades and say
 | `next-prompt` | `night-sprint` | the conductor relay - ships here |
 | `night-sprint`, `to-spec`, `to-tickets` | `product-research` | the whole run after the approval - all ship here |
 | `artifact-design`, `dataviz` | `product-research` | the final page - built into Claude Code |
+| `night-sprint`, `to-spec`, `to-tickets`, `next-prompt` | `night-marathon` | both sprints and the hand-offs - all ship here |
+| `artifact-design`, `artifact-diagramming` | `night-marathon` | the plan page and its mockups - built into Claude Code |
 
 `night-sprint` also references review and dev-environment skills generically. Substitute
 whatever your repo uses; the sprint reads the names out of its own prompt files, which you fill
