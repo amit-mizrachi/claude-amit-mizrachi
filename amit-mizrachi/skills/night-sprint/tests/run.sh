@@ -877,9 +877,15 @@ grep -q "STALLED BUILD .*class=transient connection-lost" "$P/state/EVENTS.log" 
   && ok "the death and its class are in EVENTS.log" \
   || no "the death and its class are in EVENTS.log" "no STALLED line"
 
+# --- turn_ended: the transcript says whether the session closed its turn or stopped mid-turn.
+te() { ( . "$REF/agents.sh"; turn_ended "$FIX/$1" ) && echo ended || echo mid-turn; }
+check "turn_ended: a turn closed by the harness marker" "ended"    "$(te gate-wait.jsonl)"
+check "turn_ended: stopped on a pending tool call"      "mid-turn" "$(te permission-prompt.jsonl)"
+check "turn_ended: no marker after the last message"    "mid-turn" "$(te clean.jsonl)"
+
 # --- a conductor that ended its own turn (review gate, Monitor wait, relay) is NOT dead.
 WAIT=a1a1a1a1-0000-4000-8000-000000000001
-cp "$FIX/clean.jsonl" "$PROJ/$WAIT.jsonl"
+cp "$FIX/gate-wait.jsonl" "$PROJ/$WAIT.jsonl"
 printf '%s\n' "$WAIT" > "$P/state/BUILD.session"
 agent "$WAIT" ns-pslug-BUILD idle
 before="$(nlaunch)"; stops_before="$(wc -l < "$MOCK_STATE/stops" | tr -d '[:space:]')"
@@ -891,8 +897,48 @@ check "revive.sh itself leaves a waiting conductor alone" "0" "$(prv ended-witho
 check "no stop reached the waiting conductor" "$stops_before" "$(wc -l < "$MOCK_STATE/stops" | tr -d '[:space:]')"
 check "and nothing was launched for it" "$before" "$(nlaunch)"
 
-# --- busy, silent for 30 minutes, no error: a call that hung. That one IS dead.
+# --- the review gate, 2026-10-02: the conductor posted the plan link and ended its turn to wait
+#     for the user's picks. The harness labels that `state:blocked`, the runner read it as a
+#     permission prompt, and the conductor the user was answering was stopped and restarted.
+agent_s() { printf '[{"sessionId":"%s","id":"%s","name":"%s","state":"%s","status":"%s","pid":null,"startedAt":1}]' \
+              "$1" "${1:0:8}" "$2" "$3" "$4" > "$MOCK_STATE/agents.json"; }
+rm -f "$P/state/.acted-BUILD"; : > "$P/state/.watch-seen"
+agent_s "$WAIT" ns-pslug-BUILD blocked idle
+before="$(nlaunch)"; stops_before="$(wc -l < "$MOCK_STATE/stops" | tr -d '[:space:]')"
+pw
+check "a conductor waiting at the review gate (blocked) is not revived" "$before" "$(nlaunch)"
+check "and not stopped" "$stops_before" "$(wc -l < "$MOCK_STATE/stops" | tr -d '[:space:]')"
+grep -q "WAITING BUILD $WAIT .*state blocked" "$P/state/EVENTS.log" \
+  && ok "the gate wait is logged as WAITING, not STUCK" || no "the gate wait is logged as WAITING, not STUCK" \
+     "$(grep "BUILD" "$P/state/EVENTS.log" | tail -2)"
+check "revive.sh refuses a permission-prompt revive of a conductor whose turn closed" "0" "$(prv permission-prompt)"
+check "no stop reached it from revive.sh either" "$stops_before" "$(wc -l < "$MOCK_STATE/stops" | tr -d '[:space:]')"
+
+# --- a conductor waiting on its Monitor reads `busy`. Silent for 30 minutes, turn closed: waiting.
+rm -f "$P/state/BUILD.revivals" "$P/state/.acted-BUILD" "$P/state/BUILD.status"; : > "$P/state/.watch-seen"
+printf '%s\n' "$WAIT" > "$P/state/BUILD.session"
+python3 -c 'import os,sys,time; t=time.time()-1800; os.utime(sys.argv[1],(t,t))' "$PROJ/$WAIT.jsonl"
+agent_s "$WAIT" ns-pslug-BUILD working busy
+before="$(nlaunch)"
+pw
+check "a conductor waiting on its Monitor (busy, turn closed) is not revived" "$before" "$(nlaunch)"
+check "revive.sh leaves it alone too" "0" "$(prv idle)"
+check "nothing was launched for it" "$before" "$(nlaunch)"
+
+# --- a REAL permission prompt stops mid-turn, and that conductor still gets revived.
+PERM=f0f0f0f0-0000-4000-8000-000000000001
+cp "$FIX/permission-prompt.jsonl" "$PROJ/$PERM.jsonl"
+printf '%s\n' "$PERM" > "$P/state/BUILD.session"
+rm -f "$P/state/BUILD.revivals" "$P/state/.acted-BUILD"; : > "$P/state/.watch-seen"
+agent_s "$PERM" ns-pslug-BUILD blocked idle
+pw
+check "a conductor stuck on a real permission prompt is still resumed" "ns-pslug-BUILD-r1 $PERM" \
+      "$(lastl | cut -d' ' -f1-2)"
+printf '%s\n' "$WAIT" > "$P/state/BUILD.session"
+
+# --- busy, silent for 30 minutes, no error, turn never closed: a call that hung. That one IS dead.
 rm -f "$P/state/BUILD.revivals" "$P/state/.acted-BUILD"
+cp "$FIX/clean.jsonl" "$PROJ/$WAIT.jsonl"
 python3 -c 'import os,sys,time; t=time.time()-1800; os.utime(sys.argv[1],(t,t))' "$PROJ/$WAIT.jsonl"
 agent "$WAIT" ns-pslug-BUILD busy
 check "a hung conductor is revived" "0" "$(prv idle)"

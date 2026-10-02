@@ -44,7 +44,8 @@
 #
 # IN A PHASE CHAIN (the workspace holds a PHASE_CHAIN file, see phase-chain.sh) every tag is a
 # CONDUCTOR, not a ticket, and two things change. A conductor that ended its own turn with no
-# error is not dead - it waits on a person, a Monitor or its own relay - so it is left alone.
+# error is not dead - it waits on a person, a Monitor or its own relay - so it is left alone,
+# whatever the harness calls it (blocked, busy or idle) and whatever CAUSE the caller passed.
 # And the resume and restart messages send it back to its LOG.md, not to a commit and a push.
 
 set -uo pipefail
@@ -169,22 +170,24 @@ session_is_active() {
 
 # A CONDUCTOR THAT ENDED ITS OWN TURN IS WAITING, NOT DEAD - phase chains only.
 #
-# The harness shows a conductor that died on an API error and one that ended its turn on purpose
-# the same way: `state:working status:idle`. Seen from outside, a review-mode conductor waiting for
-# the user's picks, a conductor waiting on its Monitor, and one whose relay successor has not yet
-# written its id all look exactly like the corpse this script exists to revive. Only the
-# transcript tells them apart: a death ends on an API error, a wait does not. Resuming a waiting
-# conductor would stop it - and its Monitor with it - and send it a "you were interrupted" it
-# does not deserve. So decide before the stop below, not after it.
-#
-# `busy` is the exception: busy, silent and no error is a call that hung, and that one is dead.
-# A blocked permission prompt and the two retry causes come from the caller, who already knows.
+# The harness labels cannot tell a conductor that ended its turn on purpose from the corpse this
+# script exists to revive. A review-mode conductor waiting for the user's picks shows as
+# `state:blocked` - the label of a permission prompt. One waiting on its Monitor shows as
+# `status:busy` - the label of a hung call. One that died on an API error shows as `working/idle`.
+# Only the transcript tells them apart: a wait CLOSED its turn (turn_ended in agents.sh) with no
+# error; a death ends on an error; a permission prompt, a hung call and a kill stop mid-turn.
+# Reviving a waiting conductor stops it - and its Monitor with it - and starts a copy that knows
+# nothing of the conversation the user is having with it. On 2026-10-02 that is what happened at
+# the review gate: the runner read the waiting conductor as a permission prompt, this guard let
+# `permission-prompt` straight through, and the conductor the user was answering was stopped.
+# So decide before the stop below, not after it. Only the two retry causes skip the check: the
+# caller has already dealt with what ended the session and is asking for it back.
 if [ "$PHASE" -eq 1 ] && [ -n "$OLD_SID" ] && [ "$OLD_SID" != "unresolved" ]; then
   case "$CAUSE" in
-    permission-prompt|budget-retry|auth-retry) : ;;
+    budget-retry|auth-retry) : ;;
     *)
       if [ "$(bash "$WS/classify-error.sh" "$OLD_SID" 2>/dev/null || echo none)" = "none" ] \
-         && [ "$(harness_status "$OLD_SID")" != "busy" ]; then
+         && turn_ended "$OLD_SID"; then
         echo "revive: $TAG ($OLD_SID) ended its own turn with no error - a conductor that is waiting, not dead; not reviving it"
         exit 0
       fi

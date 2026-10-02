@@ -123,7 +123,7 @@ There is no "key findings" section and no method essay. Outside the mockups and 
 One line per decision in page order; a `Note:` line only where the note box has text. With no decisions on the page, the button copies `night-marathon picks: <SLUG>` and the line `Build as planned`.
 
 Under the bar's buttons, one line of instruction:
-- review mode: "Paste your picks into the conductor session: `claude attach <short id>`". Read the id from <WS>/CONDUCTOR.session and use its first 8 characters. Add: "Not found? `claude agents` lists it as ns-<SLUG>-CONDUCTOR."
+- review mode: "Paste your picks into the conductor session: `claude attach <short id>`". Read the id from <WS>/phases/state/CONDUCTOR.session and use its first 8 characters. Add: "Not found? `claude agents` lists it as ns-<SLUG>-CONDUCTOR."
 - autonomous mode: "This run builds the recommended options. Your picks still copy, for a change request on the PR."
 
 A static page: no runtime capabilities, no external data. Never put a secret, a credential, or personal data about a private individual on the page. Keep it under 16MB.

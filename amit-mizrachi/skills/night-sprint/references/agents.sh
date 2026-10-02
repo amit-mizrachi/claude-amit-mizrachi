@@ -3,6 +3,7 @@
 #
 # Sourced, not run:  . "$WS/agents.sh"
 # Provides:          agents_json [WORKTREE]   -> a JSON array on stdout, never empty output
+#                    turn_ended SID|FILE      -> 0 if its last turn closed (it waits for a message)
 #                    session_pid SID          -> the pid of a LIVE session, or nothing
 #                    stop_session SID         -> stop it, and return 0 only once it is gone
 #                    remove_session SID       -> stop it and take it off the agent list
@@ -35,6 +36,38 @@ agents_json() {
     "") printf '[]' ;;
     *)  printf '%s' "$out" ;;
   esac
+}
+
+# ---------------------------------------------------------------- did it end its own turn?
+#
+# turn_ended SID|TRANSCRIPT -> 0 when the session's last turn CLOSED: the transcript's last
+# conversation record is the harness's `turn_duration` marker, written when a turn finishes and
+# the session goes back to waiting for its next message.
+#
+# This is the one signal that tells a conductor that is WAITING from one that is stuck or dead,
+# and the harness's own labels cannot. Seen on 2026-10-02: a review-mode conductor that posted
+# the plan link and ended its turn to wait for the user's picks showed as `state:blocked` - the
+# same label as a permission prompt and as a session that ended on an API error. A conductor
+# waiting on its Monitor showed as `status:busy` - the same label as a model call that hung. The
+# runner read both as stuck, stopped the conductor the user was about to answer, and restarted it.
+#
+# A real permission prompt, a hung call and a process killed mid-step all stop MID-turn: the last
+# record is a tool call or a message, never the marker. An API error also ends the turn, so the
+# callers pair this with classify-error.sh: no error AND a closed turn is a session that waits.
+turn_ended() {
+  local f="$1"
+  [ -f "$f" ] || f="$(ls -t "$HOME"/.claude/projects/*/"$1".jsonl 2>/dev/null | head -1)"
+  [ -n "$f" ] || return 1
+  tail -n 200 "$f" 2>/dev/null | python3 -c 'import json,sys
+last=None
+for line in sys.stdin:
+    try: r=json.loads(line)
+    except Exception: continue
+    if r.get("isSidechain"): continue
+    t=r.get("type")
+    if t in ("user","assistant"): last="turn"
+    elif t=="system" and r.get("subtype")=="turn_duration": last="ended"
+sys.exit(0 if last=="ended" else 1)'
 }
 
 # ---------------------------------------------------------------- stopping a session, for real

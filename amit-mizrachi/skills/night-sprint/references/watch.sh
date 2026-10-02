@@ -123,6 +123,17 @@ classify() {
   bash "$WS/classify-error.sh" "$sid" 2>/dev/null || echo none
 }
 
+# A phase conductor that ended its own turn with no error is WAITING - for the user's picks at
+# the review gate, for its Monitor, for its relay successor - whatever label the harness puts on
+# it. See turn_ended in agents.sh for the night this cost. Logged once per session, never revived.
+conductor_waiting() {
+  local tag="$1" sid="$2" cls="$3" label="$4"
+  [ "$PHASE" -eq 1 ] && [ "$cls" = "none" ] && turn_ended "$sid" || return 1
+  did_once "$tag:waiting:$sid" && \
+    log "WAITING $tag $sid - ended its own turn with no error ($label); not revived"
+  return 0
+}
+
 # ------------------------------------------------------------------- doing the routine
 #
 # Bounded by construction. advance.sh will not start a tag that is already claimed, and
@@ -329,8 +340,12 @@ for r in rows:
 
     case "$state" in
       blocked)
-        # Sitting on a permission prompt no background session can ever answer.
-        if [ "$ACT" -eq 1 ]; then
+        # Sitting on a permission prompt no background session can ever answer - or, for a phase
+        # conductor, waiting on a person: the harness labels a session that ended its turn asking
+        # the user something `blocked` too, and the review gate is exactly that.
+        if conductor_waiting "$tag" "$sid" "$(classify "$sid")" "state blocked"; then
+          :
+        elif [ "$ACT" -eq 1 ]; then
           log "STUCK $tag permission-prompt $sid"
           do_revive "$tag" permission-prompt || true
         else
@@ -367,12 +382,10 @@ for r in rows:
               quota*|auth*) cause="${cls%% *}" ;;
               *) cause=idle ;;
             esac
-            if [ "$PHASE" -eq 1 ] && [ "$cls" = "none" ] && [ "$hstatus" != "busy" ]; then
-              # A conductor between turns: waiting for the user's picks, for its Monitor, or for
-              # its relay successor to write its id. Its transcript did not end on an error, so
-              # there is nothing to revive. One line per session, not one per sweep.
-              did_once "$tag:waiting:$sid" && \
-                log "WAITING $tag $sid - ended its own turn with no error, idle-${idle}m; not revived"
+            if conductor_waiting "$tag" "$sid" "$cls" "status $hstatus, idle-${idle}m"; then
+              # A conductor between turns. `busy` included: a session with a Monitor armed reads
+              # busy while it waits, and a call that really hung never closed its turn.
+              :
             elif [ "$ACT" -eq 1 ]; then
               log "STALLED $tag idle-${idle}m class=$cls $sid"
               do_revive "$tag" "$cause" || true
