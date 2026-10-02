@@ -6,7 +6,8 @@
 #
 # State it reads and writes under $MOCK_STATE:
 #   agents.json   the array `claude agents --json` returns. Tests write this.
-#   launches      one line per `--bg` invocation: `<name> <resumed-sid>`. Tests read this.
+#   launches      one line per `--bg` invocation: `<name> <resumed-sid> <new-sid> <cwd>`.
+#   last-prompt   the prompt the last `--bg` invocation was given (its final argument).
 #   next-sid      the sessionId the NEXT --bg launch should register (default: a fresh uuid-ish)
 #   register      if 1, a --bg launch appends its new session to agents.json. Default 1.
 #   stops         one line per `stop`: `stop <id>`. Tests read this.
@@ -66,7 +67,8 @@ new_sid="$(cat "$S/next-sid" 2>/dev/null || echo)"
 [ -n "$new_sid" ] || new_sid="mock-$(( $(wc -l < "$S/launches" 2>/dev/null || echo 0) + 1 ))-$name"
 rm -f "$S/next-sid"
 
-printf '%s %s %s\n' "$name" "${resumed:-none}" "$new_sid" >> "$S/launches"
+printf '%s %s %s %s\n' "$name" "${resumed:-none}" "$new_sid" "$PWD" >> "$S/launches"
+printf '%s\n' "${@: -1}" > "$S/last-prompt"
 
 if [ "$(cat "$S/register" 2>/dev/null || echo 1)" = "1" ]; then
   python3 - "$S/agents.json" "$name" "$new_sid" <<'PY'

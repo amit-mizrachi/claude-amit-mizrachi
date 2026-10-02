@@ -493,3 +493,51 @@ session with its full context, so revive.sh and a human can still reopen a BLOCK
 So `close.sh` now calls `remove_session` (agents.sh): `stop_session` first, so a live process gets
 the same wait and escalation, then `claude rm <short id>`, then a check that the row is gone. It
 also removes a session that is listed but has already exited. The busy-turn guard is unchanged.
+
+## Nothing watched the conductors (2026-10-02)
+
+A night-marathon run with two PRs chained three conductors: research, then the shapes-machina
+build, then the shapes-platform build. Each hop was a bare `claude --bg` from the conductor that
+was finishing. At 00:53Z the machina build conductor launched the platform build, read `busy` from
+`claude agents` six seconds later, wrote the id down, stopped its own runner and ended at 00:53:55.
+At 00:56:00 the new conductor died on `API Error: Connection lost mid-response` (`server_error`),
+2.5 minutes into reading its inputs. That is a transient failure, and a resume fixes it. But
+`watch.sh` watches tickets, not conductors, and runs under the conductor's own `Monitor`, so it
+dies with the conductor. Nothing ran any classifier or reviver against that session. The build
+sat dead from 00:56Z until a person noticed at about 04:53Z, and it was relaunched by hand at
+07:00Z - about six hours.
+
+The fix is a runner over the whole run, not another Claude session. A session orchestrator can
+die of the same dropped connection, and then nothing watches it. `phase-chain.sh` makes a
+night-sprint workspace whose tags are the conductors (`<WS>/phases`, marked `PHASE_CHAIN`). It
+runs ONE `watch.sh` over it, detached with `setsid` so it outlives every session and the tool call
+that started it. The front door starts it while the user is at the keyboard, so a permission
+prompt about a detached process can still be answered. The rest is the sprint machinery already
+in place:
+
+- A hop is `advance.sh`: a conductor writes `DONE` to its phase status as its last action, and the
+  runner launches the next phase. No conductor launches another one.
+- A death is `revive.sh`: classify, resume, then restart, then abandon, and the session file is
+  repointed each time. A phase runs where `state/<PHASE>.cwd` says, and a resume runs there too.
+  The harness files a transcript under its cwd, so `claude --resume <id>` from another directory
+  does not find the conversation.
+- The gap is in `state/EVENTS.log` (`STALLED ... class=transient connection-lost`, `revive(...)`).
+  Both report-writing conductors are told to name each conductor death with the time from death
+  to resume.
+
+**Why a conductor that ended its turn is left alone.** `claude agents` shows a conductor that died
+on an API error and one that ended its turn on purpose the same way: `state:working status:idle`.
+This was checked live on the paused relaunch, cb7551f1. A review-mode conductor waiting for the
+picks, a conductor waiting on its `Monitor`, and a relay whose successor has not yet written its
+id all look like the corpse. Only the transcript tells them apart. So in a phase chain `revive.sh`
+classifies BEFORE it stops anything, and `class=none` with a status that is not `busy` means
+waiting. If a session is busy, silent past the stall window and shows no error, it is a hung call,
+and that one is revived. The phase runner uses a 5-minute stall window, not 25, because a
+quiet conductor costs one classifier read, not a revive.
+
+**Why finished conductors are not closed.** A conductor's final message is the report the user
+reads. The ticket rule "only the conductor is left at the end" does not apply when every tag is a
+conductor.
+
+The classifier also learned the exact text: `Connection lost` had fallen through to
+`transient unknown`. It now reads `transient connection-lost`, with that night's line as a fixture.

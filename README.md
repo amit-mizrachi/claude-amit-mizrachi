@@ -203,6 +203,14 @@ Two modes decide what happens between 2 and 3:
   decisions**, `claude attach` to the conductor and paste. Picking is the approval; the build
   then runs without asking.
 
+**One runner watches the whole run.** Each conductor - research, then each build - is a phase
+in a phase chain (`night-sprint`'s `phase-chain.sh`), and one runner, detached from every
+session, watches them all. When a conductor writes `DONE`, the runner launches the next phase.
+When a conductor dies on an API error, the runner resumes it the way a ticket is revived, in its
+own repo. A conductor that ended its turn on purpose, for example to wait for your picks, is left
+alone. Every launch, death and revive is logged in `<workspace>/phases/state/EVENTS.log`, and the
+reports name the time each one cost.
+
 `night-sprint` gained what this needs: a kickoff with `approval: delegated`, where a calling
 skill has already run the approval gate and nothing is asked, and `repo:` source locators in the
 research citation check.

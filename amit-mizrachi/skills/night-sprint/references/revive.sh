@@ -41,6 +41,11 @@
 #      nobody is watching - the sprint goes quiet until morning.
 #   2. The watcher emits each (tag, verdict) at most once. Without clearing the tag's rows from
 #      its seen-file, a revived session that dies again is never reported.
+#
+# IN A PHASE CHAIN (the workspace holds a PHASE_CHAIN file, see phase-chain.sh) every tag is a
+# CONDUCTOR, not a ticket, and two things change. A conductor that ended its own turn with no
+# error is not dead - it waits on a person, a Monitor or its own relay - so it is left alone.
+# And the resume and restart messages send it back to its LOG.md, not to a commit and a push.
 
 set -uo pipefail
 
@@ -64,7 +69,13 @@ if [ -f "$STATE/$TAG.status" ]; then
   exit 0
 fi
 
-WT="$(tr -d '[:space:]' < "$WS/WORKTREE")"
+# A tag may run somewhere other than the sprint worktree (a phase conductor runs in its own repo).
+# A resume MUST run there too: the harness files a transcript under its cwd, and
+# `claude --resume <id>` from any other directory does not find the conversation.
+WT="$( { tr -d '[:space:]' < "$STATE/$TAG.cwd"; } 2>/dev/null || true)"
+[ -n "$WT" ] || WT="$(tr -d '[:space:]' < "$WS/WORKTREE")"
+PHASE=0
+[ -f "$WS/PHASE_CHAIN" ] && PHASE=1
 MODE="$(tr -d '[:space:]' < "$WS/PERMISSION_MODE" 2>/dev/null || echo auto)"
 SLUG="$(tr -d '[:space:]' < "$WS/SLUG" 2>/dev/null || echo sprint)"
 OLD_SID="$(tr -d '[:space:]' < "$SESSION_FILE" 2>/dev/null || echo)"
@@ -133,18 +144,20 @@ clear_seen() {
 # `busy` that has been silent longer than the watcher's stall window is not working, it is hung
 # mid-call, and that is precisely what the conductor was called here to fix.
 ACTIVE_STALL_MIN=25   # matches watch.sh's default STALL_MINUTES
-session_is_active() {
-  local sid="$1" status f last now
-  case "$sid" in ""|unresolved) return 1 ;; esac
-
-  status="$(agents_json "$WT" | python3 -c 'import json,sys
+harness_status() {
+  agents_json "$WT" | python3 -c 'import json,sys
 sid=sys.argv[1]
 try: rows=json.load(sys.stdin)
 except Exception: sys.exit(0)
 for r in rows:
     if r.get("sessionId")==sid or r.get("id")==sid[:8]:
-        print(r.get("status") or ""); break' "$sid")"
-  [ "$status" = "busy" ] || return 1
+        print(r.get("status") or ""); break' "$1"
+}
+session_is_active() {
+  local sid="$1" f last now
+  case "$sid" in ""|unresolved) return 1 ;; esac
+
+  [ "$(harness_status "$sid")" = "busy" ] || return 1
 
   f="$(ls -t "$HOME"/.claude/projects/*/"$sid".jsonl 2>/dev/null | head -1)"
   [ -n "$f" ] || return 0            # busy with no transcript to check - assume working, hands off
@@ -153,6 +166,31 @@ for r in rows:
   now="$(date +%s)"
   [ $(( (now - last) / 60 )) -lt "$ACTIVE_STALL_MIN" ]
 }
+
+# A CONDUCTOR THAT ENDED ITS OWN TURN IS WAITING, NOT DEAD - phase chains only.
+#
+# The harness shows a conductor that died on an API error and one that ended its turn on purpose
+# the same way: `state:working status:idle`. Seen from outside, a review-mode conductor waiting for
+# the user's picks, a conductor waiting on its Monitor, and one whose relay successor has not yet
+# written its id all look exactly like the corpse this script exists to revive. Only the
+# transcript tells them apart: a death ends on an API error, a wait does not. Resuming a waiting
+# conductor would stop it - and its Monitor with it - and send it a "you were interrupted" it
+# does not deserve. So decide before the stop below, not after it.
+#
+# `busy` is the exception: busy, silent and no error is a call that hung, and that one is dead.
+# A blocked permission prompt and the two retry causes come from the caller, who already knows.
+if [ "$PHASE" -eq 1 ] && [ -n "$OLD_SID" ] && [ "$OLD_SID" != "unresolved" ]; then
+  case "$CAUSE" in
+    permission-prompt|budget-retry|auth-retry) : ;;
+    *)
+      if [ "$(bash "$WS/classify-error.sh" "$OLD_SID" 2>/dev/null || echo none)" = "none" ] \
+         && [ "$(harness_status "$OLD_SID")" != "busy" ]; then
+        echo "revive: $TAG ($OLD_SID) ended its own turn with no error - a conductor that is waiting, not dead; not reviving it"
+        exit 0
+      fi
+      ;;
+  esac
+fi
 
 # NEVER REVIVE A SESSION THAT IS STILL WORKING.
 #
@@ -344,6 +382,21 @@ if [ -n "$OLD_SID" ] && [ "$OLD_SID" != "unresolved" ] && [ "$resumes" -lt "$RES
     *) WHY="something that ended your process before you wrote your status file." ;;
   esac
 
+  if [ "$PHASE" -eq 1 ]; then
+  CONTINUE_PROMPT="CONTINUE - you were interrupted, you did not finish, and nobody has taken over.
+
+What stopped you: $WHY
+
+You are a phase CONDUCTOR, and your role is $PROMPT. Everything you had is still in this
+conversation. DO NOT START OVER and do not redo a finished step. Re-establish ground truth first:
+re-read the LOG.md your role names and the state files it points at. Any Monitor or runner you had
+armed died with your process - re-arm it before anything else. Then carry on from the step LOG.md
+names. When your phase is finished, write DONE (or BLOCKED: <reason>) to $WS/state/$TAG.status as
+your LAST action - that file is what starts the next phase.
+
+Still an autonomous night run. Nobody is awake to answer a question - decide, note the decision
+in your LOG.md, and keep going."
+  else
   CONTINUE_PROMPT="CONTINUE - you were interrupted, you did not finish, and nobody has taken over.
 
 What stopped you: $WHY
@@ -361,6 +414,7 @@ are unsure what you owe.
 
 Still an autonomous night run. Nobody is awake to answer a question - decide, note the decision
 in your summary, and keep going."
+  fi
 
   echo "revive: $TAG rung=resume attempt=$attempt cause=$CAUSE from=$OLD_SID"
   PRE_SIDS="$(known_sids)"
@@ -390,7 +444,19 @@ if [ "$restarts" -lt 1 ]; then
     echo "revive: $TAG cannot restart - no prompt file at $PROMPT" >&2
   else
     # Tell the fresh session what the dead one already landed, so it picks up rather than redoes.
-    if ! grep -q '^## RESUME - the earlier session died' "$PROMPT" 2>/dev/null; then
+    if [ "$PHASE" -eq 1 ]; then
+      if ! grep -q '^## RESUME - the earlier' "$PROMPT" 2>/dev/null; then
+        cat >> "$PROMPT" <<EOF
+
+## RESUME - the earlier conductor session died
+
+An earlier session in this role ended before it wrote its status ($CAUSE), and its conversation
+could not be resumed. It may have finished several steps. Before anything else, read the LOG.md
+this prompt names and resume at the step it names. Never redo a finished step, and re-arm any
+runner the log says was armed.
+EOF
+      fi
+    elif ! grep -q '^## RESUME - the earlier session died' "$PROMPT" 2>/dev/null; then
       cat >> "$PROMPT" <<EOF
 
 ## RESUME - the earlier session died

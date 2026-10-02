@@ -28,6 +28,7 @@
 #   "You've hit your session limit - resets 4:20pm (Asia/Jerusalem)"
 #   "Not logged in - Please run /login"
 #   "API Error: Connection closed mid-response. ..."
+#   "API Error: Connection lost mid-response. ..."   (killed a phase conductor on 2026-10-02)
 # Matched on their ASCII substrings only: the live text separates clauses with a
 # non-ASCII middle dot, and a pattern that depends on that byte breaks the day it changes.
 
@@ -141,6 +142,7 @@ if "session limit" in low or "usage limit" in low or "rate limit" in low:
 # --- everything else the API does to a session is infrastructure. Resume it.
 for needle, kind in (
     ("connection closed", "connection-closed"),
+    ("connection lost", "connection-lost"),
     ("stalled mid-stream", "stalled"),
     ("529", "overloaded"),
     ("overloaded", "overloaded"),
