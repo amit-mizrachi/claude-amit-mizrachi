@@ -18,6 +18,8 @@
 #                       one-time interactive disclaimer - `claude --bg` refuses without it.
 #   SLUG              - sprint slug, used for the session display name
 #   prompt-<TAG>.txt  - the prompt to run
+#   state/<TAG>.cwd   - optional: where THIS tag runs, instead of WORKTREE. A phase chain (see
+#                       phase-chain.sh) runs each phase conductor in its own repo or workspace.
 # Writes:
 #   state/claim-<TAG>/ - the claim
 #   state/<TAG>.session - the resolved background session id
@@ -54,7 +56,8 @@ fi
 PROMPT="$WS/prompt-$TAG.txt"
 [ -f "$PROMPT" ] || { echo "launch: no prompt file at $PROMPT" >&2; exit 1; }
 
-WT="$(tr -d '[:space:]' < "$WS/WORKTREE")"
+WT="$( { tr -d '[:space:]' < "$STATE/$TAG.cwd"; } 2>/dev/null || true)"
+[ -n "$WT" ] || WT="$(tr -d '[:space:]' < "$WS/WORKTREE")"
 MODE="$(tr -d '[:space:]' < "$WS/PERMISSION_MODE" 2>/dev/null || echo auto)"
 SLUG="$(tr -d '[:space:]' < "$WS/SLUG" 2>/dev/null || echo sprint)"
 NAME="ns-$SLUG-$TAG"

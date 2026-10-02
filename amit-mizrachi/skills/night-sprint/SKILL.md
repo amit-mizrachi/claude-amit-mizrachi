@@ -177,7 +177,7 @@ tests what actually ships.
 | Tags | `T01`..`TNN`, a pair per review (`REVIEW-C1` + `FIX-C1` .. `REVIEW-FINAL` + `FIX-FINAL`), then `TEST`, `FIX-TEST` if the tester finds an in-scope failure, plus continuations `<TAG>c2`, `<TAG>c3` |
 | Successors | `state/<TAG>.next`, written at setup, rewritable by the session **before** its status |
 | Branch / worktree | ONE of each: `<type>/<slug>` off `origin/<default>`, in `.claude/worktrees/<slug>` |
-| Launching | `bash <WS>/launch.sh <WS> <TAG>` - never a bare `claude --bg` |
+| Launching | `bash <WS>/launch.sh <WS> <TAG>` - never a bare `claude --bg`. It runs in `WORKTREE`, or in `state/<TAG>.cwd` when a tag has one (a phase conductor runs in its own repo, and `revive.sh` resumes it there) |
 | Advancing | `bash <WS>/advance.sh <WS> <TAG>` - **the only thing that decides what runs next** |
 | Reviving | `bash <WS>/revive.sh <WS> <TAG> <cause>` - never re-launch a dead tag by hand |
 | Handing a small fix set back | `bash <WS>/handback.sh <WS> <FIX_TAG> <IMPL_TAG> <manifest>` |
@@ -211,6 +211,7 @@ tests what actually ships.
 | `references/advance.sh` | the single transition owner: read `.status` + `.next`, start the successor |
 | `references/watch.sh` | the runner: does the routine, escalates the exceptions |
 | `references/revive.sh` | the reviver, for dead sessions only: resume, then restart, then abandon |
+| `references/phase-chain.sh` | one detached runner over a chain of CONDUCTORS (night-marathon's research conductor, then each build): launches each phase when the one before writes `DONE`, revives a conductor that dies |
 | `references/close.sh` | removes a finished session from the agent list (stop, then `claude rm`) once its tag is terminal, so only the conductor is left at the end |
 | `references/classify-error.sh` | what actually ended a session: transient / quota / auth / none |
 | `references/handback.sh` | resume the implementer for a small fix set instead of paying for a fresh window |
@@ -397,6 +398,20 @@ else:
    at the id the resume produced.
 5. **Log it** and carry it into the morning report. A night where two agents shared a worktree is
    a night whose diff needs a closer read than usual.
+
+## Who watches the conductor - the phase chain
+
+`watch.sh` runs under the conductor's own `Monitor`, so it dies with the conductor. When another
+skill chains conductors - `night-marathon` runs a research conductor, then one build conductor per
+PR - the conductors and the hops between them get a runner of their own: `phase-chain.sh` sets up
+a workspace whose tags are PHASES (a `PHASE_CHAIN` marker, a `state/<PHASE>.cwd` each, `.next`
+wiring) and starts ONE `watch.sh` over it, detached from every session. A conductor writes
+`DONE` to its phase status as its last action and the runner launches the next phase; a
+conductor that dies is classified and resumed in its own cwd, the session file repointed. In a
+phase chain a conductor that ended its own turn with no error is **waiting, not dead** - for the
+user's picks, its `Monitor`, or its relay - and is left alone, and no conductor is ever closed.
+If you are a phase conductor, your prompt names your session and status files; never launch the
+next phase with `claude --bg`.
 
 ## Reviving - classify first, then resume before you restart
 
@@ -608,6 +623,7 @@ never bypass hooks with `--no-verify`.
 | "It stalled - retry harder and poll faster." | Classify it first. A spending cap cannot be solved by a faster watchdog, and a ladder spent against one loses hours while reporting a permission problem. |
 | "T05 died on an API error, I'll relaunch the ticket." | Resume it - `revive.sh` does. The conversation is on disk; a fresh session re-reads the codebase and repeats every decision the dead one made. |
 | "I'll resume it by hand, it's one `claude --bg --resume`." | Resume mints a **new session id** and drops the name. By hand, `state/<tag>.session` points at a corpse while a real session runs unwatched. |
+| "My phase is done - I'll launch the next conductor with `claude --bg` and stop." | Nothing watches it then. One died 2.5 minutes in and the night sat dead for six hours. Write `DONE` to your phase status; the phase runner launches and watches the next one. |
 | "I'll just run the tests for this ticket before I commit." | Tests run once, at the end, in `FIX-FINAL`. Before that, static checks only. |
 | "The checks are red but the ticket is basically done." | Green or `BLOCKED: <reason>`. There is no third state. |
 | "Every stage said DONE, so the sprint is delivered." | `DONE` means a session finished. Acceptance is `ACCEPTANCE.verdict` and `GOLDEN.verdict`. 21 green stages once shipped a red PR. |

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # night-sprint runner - owns the routine, escalates only what needs a judgement.
 #
-#   watch.sh <WORKSPACE> [POLL_SECONDS] [STALL_MINUTES] [--observe]
+#   watch.sh <WORKSPACE> [POLL_SECONDS] [STALL_MINUTES] [--observe] [--once]
 #
 # Every line it prints becomes a Monitor event in the conductor's context, so what it prints
 # is a budget. It used to print everything it saw: 28 routine heartbeats and 21 successful
@@ -25,6 +25,14 @@
 #
 # `--observe` turns the acting off and prints every verdict instead, which is the old
 # behaviour. Useful for debugging a sprint by hand; never what a night run wants.
+# `--once` runs a single sweep and exits - for the offline tests and for a look by hand.
+#
+# THE SAME RUNNER WATCHES A PHASE CHAIN. When the workspace holds a PHASE_CHAIN file (see
+# phase-chain.sh), every tag is a phase CONDUCTOR - night-marathon's research conductor, then
+# each build conductor - and this one process, detached, owns the hop from one to the next and
+# revives any of them that dies. Two things change: a conductor that ended its own turn with no
+# error is waiting, not dead, so it is logged once and left alone; and finished conductors are
+# never closed, because a conductor's final message is the report somebody reads in the morning.
 #
 # Reads, per tag, in state/:
 #   <tag>.session  - the launcher's background session id
@@ -40,7 +48,13 @@ WS="${1:?usage: watch.sh <WORKSPACE> [POLL_SECONDS] [STALL_MINUTES] [--observe]}
 POLL="${2:-120}"
 STALL_MIN="${3:-25}"
 ACT=1
-for a in "$@"; do [ "$a" = "--observe" ] && ACT=0; done
+ONCE=0
+for a in "$@"; do
+  case "$a" in
+    --observe) ACT=0 ;;
+    --once)    ONCE=1 ;;
+  esac
+done
 
 # shellcheck source=agents.sh
 . "$WS/agents.sh"
@@ -55,6 +69,8 @@ WT=""
 [ -f "$WS/WORKTREE" ] && WT="$(tr -d '[:space:]' < "$WS/WORKTREE")"
 SLUG=""
 [ -f "$WS/SLUG" ] && SLUG="$(tr -d '[:space:]' < "$WS/SLUG")"
+PHASE=0
+[ -f "$WS/PHASE_CHAIN" ] && PHASE=1
 
 # CONTEXT_WINDOW cannot be read off a transcript - a 1M model records the same name as the
 # 200k one - so it is pinned at kickoff. CEILING_USED is the only context reading anything
@@ -148,6 +164,7 @@ do_advance() {
 # keeps failing is reported once at the end, not every sweep.
 do_close() {
   local tag="$1" out rc
+  [ "$PHASE" -eq 1 ] && return 0
   out="$(bash "$WS/close.sh" "$WS" "$tag" "${2:-}" 2>&1)"; rc=$?
   [ "$rc" -ne 0 ] && log "close($tag) rc=$rc $out"
   return "$rc"
@@ -296,14 +313,19 @@ if len(live)>1: print(" ".join(sorted(str(r.get("id") or "?") for r in live)))' 
       [ -n "$dup" ] && emit_once "$tag:DUP" "DUP $tag $dup"
     fi
 
-    state="$(printf '%s' "$agents" \
+    # The harness's `state` decides the branch below; its `status` (busy = a model call is
+    # running) only tells a conductor that is waiting from one that hung mid-call.
+    row="$(printf '%s' "$agents" \
       | python3 -c 'import json,sys
 sid=sys.argv[1]
 try: rows=json.load(sys.stdin)
 except Exception: sys.exit(0)
 for r in rows:
     if r.get("sessionId")==sid or r.get("id")==sid[:8]:
-        print(r.get("state","")); break' "$sid" 2>/dev/null)"
+        print(r.get("state") or "-", r.get("status") or "-"); break' "$sid" 2>/dev/null)"
+    state="${row%% *}"
+    hstatus="${row#* }"
+    [ "$state" = "-" ] && state=""
 
     case "$state" in
       blocked)
@@ -345,7 +367,13 @@ for r in rows:
               quota*|auth*) cause="${cls%% *}" ;;
               *) cause=idle ;;
             esac
-            if [ "$ACT" -eq 1 ]; then
+            if [ "$PHASE" -eq 1 ] && [ "$cls" = "none" ] && [ "$hstatus" != "busy" ]; then
+              # A conductor between turns: waiting for the user's picks, for its Monitor, or for
+              # its relay successor to write its id. Its transcript did not end on an error, so
+              # there is nothing to revive. One line per session, not one per sweep.
+              did_once "$tag:waiting:$sid" && \
+                log "WAITING $tag $sid - ended its own turn with no error, idle-${idle}m; not revived"
+            elif [ "$ACT" -eq 1 ]; then
               log "STALLED $tag idle-${idle}m class=$cls $sid"
               do_revive "$tag" "$cause" || true
             else
@@ -472,5 +500,6 @@ PYOUT
     say "SWEEP $open_n tags=${open_tags# }$paused"
   fi
 
+  [ "$ONCE" -eq 1 ] && exit 0
   sleep "$POLL"
 done

@@ -41,6 +41,8 @@ check "org spend cap"                 "quota-spend"                 "$(c spend-l
 check "logged out"                    "auth logged-out"             "$(c logged-out.jsonl)"
 check "subscription disabled"         "auth subscription-disabled"  "$(c subscription-disabled.jsonl)"
 check "dropped connection"            "transient connection-closed" "$(c connection-closed.jsonl)"
+# The exact line that killed the shapes-platform build conductor on 2026-10-02.
+check "lost connection"               "transient connection-lost"   "$(c connection-lost.jsonl)"
 check "529 overloaded"                "transient overloaded"        "$(c overloaded.jsonl)"
 check "no error at all"               "none"                        "$(c clean.jsonl)"
 # The REVIEW-01 shape. Reporting the old error here would send the reviver after a session
@@ -802,6 +804,127 @@ grep -q 'night-marathon picks: pricing-20261001' "$QWS/prompt-SYNTH.txt" \
   && ok "the plan prompt pins the picks header the conductor parses" \
   || no "the plan prompt pins the picks header the conductor parses" "header missing"
 rm -rf "$QWS"
+
+echo
+echo "== phase chain: one runner over the conductors, and a dead conductor comes back =="
+# The night of 2026-10-02: the machina build conductor launched the platform build conductor
+# with a bare `claude --bg`, saw it busy, and ended. The new conductor died 2.5 minutes later on
+# "Connection lost mid-response", nothing watched it, and six hours went by. Each case below is
+# a piece of the run-level runner that now owns that hop and that death.
+PCW="$(mktemp -d)"
+PBIN="$PCW/bin"; mkdir -p "$PBIN" "$PCW/runws" "$PCW/repo-a"
+cp "$HERE/mock-claude.sh" "$PBIN/claude"; chmod +x "$PBIN/claude"
+export MOCK_STATE="$PCW/mock"; mkdir -p "$MOCK_STATE"
+: > "$MOCK_STATE/launches"; : > "$MOCK_STATE/stops"; : > "$MOCK_STATE/rms"
+P="$PCW/phases"
+PC() { PATH="$PBIN:$PATH" bash "$REF/phase-chain.sh" "$@" >/dev/null 2>&1; echo $?; }
+pw() { PATH="$PBIN:$PATH" bash "$P/watch.sh" "$P" 0 0 --once >/dev/null 2>&1; }
+prv() { PATH="$PBIN:$PATH" bash "$P/revive.sh" "$P" BUILD "$1" >/dev/null 2>&1; echo $?; }
+nlaunch() { wc -l < "$MOCK_STATE/launches" | tr -d '[:space:]'; }
+lastl() { tail -1 "$MOCK_STATE/launches"; }
+agent() { printf '[{"sessionId":"%s","id":"%s","name":"%s","state":"working","status":"%s","pid":null,"startedAt":1}]' \
+            "$1" "${1:0:8}" "$2" "$3" > "$MOCK_STATE/agents.json"; }
+PROJ="$HOME/.claude/projects/ns-test-phasechain"
+mkdir -p "$PROJ"
+
+check "phase-chain init succeeds" "0" "$(PC init "$P" "$REF" pslug)"
+[ -x "$P/phase-chain.sh" ] && ok "init copies phase-chain.sh, so a conductor can restart the runner" \
+  || no "init copies phase-chain.sh, so a conductor can restart the runner" "absent from $P"
+[ -f "$P/PHASE_CHAIN" ] && ok "init marks the workspace a phase chain" \
+  || no "init marks the workspace a phase chain" "no PHASE_CHAIN marker"
+check "add CONDUCTOR -> BUILD" "0" "$(PC add "$P" CONDUCTOR "$PCW/runws" BUILD)"
+check "add BUILD, the last phase" "0" "$(PC add "$P" BUILD "$PCW/repo-a")"
+check "add refuses a cwd that does not exist" "1" "$(PC add "$P" X "$PCW/nope")"
+printf 'research conductor role\n' > "$P/prompt-CONDUCTOR.txt"
+printf 'build conductor role\n'    > "$P/prompt-BUILD.txt"
+grep -q 'os.setsid()' "$REF/phase-chain.sh" \
+  && ok "the runner is detached into its own session, so no conductor's death takes it down" \
+  || no "the runner is detached into its own session, so no conductor's death takes it down" "no setsid"
+
+# --- the hop: a conductor writes DONE, the RUNNER starts the next phase in the next repo.
+printf 'c0d0c0d0-0000-4000-8000-000000000001\n' > "$P/state/CONDUCTOR.session"
+agent c0d0c0d0-0000-4000-8000-000000000001 ns-pslug-CONDUCTOR idle
+printf 'DONE\n' > "$P/state/CONDUCTOR.status"
+printf 'b1b1b1b1-0000-4000-8000-000000000001\n' > "$MOCK_STATE/next-sid"
+pw
+check "DONE on a conductor launches the next phase" "ns-pslug-BUILD" "$(lastl | cut -d' ' -f1)"
+check "the next phase runs in its own cwd" "$PCW/repo-a" "$(lastl | cut -d' ' -f4)"
+check "its session id is recorded for the runner" "b1b1b1b1-0000-4000-8000-000000000001" \
+      "$(tr -d '[:space:]' < "$P/state/BUILD.session" 2>/dev/null)"
+check "a finished conductor is not removed - its last message is the report" "0" \
+      "$(wc -l < "$MOCK_STATE/rms" | tr -d '[:space:]')"
+
+# --- the incident: the new conductor dies on "Connection lost" and shows working/idle.
+DEAD=d6d4bdb8-2007-42c6-a51b-6c432c131d06
+cp "$FIX/connection-lost.jsonl" "$PROJ/$DEAD.jsonl"
+printf '%s\n' "$DEAD" > "$P/state/BUILD.session"
+agent "$DEAD" ns-pslug-BUILD idle
+printf 'e2e2e2e2-0000-4000-8000-000000000001\n' > "$MOCK_STATE/next-sid"
+pw
+check "a conductor dead on a lost connection is RESUMED, not restarted" "ns-pslug-BUILD-r1 $DEAD" \
+      "$(lastl | cut -d' ' -f1-2)"
+check "the resume runs in the conductor's own cwd, where its transcript lives" "$PCW/repo-a" \
+      "$(lastl | cut -d' ' -f4)"
+check "the session file is repointed at the resumed session" "e2e2e2e2-0000-4000-8000-000000000001" \
+      "$(tr -d '[:space:]' < "$P/state/BUILD.session")"
+grep -q 'phase CONDUCTOR' "$MOCK_STATE/last-prompt" \
+  && ok "the resumed conductor is sent back to its LOG.md, not told to commit a ticket" \
+  || no "the resumed conductor is sent back to its LOG.md, not told to commit a ticket" "$(head -3 "$MOCK_STATE/last-prompt")"
+grep -q "^resume api-error $DEAD" "$P/state/BUILD.revivals" 2>/dev/null \
+  && ok "the revive is in the ledger the report reads" \
+  || no "the revive is in the ledger the report reads" "no resume line in BUILD.revivals"
+grep -q "STALLED BUILD .*class=transient connection-lost" "$P/state/EVENTS.log" \
+  && ok "the death and its class are in EVENTS.log" \
+  || no "the death and its class are in EVENTS.log" "no STALLED line"
+
+# --- a conductor that ended its own turn (review gate, Monitor wait, relay) is NOT dead.
+WAIT=a1a1a1a1-0000-4000-8000-000000000001
+cp "$FIX/clean.jsonl" "$PROJ/$WAIT.jsonl"
+printf '%s\n' "$WAIT" > "$P/state/BUILD.session"
+agent "$WAIT" ns-pslug-BUILD idle
+before="$(nlaunch)"; stops_before="$(wc -l < "$MOCK_STATE/stops" | tr -d '[:space:]')"
+pw
+check "the runner does not revive a waiting conductor" "$before" "$(nlaunch)"
+grep -q "WAITING BUILD $WAIT" "$P/state/EVENTS.log" \
+  && ok "it logs the wait once instead" || no "it logs the wait once instead" "no WAITING line"
+check "revive.sh itself leaves a waiting conductor alone" "0" "$(prv ended-without-signal)"
+check "no stop reached the waiting conductor" "$stops_before" "$(wc -l < "$MOCK_STATE/stops" | tr -d '[:space:]')"
+check "and nothing was launched for it" "$before" "$(nlaunch)"
+
+# --- busy, silent for 30 minutes, no error: a call that hung. That one IS dead.
+rm -f "$P/state/BUILD.revivals" "$P/state/.acted-BUILD"
+python3 -c 'import os,sys,time; t=time.time()-1800; os.utime(sys.argv[1],(t,t))' "$PROJ/$WAIT.jsonl"
+agent "$WAIT" ns-pslug-BUILD busy
+check "a hung conductor is revived" "0" "$(prv idle)"
+check "by a resume" "ns-pslug-BUILD-r1 $WAIT" "$(lastl | cut -d' ' -f1-2)"
+
+# --- resume budget spent: restart on the role prompt, told to resume from its LOG.md.
+printf '%s\n' "$DEAD" > "$P/state/BUILD.session"
+agent "$DEAD" ns-pslug-BUILD idle
+printf 'resume api-error a b\nresume api-error b c\n' > "$P/state/BUILD.revivals"
+check "past the resume budget the conductor is restarted" "0" "$(prv api-error)"
+check "the restart is a fresh session on the phase name, in its cwd" "ns-pslug-BUILD none" \
+      "$(lastl | cut -d' ' -f1-2)"
+grep -q '^## RESUME - the earlier conductor session died' "$P/prompt-BUILD.txt" \
+  && ok "the restarted conductor is told to resume at the step its LOG.md names" \
+  || no "the restarted conductor is told to resume at the step its LOG.md names" "no RESUME block"
+
+# --- the marathon prompts hand the hop to the runner; no conductor launches the next by hand.
+NMR="$HERE/../../night-marathon/references"
+if grep -n 'claude --bg -n' "$NMR/conductor-prompt.md" "$NMR/build-prompt.md" >/dev/null; then
+  no "no marathon conductor launches its successor with a bare claude --bg" \
+     "$(grep -n 'claude --bg -n' "$NMR/conductor-prompt.md" "$NMR/build-prompt.md")"
+else
+  ok "no marathon conductor launches its successor with a bare claude --bg"
+fi
+for f in conductor-prompt.md build-prompt.md; do
+  grep -q 'phases/state/' "$NMR/$f" \
+    && ok "$f writes its session and status into the phase chain" \
+    || no "$f writes its session and status into the phase chain" "no phases/state/ path"
+done
+
+unset MOCK_STATE
+rm -rf "$PCW" "$PROJ"
 
 echo
 echo "== $pass passed, $fail failed =="

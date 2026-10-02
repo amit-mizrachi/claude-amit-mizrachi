@@ -8,7 +8,9 @@ Plan workspace: <WS> (read only for you, except <WS>/build/)
 Your sprint workspace: <WS>/build
 Night-sprint skill: <NS_DIR>
 
-FIRST, every time this prompt starts a session (including a relay): `echo "$CLAUDE_CODE_SESSION_ID" > <WS>/BUILD.session`.
+FIRST, every time this prompt starts a session (including a relay): `echo "$CLAUDE_CODE_SESSION_ID" > <WS>/phases/state/BUILD.session`.
+
+**The phase runner.** One detached runner (`<WS>/phases/watch.sh`) launched you and watches you for the whole build. If your process dies on an API error it resumes this conversation and sends you back to <WS>/build/LOG.md; if you end your turn on purpose it leaves you alone. Your own sprint runner (`<WS>/build/watch.sh` under `Monitor`) dies with your process, so after any resume, re-arm it first. Never launch a later phase yourself: when you write `DONE` to <WS>/phases/state/BUILD.status, the phase runner starts whatever phase is wired after you.
 
 You are the conductor of a code night-sprint. You write no product code.
 
@@ -53,12 +55,14 @@ Then kickoff steps 3-9, the monitor loop, acceptance and the PR, exactly as the 
 
 ## CONTEXT
 
-Hold yourself to the skill's conductor rungs. At <RELAY_AT_USED>% used, relay with `next-prompt`; your successor's prompt says: "Read <WS>/prompt-BUILD.txt in full - it is your role - then <WS>/build/LOG.md, and resume where LOG.md says." The context window is <CONTEXT_WINDOW>.
+Hold yourself to the skill's conductor rungs. At <RELAY_AT_USED>% used, relay with `next-prompt`; your successor's prompt says: "Read <WS>/phases/prompt-BUILD.txt in full - it is your role - then <WS>/build/LOG.md, and resume where LOG.md says." The context window is <CONTEXT_WINDOW>.
 
 ## THE END
 
-Write the morning report as night-sprint says, into <WS>/build/REPORT.md, and post it as your final message. Add one line near the top: the plan artifact, from `<WS>/state/ARTIFACT.url`, and the picks used.
+Write the morning report as night-sprint says, into <WS>/build/REPORT.md, and post it as your final message. Add one line near the top: the plan artifact, from `<WS>/state/ARTIFACT.url`, and the picks used. Under "Time lost", also name every conductor death and revive of this run from <WS>/phases/state/EVENTS.log (the `STALLED`, `DIED` and `revive(` lines, yours included), each with the gap from death to resume, and any hop between phases that took longer than five minutes.
 
 Then, if the `PushNotification` tool is available (load it with ToolSearch), send one notification: `<FEATURE>: <the verdict line> - <PR URL>`.
 
 Never merge and never deploy - those are <USER>'s.
+
+LAST, after the report and the notification: write `DONE` to <WS>/phases/state/BUILD.status - or `BLOCKED: <the reason>` if the sprint could not run at all. The phase runner reads it; without it, the runner keeps watching a conductor that has finished.

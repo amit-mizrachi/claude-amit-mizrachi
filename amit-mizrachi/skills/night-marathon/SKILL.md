@@ -110,21 +110,32 @@ Then `AskUserQuestion`: "Start with this brief?" - **Approve and start** / **Cha
        NM_DIR=<NM>
 
    Leave out `TOTAL`; the conductor adds it once the tickets exist.
-3. **Render and launch the conductor:**
+3. **Set up the phase chain** - one runner over the whole run. Each conductor of the run is a phase: the research conductor, then the build. The runner launches each phase when the one before it writes `DONE`, and it classifies and resumes any conductor that dies, the way night-sprint's runner does for tickets. It lives in `<WS>/phases/`, **not** `<WS>/state/`, where the research sprint's runner treats every `.session` file as a ticket.
 
-       bash <NS>/references/render.sh <WS> <NM>/references/conductor-prompt.md <WS>/prompt-CONDUCTOR.txt
-       cd <WS> && claude --bg -n "ns-<SLUG>-CONDUCTOR" --permission-mode auto "$(cat <WS>/prompt-CONDUCTOR.txt)"
+       bash <NS>/references/phase-chain.sh init <WS>/phases <NS>/references <SLUG>
+       bash <NS>/references/phase-chain.sh add  <WS>/phases CONDUCTOR <WS> BUILD
+       bash <NS>/references/phase-chain.sh add  <WS>/phases BUILD <REPO_PATH>
 
-   The render must report no unfilled slot. Then find the row named `ns-<SLUG>-CONDUCTOR` in `claude agents --json --all` and write its `sessionId` to `<WS>/CONDUCTOR.session` - **not** into `<WS>/state/`, where the runner treats every `.session` file as a ticket.
+   A run that ends in more than one PR gets one build phase per PR, in merge order, each in its own repo: `add ... CONDUCTOR <WS> BUILD-A`, `add ... BUILD-A <repo A> BUILD-B`, `add ... BUILD-B <repo B>`. Render each build phase's prompt here, at kickoff, from `build-prompt.md` with that phase's facts, to `<WS>/phases/prompt-<PHASE>.txt`, then point its session and status files at its own phase:
 
-If the launch fails - most often because `auto` mode is not available on the account's model - do not ask what to do. Say what failed and give one command the user can paste into a fresh terminal: an absolute `cd <WS>`, then the launch line.
+       sed -i '' 's#phases/state/BUILD\.#phases/state/<PHASE>.#g; s#phases/prompt-BUILD\.txt#phases/prompt-<PHASE>.txt#g' <WS>/phases/prompt-<PHASE>.txt
+
+   Each build phase's own night-sprint gets its own workspace (`<WS>/build-<phase>`), and the earlier phase writes what the later one needs (a contract file) into it. No build phase launches another: the runner does.
+4. **Render, launch the conductor and start the runner:**
+
+       bash <NS>/references/render.sh <WS> <NM>/references/conductor-prompt.md <WS>/phases/prompt-CONDUCTOR.txt
+       bash <WS>/phases/phase-chain.sh start <WS>/phases CONDUCTOR
+
+   The render must report no unfilled slot. `start` launches the conductor (its id lands in `<WS>/phases/state/CONDUCTOR.session`), then starts the runner detached from every session, so no conductor's death takes it down. It must print `runner running`. Start it from here, while the user is at the keyboard: if starting a detached process asks for a permission, the user can answer it now and nobody can at 3am.
+
+If the launch or the runner fails - most often because `auto` mode is not available on the account's model - do not ask what to do. Say what failed and give one command the user can paste into a fresh terminal: an absolute `cd <WS>/phases`, then the `start` line.
 
 ## 5. Tell the user, then stop
 
 Five lines, no more:
 
 - It is running. Autonomous: nothing more will be asked. Review: the next stop is the plan artifact.
-- The workspace path, and `claude agents` / `claude attach <short id>` to look in.
+- The workspace path, and `claude agents` / `claude attach <short id>` to look in. Every conductor launch, death and revive is logged in `<WS>/phases/state/EVENTS.log`.
 - What arrives: the plan artifact link (push notification and `<WS>/REPORT.md`), then the PR from the build session (`<WS>/build/REPORT.md`).
 - Review mode: on the page, pick, press **Copy decisions**, then `claude attach <short id>` and paste. The notification carries the id.
 - The rough duration: a few hours for the research and plan at Standard depth, then a night for the build.
@@ -139,5 +150,6 @@ Do not watch the run from this session. The conductors own it.
 | "The mockup can use a generic look, the decisions are what matter." | A generic mockup is invented UI that the build then copies faithfully. The UI-kit ticket and the real-source rule exist for this. |
 | "Put every choice on the page, the user can skip the small ones." | The user asked for the few decisions that matter. The synth prompt's filter decides the rest and lists them in one collapsed line each. |
 | "In review mode I'll ask the user to approve the tickets too." | Picking the plan is the approval. A second gate turns a one-night build into a two-day wait. |
+| "The conductor can launch the build itself with `claude --bg` and stop." | That is how a night was lost: the build died 2.5 minutes in on a dropped connection and nothing watched it for six hours. The phase runner owns every hop, and keeps watching. |
 | "The build conductor can use `~/.claude/night-sprint/<slug>/` like a normal sprint." | It is a background session; a write there stops on a prompt. It uses `<WS>/build`. |
 | "`to-tickets` found a GitHub tracker config, publishing issues is fine." | Nothing is posted at night. Spec and tickets stay local in the workspace. |

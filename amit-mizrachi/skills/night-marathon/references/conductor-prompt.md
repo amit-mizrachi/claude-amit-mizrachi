@@ -11,7 +11,9 @@ Repo: <REPO_PATH> (base <BASE>). Read-only snapshot for research: <REPO_SNAPSHOT
 Night-sprint skill: <NS_DIR>
 night-marathon skill: <NM_DIR>
 
-FIRST, every time this prompt starts a session (including a relay): `echo "$CLAUDE_CODE_SESSION_ID" > <WS>/CONDUCTOR.session`. <USER> attaches to the id in that file.
+FIRST, every time this prompt starts a session (including a relay): `echo "$CLAUDE_CODE_SESSION_ID" > <WS>/phases/state/CONDUCTOR.session`. <USER> attaches to the id in that file, and the run's phase runner watches it.
+
+**The phase runner.** One detached runner (`<WS>/phases/watch.sh`) watches every conductor of this run, you included. If your process dies on an API error it resumes this conversation; if you end your turn on purpose (a Monitor wait, the review gate, a relay) it leaves you alone. It also starts the build: the build starts when you write `DONE` to <WS>/phases/state/CONDUCTOR.status, never from a `claude --bg` of yours. Write that status file as your LAST action and only where a step below says so.
 
 You conduct two things in turn: a night-sprint in RESEARCH MODE that ends in a plan artifact, then the hand-off to the build. You research nothing, write no findings, draw no mockups and write no product code.
 
@@ -55,13 +57,13 @@ Each ticket's GOTCHAS line starts with: "Read code ONLY in <REPO_SNAPSHOT>, neve
 
 ## STEP 4 - THE MONITOR LOOP
 
-Exactly as night-sprint and research-mode.md say. Measure yourself with `bash <WS>/context-used.sh --self <CONTEXT_WINDOW>` at every event. At <RELAY_AT_USED>% used, write where you are to <WS>/LOG.md and relay yourself with `next-prompt`. Your successor's prompt says: "Read <WS>/prompt-CONDUCTOR.txt in full - it is your role - then <WS>/LOG.md, and resume at the step LOG.md names." Nothing else needs carrying; that file holds every rule.
+Exactly as night-sprint and research-mode.md say. Measure yourself with `bash <WS>/context-used.sh --self <CONTEXT_WINDOW>` at every event. At <RELAY_AT_USED>% used, write where you are to <WS>/LOG.md and relay yourself with `next-prompt`. Your successor's prompt says: "Read <WS>/phases/prompt-CONDUCTOR.txt in full - it is your role - then <WS>/LOG.md, and resume at the step LOG.md names." Nothing else needs carrying; that file holds every rule.
 
 ## STEP 5 - THE RESEARCH REPORT
 
-When the runner says the sprint is over, write <WS>/REPORT.md in the order research-mode.md gives, artifact link first. Do not post it as a final message yet.
+When the runner says the sprint is over, write <WS>/REPORT.md in the order research-mode.md gives, artifact link first. Under "time lost", also name every conductor death and revive from <WS>/phases/state/EVENTS.log (the `STALLED`, `DIED` and `revive(` lines) with the gap from death to resume. Do not post it as a final message yet.
 
-**No plan, no build.** If `state/ACCEPTANCE.verdict` does not start with PASS, or <WS>/plan/PLAN.md is missing: send a push notification (`night-marathon stopped: <SLUG> - <the reason>`), post REPORT.md as your final message, and stop. A build started from a broken plan builds the wrong thing all night.
+**No plan, no build.** If `state/ACCEPTANCE.verdict` does not start with PASS, or <WS>/plan/PLAN.md is missing: send a push notification (`night-marathon stopped: <SLUG> - <the reason>`), write `BLOCKED: <the reason>` to <WS>/phases/state/CONDUCTOR.status, post REPORT.md as your final message, and stop. A build started from a broken plan builds the wrong thing all night.
 
 ## STEP 6 - THE GATE
 
@@ -69,7 +71,7 @@ Read <WS>/plan/PLAN.md and `state/ARTIFACT.url`. The push notification tool is `
 
 **autonomous:** write <WS>/PICKS.md as the recommended option of every decision, in the page's copy format, each line ending ` (auto: recommended)`. Notify: `Plan ready, building the recommended options: <FEATURE> - <artifact URL>`. Go to STEP 7.
 
-**review:** notify: `Plan ready for your picks: <FEATURE> - <artifact URL> - then claude attach <first 8 chars of CONDUCTOR.session>`. Post as your final message, in this order: the artifact link; each decision with its recommended option, one line each; and the instruction: "Pick on the page, press Copy decisions, and paste it here. Paste `Build as planned` to take every recommendation." Then END YOUR TURN and wait.
+**review:** notify: `Plan ready for your picks: <FEATURE> - <artifact URL> - then claude attach <first 8 chars of the id in <WS>/phases/state/CONDUCTOR.session>`. Post as your final message, in this order: the artifact link; each decision with its recommended option, one line each; and the instruction: "Pick on the page, press Copy decisions, and paste it here. Paste `Build as planned` to take every recommendation." Then END YOUR TURN and wait.
 
 When <USER> replies:
 - The pasted block starts `night-marathon picks: <SLUG>`; each `D<n> <name>: <id> - <title>` line is a pick, and a `Note:` line under it belongs to that decision. A decision marked "not picked" gets its recommended option - say so in your reply.
@@ -79,15 +81,15 @@ When <USER> replies:
 
 ## STEP 7 - START THE BUILD
 
-The build is a code night-sprint, run by its own conductor session in the repo. You launch it and stop; you do not watch it.
+The build is a code night-sprint, run by its own conductor session in the repo. The phase runner launches it and watches it; you render its prompt and hand over.
 
-  bash <WS>/render.sh <WS> <NM_DIR>/references/build-prompt.md <WS>/prompt-BUILD.txt
-  cd <REPO_PATH> && claude --bg -n "nm-<SLUG>-BUILD" --permission-mode auto "$(cat <WS>/prompt-BUILD.txt)"
+1. Render the build prompt where the runner looks for it - unless it already exists, because a run that ends in more than one PR had the front door render one prompt per build phase at kickoff (`<WS>/phases/prompt-*.txt`, wired in order by the `.next` files in <WS>/phases/state/). Never render over one:
 
-Find the row named `nm-<SLUG>-BUILD` in `claude agents --json --all` and write its `sessionId` to <WS>/BUILD.session.
+       [ -f <WS>/phases/prompt-BUILD.txt ] || bash <WS>/render.sh <WS> <NM_DIR>/references/build-prompt.md <WS>/phases/prompt-BUILD.txt
 
-If the launch fails, do not retry in a loop: put one command <USER> can paste into a fresh terminal (absolute `cd`, then the launch line above) into REPORT.md and your final message.
-
-Append to <WS>/REPORT.md: the picks used (from PICKS.md `## Resolved`, or "all recommended"), the build session id, and that the PR, the morning report and a push notification come from the build session.
+   The render must report no unfilled slot.
+2. Append to <WS>/REPORT.md: the picks used (from PICKS.md `## Resolved`, or "all recommended"); that the first build phase's session id will be in its `<WS>/phases/state/*.session` file within two minutes; that every launch, death and revive of a conductor is logged in <WS>/phases/state/EVENTS.log; and that the PR, the morning report and a push notification come from the build session.
+3. LAST: write `DONE` to <WS>/phases/state/CONDUCTOR.status. That file is what starts the build.
+4. Check the hand-over took, for up to three minutes: the session file of the phase named in <WS>/phases/state/CONDUCTOR.next appears in <WS>/phases/state/. If it does not, run `bash <WS>/phases/phase-chain.sh runner <WS>/phases` once (the runner may have died), wait two more minutes, and if it still has not appeared put this paste-ready command in your final message: `cd <WS>/phases && bash phase-chain.sh runner <WS>/phases`. Never launch the build with `claude --bg` yourself - an unwatched build is how a night was lost.
 
 Post REPORT.md as your final message and stop. Never delete the workspace - the build reads it.
