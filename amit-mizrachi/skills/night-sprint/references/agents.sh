@@ -5,6 +5,7 @@
 # Provides:          agents_json [WORKTREE]   -> a JSON array on stdout, never empty output
 #                    turn_ended SID|FILE      -> 0 if its last turn closed (it waits for a message)
 #                    session_pid SID          -> the pid of a LIVE session, or nothing
+#                    nothing_armed SID        -> 0 if it is alive and no tool can wake it
 #                    stop_session SID         -> stop it, and return 0 only once it is gone
 #                    remove_session SID       -> stop it and take it off the agent list
 #
@@ -97,6 +98,32 @@ for r in rows:
     if r.get("sessionId")==sid or r.get("id")==sid[:8]:
         if r.get("pid") and r.get("state")!="done": print(r["pid"])
         break' "$1"
+}
+
+# ---------------------------------------------------------------- will anything wake it?
+#
+# nothing_armed SID -> 0 only when the session's process is alive AND runs no tool command: no
+# Monitor, no background Bash. Anything else - a tool running, no pid, a `ps` that fails - is 1.
+#
+# A conductor that closed its turn waits for SOMETHING to send it its next message. It is a
+# Monitor event or expiry, a background command finishing, or a person. turn_ended says it waits;
+# this says whether anything is there to end the wait. A closed turn with nothing armed waits
+# forever, and the phase runner must revive it.
+#
+# How it is read: the harness runs every tool command - Monitor scripts and background Bash alike -
+# as a direct child of the session's process, through its shell snapshot
+# (`/bin/zsh -c source ~/.claude/shell-snapshots/snapshot-...`). Checked on 2026-10-02 against a
+# live background session, with a Monitor and a background Bash armed. The session's other children
+# (MCP servers, the status line, caffeinate) never carry `shell-snapshots`, so they do not count.
+nothing_armed() {
+  local pid
+  pid="$(session_pid "$1")"
+  [ -n "$pid" ] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  command -v pgrep >/dev/null 2>&1 || return 1
+  # pgrep exits 1 for "no match" and 2 or more for an error. Only a clean "no match" counts.
+  pgrep -P "$pid" -f 'shell-snapshots' >/dev/null 2>&1
+  [ $? -eq 1 ]
 }
 
 # stop_session SID -> 0 once the process is gone (or there was none), 1 if it will not stop.

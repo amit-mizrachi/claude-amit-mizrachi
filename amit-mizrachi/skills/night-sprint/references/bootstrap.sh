@@ -28,7 +28,7 @@ mkdir -p "$WS/state" "$WS/tickets"
 
 # --- the scripts the sprint runs. agents.sh is sourced by five of them; classify-error.sh is
 #     what makes recovery correct rather than merely persistent.
-SCRIPTS="agents.sh launch.sh advance.sh watch.sh revive.sh close.sh classify-error.sh context-used.sh handback.sh accept.sh render.sh research-check.sh"
+SCRIPTS="agents.sh launch.sh advance.sh watch.sh runner.sh revive.sh close.sh classify-error.sh context-used.sh handback.sh accept.sh render.sh research-check.sh"
 # --- the templates. continuation-prompt.md stays a template on purpose: each session that
 #     hands off fills its own copy for its successor.
 TEMPLATES="continuation-prompt.md implementer-prompt.md review-find-prompt.md review-fix-prompt.md test-prompt.md plan-template.md"

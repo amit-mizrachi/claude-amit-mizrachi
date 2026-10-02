@@ -200,8 +200,9 @@ says so in its first line.
 
 ## 8. The conductor, and the runner that does the routine
 
-The conductor writes no product code. It arms `watch.sh` under a persistent Monitor and then
-handles only what a script cannot.
+The conductor writes no product code. It starts `watch.sh` detached (`runner.sh start`), listens
+to it through a Monitor on `runner.sh follow` that it re-arms at every 30-minute expiry, and then
+handles only what a script cannot. The runner does not die with the conductor or its Monitor.
 
 **`watch.sh` does the routine itself**: it advances the chain through `advance.sh` on every
 terminal status, revives dead and stalled sessions through `revive.sh`, and pauses the whole

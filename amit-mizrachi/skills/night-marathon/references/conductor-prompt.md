@@ -13,7 +13,7 @@ night-marathon skill: <NM_DIR>
 
 FIRST, every time this prompt starts a session (including a relay): `echo "$CLAUDE_CODE_SESSION_ID" > <WS>/phases/state/CONDUCTOR.session`. <USER> attaches to the id in that file, and the run's phase runner watches it.
 
-**The phase runner.** One detached runner (`<WS>/phases/watch.sh`) watches every conductor of this run, you included. If your process dies on an API error it resumes this conversation; if you end your turn on purpose (a Monitor wait, the review gate, a relay) it leaves you alone. It also starts the build: the build starts when you write `DONE` to <WS>/phases/state/CONDUCTOR.status, never from a `claude --bg` of yours. Write that status file as your LAST action and only where a step below says so.
+**The phase runner.** One detached runner (`<WS>/phases/watch.sh`) watches every conductor of this run, you included. If your process dies on an API error it resumes this conversation. If you end your turn on purpose (a Monitor wait, the review gate, a relay) it leaves you alone, as long as something can wake you: a Monitor, a background command, or the review-gate marker of STEP 6. A turn closed for 35 minutes with none of those is resumed and told to re-arm. Your research sprint's runner (`<WS>/watch.sh`) runs detached through `<WS>/runner.sh`; it does not die with you or your Monitor. It also starts the build: the build starts when you write `DONE` to <WS>/phases/state/CONDUCTOR.status, never from a `claude --bg` of yours. Write that status file as your LAST action and only where a step below says so.
 
 You conduct two things in turn: a night-sprint in RESEARCH MODE that ends in a plan artifact, then the hand-off to the build. You research nothing, write no findings, draw no mockups and write no product code.
 
@@ -71,9 +71,9 @@ Read <WS>/plan/PLAN.md and `state/ARTIFACT.url`. The push notification tool is `
 
 **autonomous:** write <WS>/PICKS.md as the recommended option of every decision, in the page's copy format, each line ending ` (auto: recommended)`. Notify: `Plan ready, building the recommended options: <FEATURE> - <artifact URL>`. Go to STEP 7.
 
-**review:** notify: `Plan ready for your picks: <FEATURE> - <artifact URL> - then claude attach <first 8 chars of the id in <WS>/phases/state/CONDUCTOR.session>`. Post as your final message, in this order: the artifact link; each decision with its recommended option, one line each; and the instruction: "Pick on the page, press Copy decisions, and paste it here. Paste `Build as planned` to take every recommendation." Then END YOUR TURN and wait.
+**review:** notify: `Plan ready for your picks: <FEATURE> - <artifact URL> - then claude attach <first 8 chars of the id in <WS>/phases/state/CONDUCTOR.session>`. Post as your final message, in this order: the artifact link; each decision with its recommended option, one line each; and the instruction: "Pick on the page, press Copy decisions, and paste it here. Paste `Build as planned` to take every recommendation." Just before you post it, run `touch <WS>/phases/state/CONDUCTOR.waiting-on-user` - that tells the phase runner you wait on a person, not on a Monitor, so it does not wake you. Then END YOUR TURN and wait.
 
-When <USER> replies:
+When <USER> replies, first run `rm -f <WS>/phases/state/CONDUCTOR.waiting-on-user`. Then:
 - The pasted block starts `night-marathon picks: <SLUG>`; each `D<n> <name>: <id> - <title>` line is a pick, and a `Note:` line under it belongs to that decision. A decision marked "not picked" gets its recommended option - say so in your reply.
 - Free text instead of, or as well as, the block is fine. A change request ("B, but without the bulk action") becomes a note on that decision. A question gets an answer from the findings.
 - <USER> is present now, so if the reply is genuinely ambiguous, ask ONE short question. Do not re-open decisions the page settled, and do not ask for confirmation of a clear reply.

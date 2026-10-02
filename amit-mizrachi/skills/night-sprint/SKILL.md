@@ -17,7 +17,9 @@ ticket, arm the runner, and then handle only what a script cannot decide.
 
 **`watch.sh` is a runner, not just a watcher.** It advances the chain, revives dead sessions and
 waits out spending limits by itself, logging everything to `state/EVENTS.log`. It escalates a
-short list of exceptions to you. Silence from it means the sprint is running.
+short list of exceptions to you. Silence from it means the sprint is running. It runs
+**detached**, started by `runner.sh start`, so nothing that happens to you or to your Monitor
+stops it. You hear it through a Monitor on `runner.sh follow`.
 
 **This is the sequential sibling of `orchestrating-parallel-delivery`.** That skill splits work
 across concurrent sessions to save wall-clock. This one deliberately does not: it is night time,
@@ -144,7 +146,11 @@ Decide that deliberately rather than discovering it in the morning.
    its own before it writes its status.
 8. **Write `PLAN.md`** from `plan-template.md` - the goal, out-of-scope, ticket order, the
    golden path the tester walks, and the protocol every session follows.
-9. **Launch ticket 01** with `launch.sh`, then arm the runner and go into the monitor loop.
+9. **Launch ticket 01** with `launch.sh`, then start the runner and arm the Monitor that listens
+   to it, and go into the monitor loop:
+
+       bash <WS>/runner.sh start <WS>          # must print `runner: running`
+       Monitor: bash <WS>/runner.sh follow <WS>   (timeout_ms 1800000; re-arm on every expiry)
 
 ## Roles
 
@@ -193,7 +199,7 @@ tests what actually ships.
 | Setup verdict | `state/SETUP.verdict` = `NEEDED` or `NONE` |
 | Follow-ups | `state/FOLLOWUPS.md` - one line per real-but-out-of-scope thing |
 | Durable ledger | `state/EVENTS.log` - every launch, advance, revive and pause, timestamped |
-| Watching | `bash <WS>/watch.sh <WS>` under the `Monitor` tool, `persistent: true` |
+| Watching | the runner runs detached (`bash <WS>/runner.sh start <WS>`, pid in `state/runner.pid`, output in `state/runner.log`). You listen with `Monitor` on `bash <WS>/runner.sh follow <WS>`. The harness caps every Monitor at 30 minutes, so re-arm it at each expiry. That kills only the follower, never the runner, and the next follower picks up at the line where the last one stopped |
 
 ## The templates and scripts
 
@@ -210,6 +216,7 @@ tests what actually ships.
 | `references/launch.sh` | atomic claim + launch + session-id capture. Refuses while the sprint is paused |
 | `references/advance.sh` | the single transition owner: read `.status` + `.next`, start the successor |
 | `references/watch.sh` | the runner: does the routine, escalates the exceptions |
+| `references/runner.sh` | keeps `watch.sh` detached (`start`, `status`) and is your Monitor's command (`follow`): prints each new runner line once, and restarts a runner that died mid-run |
 | `references/revive.sh` | the reviver, for dead sessions only: resume, then restart, then abandon |
 | `references/phase-chain.sh` | one detached runner over a chain of CONDUCTORS (night-marathon's research conductor, then each build): launches each phase when the one before writes `DONE`, revives a conductor that dies |
 | `references/close.sh` | removes a finished session from the agent list (stop, then `claude rm`) once its tag is terminal, so only the conductor is left at the end |
@@ -273,7 +280,9 @@ gets a reply, because somebody outside the sprint is waiting on it.
 
 ## Monitor loop - what the runner escalates, and what you do
 
-Arm one persistent `Monitor` on `watch.sh`. It handles launches, advances, revivals, quota
+Arm one `Monitor` on `runner.sh follow` (timeout 30 minutes, the harness's cap) and re-arm it
+every time it expires. The runner it listens to is detached and keeps going between Monitors.
+The runner handles launches, advances, revivals, quota
 waits and closing finished sessions itself, and logs all of them to `state/EVENTS.log`. **It speaks only for these:**
 
 | Event | Do |
@@ -288,7 +297,9 @@ waits and closing finished sessions itself, and logs all of them to `state/EVENT
 | `NEEDS-PR` | Open the **draft** PR. Early CI and early bot review are why it opens after the first ticket rather than at the end. |
 | `STRANDED <tags>` | A successor is wired (or a tag claimed) but no session and no status appeared for five sweeps. Something failed to launch it: check `state/<tag>.launch.log` and `EVENTS.log`, then launch it with `launch.sh` (remove a stale `state/claim-<tag>` first only if no session exists). |
 | `UNCLOSED <tags>` | The runner's last pass could not remove these finished sessions from the agent list. The work is not affected. Name them in the morning report so the user can `claude rm <id>` them. |
-| `SWEEP 0 tags= all-sessions-terminal` | The runner **exited** and has removed every finished session - nothing but you is on the agent list. Tags left? Launch the next and **re-arm it**. Sprint complete? Write the morning report. Never leave the sprint with no armed runner and work outstanding. |
+| `SWEEP 0 tags= all-sessions-terminal` | The runner **exited** and has removed every finished session - nothing but you is on the agent list. Your follower exits with it. Tags left? Launch the next, `runner.sh start`, and **re-arm the follower**. Sprint complete? Write the morning report. Never leave the sprint with no running runner and work outstanding. |
+| `RUNNER-RESTARTED` | The runner had died mid-run (killed, a restart of the machine) and the follower started it again. Nothing to do. Name it in the morning report. |
+| `RUNNER-DOWN` | The runner died three times in 30 minutes. Nothing is advancing or reviving the sprint. Read `state/runner.log`, fix the cause, then `runner.sh start` and re-arm the follower. |
 | `SWEEP <n> tags=...` | A heartbeat, and only after a full hour with nothing to say. Nothing to do. |
 
 Everything else - `DONE`, `RELAYED`, `SKIPPED`, `DIED`, `STALLED`, `STUCK`, `OVERDUE` - the
@@ -313,10 +324,10 @@ through:
 1. Flush live state to `LOG.md`: every ledger row, which tags are open under which session ids,
    what you were about to do.
 2. `/next-prompt` a fresh conductor whose prompt points at the workspace and says: read
-   `PLAN.md` + `LOG.md` + `state/`, re-arm the runner on `watch.sh`, resume the monitor loop,
-   hold itself to the same two rungs.
-3. Record the relay as its own ledger row, then stop. Do **not** stop the running sessions - the
-   new conductor adopts them.
+   `PLAN.md` + `LOG.md` + `state/`, check `runner.sh status`, arm its Monitor on
+   `runner.sh follow`, resume the monitor loop, hold itself to the same two rungs.
+3. Record the relay as its own ledger row, stop your own Monitor, then stop. Do **not** stop the
+   running sessions or the runner - the new conductor adopts them.
 
 `facts.env` + `PLAN.md` + `LOG.md` + `state/` are written so a cold conductor can pick the sprint
 up without your context. Relay as many times as the night needs.
@@ -401,15 +412,29 @@ else:
 
 ## Who watches the conductor - the phase chain
 
-`watch.sh` runs under the conductor's own `Monitor`, so it dies with the conductor. When another
-skill chains conductors - `night-marathon` runs a research conductor, then one build conductor per
-PR - the conductors and the hops between them get a runner of their own: `phase-chain.sh` sets up
-a workspace whose tags are PHASES (a `PHASE_CHAIN` marker, a `state/<PHASE>.cwd` each, `.next`
-wiring) and starts ONE `watch.sh` over it, detached from every session. A conductor writes
-`DONE` to its phase status as its last action and the runner launches the next phase; a
-conductor that dies is classified and resumed in its own cwd, the session file repointed. In a
-phase chain a conductor that ended its own turn with no error is **waiting, not dead** - for the
-user's picks, its `Monitor`, or its relay - and is left alone, and no conductor is ever closed.
+A sprint's own runner watches its tickets, not its conductor. When another skill chains
+conductors - `night-marathon` runs a research conductor, then one build conductor per PR - the
+conductors and the hops between them get a runner of their own: `phase-chain.sh` sets up a
+workspace whose tags are PHASES (a `PHASE_CHAIN` marker, a `state/<PHASE>.cwd` each, `.next`
+wiring) and starts ONE `watch.sh` over it, detached through `runner.sh` like every runner. Pass
+the run's `CONTEXT_WINDOW` to `phase-chain.sh init`, or the runner measures every conductor
+against 200k. A conductor writes `DONE` to its phase status as its last action and the runner
+launches the next phase. A conductor that dies is classified and resumed in its own cwd, and the
+session file is repointed.
+
+In a phase chain, a conductor that ended its own turn with no error is **waiting, not dead** -
+for the user's picks, its `Monitor`, or its relay - and is left alone. No conductor is ever
+closed. Two rules keep that from hiding a stuck one:
+
+- **A wait needs something to end it.** If the turn has been closed for 35 minutes or more, and
+  the session runs no tool command (no Monitor, no background Bash), it is `UNARMED`: nothing will
+  ever wake it, so the runner resumes it and tells it to re-arm. The one wait on a person is the
+  review gate. A conductor marks it with `state/<PHASE>.waiting-on-user` before it ends its turn,
+  and deletes the file when the answer arrives.
+- **A conductor's ladder is per incident.** Only the rungs of the last 60 minutes count, so a
+  build that lives all night is not abandoned for two dropped connections hours apart. When the
+  ladder does run out, the abandon rung writes the status and leaves a live conductor running.
+
 If you are a phase conductor, your prompt names your session and status files; never launch the
 next phase with `claude --bg`.
 
@@ -458,7 +483,8 @@ never reported at all.
 
 When the ladder runs out the tag is ABANDONED: record it, skip its dependents, carry on. A sprint
 that delivers 7 of 9 tickets and says so plainly beats one that loops on ticket 3 all night. Log
-**every rung** as its own ledger row.
+**every rung** as its own ledger row. `revive.sh` writes only rungs to `state/<tag>.revivals`. A
+refusal ("still working") goes to `EVENTS.log` and costs nothing.
 
 ## Acceptance - what "delivered" means
 

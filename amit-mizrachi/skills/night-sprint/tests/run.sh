@@ -312,7 +312,7 @@ out="$(bash "$REF/bootstrap.sh" "$BWS" "$REF" 2>&1)"; rc=$?
 check "with facts.env: bootstrap succeeds" "0" "$rc"
 # agents.sh is sourced on the first line of four scripts. A workspace without it has a
 # launcher, a reviver, a runner and a handback that all fail before doing anything.
-for need in agents.sh launch.sh advance.sh watch.sh revive.sh classify-error.sh \
+for need in agents.sh launch.sh advance.sh watch.sh runner.sh revive.sh classify-error.sh \
             context-used.sh handback.sh accept.sh render.sh continuation-prompt.md; do
   [ -f "$BWS/$need" ] && ok "copied $need" || no "copied $need" "absent from $BWS"
 done
@@ -837,9 +837,17 @@ check "add BUILD, the last phase" "0" "$(PC add "$P" BUILD "$PCW/repo-a")"
 check "add refuses a cwd that does not exist" "1" "$(PC add "$P" X "$PCW/nope")"
 printf 'research conductor role\n' > "$P/prompt-CONDUCTOR.txt"
 printf 'build conductor role\n'    > "$P/prompt-BUILD.txt"
-grep -q 'os.setsid()' "$REF/phase-chain.sh" \
+grep -q 'os.setsid()' "$REF/runner.sh" && grep -q 'runner.sh" start' "$REF/phase-chain.sh" \
   && ok "the runner is detached into its own session, so no conductor's death takes it down" \
   || no "the runner is detached into its own session, so no conductor's death takes it down" "no setsid"
+[ -x "$P/runner.sh" ] && ok "init copies runner.sh, which the phase runner starts through" \
+  || no "init copies runner.sh, which the phase runner starts through" "absent from $P"
+[ ! -f "$P/CONTEXT_WINDOW" ] && ok "init without a window writes none (watch.sh keeps its default)" \
+  || no "init without a window writes none (watch.sh keeps its default)" "$(cat "$P/CONTEXT_WINDOW")"
+P2="$PCW/phases-1m"
+PC init "$P2" "$REF" pslug 1000000 >/dev/null
+check "init with a window pins it, so a 1M conductor is not read as 90% full" "1000000" \
+      "$(cat "$P2/CONTEXT_WINDOW" 2>/dev/null)"
 
 # --- the hop: a conductor writes DONE, the RUNNER starts the next phase in the next repo.
 printf 'c0d0c0d0-0000-4000-8000-000000000001\n' > "$P/state/CONDUCTOR.session"
@@ -955,6 +963,135 @@ grep -q '^## RESUME - the earlier conductor session died' "$P/prompt-BUILD.txt" 
   && ok "the restarted conductor is told to resume at the step its LOG.md names" \
   || no "the restarted conductor is told to resume at the step its LOG.md names" "no RESUME block"
 
+# --- machina-api, 2026-10-02: will anything wake a conductor whose turn is closed?
+# Stand-in session processes. The harness runs every tool command (Monitor scripts, background
+# Bash) as a direct child of the session's process, through its shell snapshot, so an "armed"
+# stand-in has a child whose command line carries `shell-snapshots`. A "bare" one has a child too,
+# but not a tool: MCP servers and the status line are children of a real session as well.
+# `sleep 317` marks every process this section starts, so the cleanup below finds all of them.
+fake_session() {
+  if [ "$1" = armed ]; then
+    bash -c '/bin/sh -c "sleep 317; : shell-snapshots" & wait' >/dev/null 2>&1 &
+  else
+    bash -c 'sleep 317 & wait' >/dev/null 2>&1 &
+  fi
+  FAKE_PID=$!
+}
+agent_p() { printf '[{"sessionId":"%s","id":"%s","name":"%s","state":"%s","status":"%s","pid":%s,"startedAt":1}]' \
+              "$1" "${1:0:8}" "$2" "$3" "$4" "$5" > "$MOCK_STATE/agents.json"; }
+na() { ( PATH="$PBIN:$PATH"; . "$P/agents.sh"; nothing_armed "$1" ) && echo nothing || echo armed; }
+ago() { python3 -c 'import os,sys,time; t=time.time()-60*int(sys.argv[2]); os.utime(sys.argv[1],(t,t))' "$PROJ/$1.jsonl" "$2"; }
+reset_build() {
+  rm -f "$P/state/BUILD.revivals" "$P/state/.acted-BUILD" "$P/state/BUILD.status" \
+        "$P/state/BUILD.summary" "$P/state/BUILD.waiting-on-user"
+  : > "$P/state/.watch-seen"
+  printf '%s\n' "$1" > "$P/state/BUILD.session"
+}
+
+U=0a0a0a0a-0000-4000-8000-000000000001
+fake_session armed; ARMED=$FAKE_PID
+fake_session bare;  BARE=$FAKE_PID
+sleep 1
+agent_p "$U" ns-pslug-BUILD working busy "$ARMED"
+check "nothing_armed: a Monitor or background command is running" "armed" "$(na "$U")"
+agent_p "$U" ns-pslug-BUILD working busy "$BARE"
+check "nothing_armed: only non-tool children (MCP servers, status line)" "nothing" "$(na "$U")"
+agent_p "$U" ns-pslug-BUILD working busy null
+check "nothing_armed: no pid to look at counts as armed - never revive on a guess" "armed" "$(na "$U")"
+
+# The marker: a review-mode conductor at the gate waits on a person, for hours if need be.
+cp "$FIX/gate-wait.jsonl" "$PROJ/$U.jsonl"; ago "$U" 40
+reset_build "$U"; : > "$P/state/BUILD.waiting-on-user"
+agent_p "$U" ns-pslug-BUILD blocked idle "$BARE"
+before="$(nlaunch)"
+pw
+check "a conductor at the review gate (marker set) is not revived after 40m" "$before" "$(nlaunch)"
+grep -q "WAITING BUILD $U" "$P/state/EVENTS.log" \
+  && ok "the gate wait is logged as WAITING" || no "the gate wait is logged as WAITING" "no WAITING line"
+
+# Armed: its Monitor will wake it. Left alone however long the turn has been closed.
+reset_build "$U"
+agent_p "$U" ns-pslug-BUILD working busy "$ARMED"
+pw
+check "a conductor with its Monitor armed is not revived after 40m" "$before" "$(nlaunch)"
+
+# Unarmed: turn closed 40m ago, no tool running, no marker. Nothing will ever wake it.
+reset_build "$U"
+agent_p "$U" ns-pslug-BUILD working busy "$BARE"
+printf '0b0b0b0b-0000-4000-8000-000000000001\n' > "$MOCK_STATE/next-sid"
+pw
+check "an UNARMED conductor (closed 40m, nothing to wake it) is resumed" "ns-pslug-BUILD-r1 $U" \
+      "$(lastl | cut -d' ' -f1-2)"
+grep -q "UNARMED BUILD $U" "$P/state/EVENTS.log" \
+  && ok "it is logged as UNARMED" || no "it is logged as UNARMED" "$(grep BUILD "$P/state/EVENTS.log" | tail -2)"
+grep -q 'nothing armed to wake you' "$MOCK_STATE/last-prompt" \
+  && ok "the resume tells it to re-arm" || no "the resume tells it to re-arm" "$(head -3 "$MOCK_STATE/last-prompt")"
+grep -q "^resume unarmed $U .* at=[0-9]" "$P/state/BUILD.revivals" \
+  && ok "the rung is in the ledger with its time" || no "the rung is in the ledger with its time" \
+     "$(cat "$P/state/BUILD.revivals" 2>/dev/null)"
+
+# Only 30 minutes closed: inside the Monitor's cap, so its expiry may still be on the way.
+reset_build "$U"; ago "$U" 30
+fake_session bare; BARE=$FAKE_PID; sleep 1
+agent_p "$U" ns-pslug-BUILD working busy "$BARE"
+before="$(nlaunch)"
+pw
+check "a closed turn inside the 30-minute Monitor cap is still a wait" "$before" "$(nlaunch)"
+
+# revive.sh checks again: a conductor that re-armed since the watcher looked is waiting.
+reset_build "$U"; ago "$U" 40
+agent_p "$U" ns-pslug-BUILD working busy "$ARMED"
+check "revive.sh refuses an unarmed revive of a conductor that has re-armed" "0" "$(prv unarmed)"
+check "and launches nothing" "$before" "$(nlaunch)"
+
+# --- out of rungs: the abandon writes the status and stops nothing. On 2026-10-02 the abandon
+#     stopped a healthy BUILD conductor, and the sprint runner under its Monitor died with it.
+H=0c0c0c0c-0000-4000-8000-000000000001
+cp "$FIX/clean.jsonl" "$PROJ/$H.jsonl"; ago "$H" 30
+reset_build "$H"
+fake_session bare; LIVE=$FAKE_PID; sleep 1
+agent_p "$H" ns-pslug-BUILD working busy "$LIVE"
+now="$(date +%s)"
+printf 'resume idle a b at=%s\nrestart idle b - at=%s\n' "$now" "$now" > "$P/state/BUILD.revivals"
+stops_before="$(wc -l < "$MOCK_STATE/stops" | tr -d '[:space:]')"
+check "a conductor out of rungs is abandoned" "0" "$(prv idle)"
+case "$(head -1 "$P/state/BUILD.status" 2>/dev/null)" in
+  "BLOCKED: ABANDONED after 2 revive attempts in 60m"*"left running"*) ok "the status says it was left running" ;;
+  *) no "the status says it was left running" "$(head -1 "$P/state/BUILD.status" 2>/dev/null)" ;;
+esac
+check "no stop reached the abandoned conductor" "$stops_before" "$(wc -l < "$MOCK_STATE/stops" | tr -d '[:space:]')"
+kill -0 "$LIVE" 2>/dev/null && ok "its process is still alive" || no "its process is still alive" "pid $LIVE is gone"
+
+# --- the ladder is per incident: rungs older than 60 minutes do not count for a conductor.
+reset_build "$H"
+old=$(( $(date +%s) - 7200 ))
+printf 'resume idle a b at=%s\nrestart idle b - at=%s\n' "$old" "$old" > "$P/state/BUILD.revivals"
+check "two rungs two hours ago leave the ladder whole" "0" "$(prv idle)"
+check "so the conductor is resumed, not abandoned" "ns-pslug-BUILD-r3 $H" "$(lastl | cut -d' ' -f1-2)"
+kill -0 "$LIVE" 2>/dev/null && no "the resume stopped the old process first" "pid $LIVE still alive" \
+  || ok "the resume stopped the old process first"
+
+# Rows from before the time field have no time, so they still count.
+reset_build "$H"
+agent "$H" ns-pslug-BUILD busy
+printf 'resume idle a b\nrestart idle b -\n' > "$P/state/BUILD.revivals"
+prv idle >/dev/null
+case "$(head -1 "$P/state/BUILD.status" 2>/dev/null)" in
+  "BLOCKED: ABANDONED"*) ok "rungs with no time still count" ;;
+  *) no "rungs with no time still count" "$(head -1 "$P/state/BUILD.status" 2>/dev/null)" ;;
+esac
+
+# --- a refusal is not a rung. 13 of these in the ledger made the second rung "attempt 15".
+reset_build "$H"
+cp "$FIX/clean.jsonl" "$PROJ/$H.jsonl"
+agent "$H" ns-pslug-BUILD busy
+check "a session still working is refused" "1" "$(prv idle)"
+rows="$(cat "$P/state/BUILD.revivals" 2>/dev/null | wc -l | tr -d '[:space:]')"
+check "and the refusal writes no ledger row" "0" "$rows"
+
+pkill -f 'sleep 317' 2>/dev/null
+printf '%s\n' "$WAIT" > "$P/state/BUILD.session"
+
 # --- the marathon prompts hand the hop to the runner; no conductor launches the next by hand.
 NMR="$HERE/../../night-marathon/references"
 if grep -n 'claude --bg -n' "$NMR/conductor-prompt.md" "$NMR/build-prompt.md" >/dev/null; then
@@ -971,6 +1108,122 @@ done
 
 unset MOCK_STATE
 rm -rf "$PCW" "$PROJ"
+
+echo
+echo "== runner.sh: the runner lives on its own, the conductor only listens =="
+# machina-api, 2026-10-02: the build runner ran as the conductor's Monitor command, so it died at
+# every 30-minute Monitor expiry and with the conductor. When the conductor was stopped at 14:53Z,
+# FIX-C2 lost its connection three minutes later and nothing resumed it for four hours.
+RN="$(mktemp -d)"; mkdir -p "$RN/state"
+cp "$REF/runner.sh" "$RN/"
+rn() { FOLLOW_POLL=1 bash "$RN/runner.sh" "$@"; }
+# A stand-in runner: two lines a few seconds apart, then the end of the sprint.
+cat > "$RN/watch.sh" <<'W'
+#!/usr/bin/env bash
+echo "L1 first"
+sleep 3
+echo "L2 second"
+sleep 1
+echo "SWEEP 0 tags= all-sessions-terminal (quiet for 3 sweeps)"
+W
+# wait_for PID SECONDS -> the exit code, or 124 if it was still running and was killed
+wait_for() {
+  local i
+  for i in $(seq 1 $(( $2 * 4 ))); do
+    kill -0 "$1" 2>/dev/null || { wait "$1"; return $?; }
+    sleep 0.25
+  done
+  kill "$1" 2>/dev/null; wait "$1" 2>/dev/null; return 124
+}
+
+out="$(rn start "$RN" 7 9)"
+case "$out" in "runner: running"*) ok "start brings the runner up" ;; *) no "start brings the runner up" "$out" ;; esac
+RPID="$(tr -d '[:space:]' < "$RN/state/runner.pid")"
+check "the runner is in its own process session" "own" \
+  "$(python3 -c 'import os,sys; print("own" if os.getsid(int(sys.argv[1])) != os.getsid(0) else "shared")' "$RPID" 2>/dev/null)"
+case "$(rn start "$RN")" in *"already running"*) ok "a second start starts no second runner" ;; *) no "a second start starts no second runner" "" ;; esac
+check "status says running" "0" "$(rn status "$RN" >/dev/null; echo $?)"
+
+# A follower killed after the first line, the way the harness kills a Monitor at its cap.
+FOLLOW_POLL=1 bash "$RN/runner.sh" follow "$RN" > "$RN/f1.out" 2>&1 &
+F1=$!
+sleep 1.5
+kill "$F1" 2>/dev/null; wait "$F1" 2>/dev/null
+grep -q '^L1 first$' "$RN/f1.out" && ok "the follower prints what the runner said" \
+  || no "the follower prints what the runner said" "$(cat "$RN/f1.out")"
+check "killing the follower leaves the runner running" "0" "$(rn status "$RN" >/dev/null; echo $?)"
+
+# The next follower - a re-armed Monitor, or a relayed conductor's - picks up where it stopped.
+FOLLOW_POLL=1 bash "$RN/runner.sh" follow "$RN" > "$RN/f2.out" 2>&1 &
+F2=$!
+wait_for "$F2" 15; rc=$?
+check "the follower exits when the runner ends the sprint" "0" "$rc"
+grep -q '^L1 first$' "$RN/f2.out" && no "a re-armed follower repeats no line" "L1 printed twice" \
+  || ok "a re-armed follower repeats no line"
+grep -q '^L2 second$' "$RN/f2.out" && grep -q '^SWEEP 0 ' "$RN/f2.out" \
+  && ok "and loses no line" || no "and loses no line" "$(cat "$RN/f2.out")"
+FOLLOW_POLL=1 bash "$RN/runner.sh" follow "$RN" > "$RN/f3.out" 2>&1 &
+F3=$!
+wait_for "$F3" 5; rc=$?
+check "a follower armed after SWEEP 0 exits at once" "0" "$rc"
+check "and restarts no runner the sprint ended on purpose" "1" "$(rn status "$RN" >/dev/null; echo $?)"
+
+# A runner killed mid-run (no SWEEP 0) is started again, with the timings it had.
+cat > "$RN/watch.sh" <<'W'
+#!/usr/bin/env bash
+echo "UP $*"
+while true; do sleep 1; done
+W
+rn start "$RN" 7 9 >/dev/null
+OLD="$(tr -d '[:space:]' < "$RN/state/runner.pid")"
+sleep 0.5
+kill "$OLD"; sleep 0.5
+FOLLOW_POLL=1 bash "$RN/runner.sh" follow "$RN" > "$RN/f4.out" 2>&1 &
+F4=$!
+sleep 3
+kill "$F4" 2>/dev/null; wait "$F4" 2>/dev/null
+grep -q '^RUNNER-RESTARTED' "$RN/f4.out" && ok "a runner that died mid-run is restarted, and says so once" \
+  || no "a runner that died mid-run is restarted, and says so once" "$(cat "$RN/f4.out")"
+NEW="$(tr -d '[:space:]' < "$RN/state/runner.pid")"
+[ "$NEW" != "$OLD" ] && kill -0 "$NEW" 2>/dev/null && ok "the new runner is alive" \
+  || no "the new runner is alive" "old=$OLD new=$NEW"
+case "$(ps -o command= -p "$NEW" 2>/dev/null)" in
+  *"watch.sh $RN 7 9"*) ok "with the poll and stall it was started with" ;;
+  *) no "with the poll and stall it was started with" "$(ps -o command= -p "$NEW" 2>/dev/null)" ;;
+esac
+
+# Three restarts inside 30 minutes is a crash loop: say so and stop, do not spin.
+kill "$NEW" 2>/dev/null; sleep 0.5
+now="$(date +%s)"; printf '%s\n%s\n%s\n' "$now" "$now" "$now" > "$RN/state/.runner-restarts"
+FOLLOW_POLL=1 bash "$RN/runner.sh" follow "$RN" > "$RN/f5.out" 2>&1 &
+F5=$!
+wait_for "$F5" 5; rc=$?
+check "a runner that keeps dying ends the follower with exit 1" "1" "$rc"
+grep -q '^RUNNER-DOWN' "$RN/f5.out" && ok "and says RUNNER-DOWN" || no "and says RUNNER-DOWN" "$(cat "$RN/f5.out")"
+pkill -f "$RN/watch.sh" 2>/dev/null
+rm -rf "$RN"
+
+echo
+echo "== the docs arm a follower, never the runner itself =="
+SK="$HERE/../SKILL.md"
+NMD="$HERE/../../night-marathon"
+grep -q 'persistent: true' "$SK" && no "SKILL.md no longer promises a persistent Monitor" "the harness caps every Monitor at 30m" \
+  || ok "SKILL.md no longer promises a persistent Monitor"
+bad="$(grep -n -E 'Monitor[^.|]*`?(bash )?<WS>/watch\.sh|watch\.sh[^.|]*under (a|the) (persistent )?`?Monitor' \
+        "$SK" "$REF"/*.md "$NMD"/references/*.md "$HERE/../../product-research/references/"*.md 2>/dev/null)"
+[ -z "$bad" ] && ok "no doc tells a conductor to run watch.sh under its Monitor" \
+  || no "no doc tells a conductor to run watch.sh under its Monitor" "$bad"
+for f in "$SK" "$REF/research-mode.md" "$NMD/references/build-prompt.md" \
+         "$HERE/../../product-research/references/conductor-prompt.md"; do
+  label="$(basename "$(cd "$(dirname "$f")" && pwd)")/$(basename "$f")"
+  grep -q 'runner.sh follow' "$f" && ok "$label arms the follower" || no "$label arms the follower" "no runner.sh follow"
+done
+grep -q 'phase-chain.sh init <WS>/phases <NS>/references <SLUG> <CONTEXT_WINDOW>' "$NMD/SKILL.md" \
+  && ok "night-marathon passes the context window to the phase chain" \
+  || no "night-marathon passes the context window to the phase chain" "init has no window"
+grep -q 'CONDUCTOR.waiting-on-user' "$NMD/references/conductor-prompt.md" \
+  && ok "the review gate marks its wait on a person" \
+  || no "the review gate marks its wait on a person" "no waiting-on-user marker"
 
 echo
 echo "== $pass passed, $fail failed =="

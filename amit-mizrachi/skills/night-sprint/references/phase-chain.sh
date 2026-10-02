@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # night-sprint phase chain - one runner over a whole multi-conductor run.
 #
-#   phase-chain.sh init   <PWS> <SKILL_REFERENCES_DIR> <SLUG>
+#   phase-chain.sh init   <PWS> <SKILL_REFERENCES_DIR> <SLUG> [CONTEXT_WINDOW]
 #   phase-chain.sh add    <PWS> <PHASE> <CWD> [NEXT_PHASE]
 #   phase-chain.sh start  <PWS> <PHASE>      launch the first phase, then start the runner
 #   phase-chain.sh runner <PWS>              start the detached runner unless one is running
@@ -42,51 +42,29 @@ STALL=5
 
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
-runner_alive() {
-  local pid
-  pid="$( { tr -d '[:space:]' < "$PWS/state/runner.pid"; } 2>/dev/null)"
-  [ -n "$pid" ] || return 1
-  kill -0 "$pid" 2>/dev/null || return 1
-  case "$(ps -o command= -p "$pid" 2>/dev/null)" in
-    *watch.sh*) return 0 ;;
-  esac
-  return 1
-}
-
+# The detach itself lives in runner.sh, shared with every sprint's own runner.
 start_runner() {
-  if runner_alive; then
-    echo "phase-chain: runner already running (pid $(cat "$PWS/state/runner.pid"))"
-    return 0
-  fi
-  # setsid puts the runner in its own session, so it outlives the tool call that started it and
-  # the session that ran that call. macOS has no setsid binary; python3's os.setsid is the same
-  # system call. The pid survives the exec, so runner.pid names the runner itself.
-  nohup python3 -c 'import os, sys; os.setsid(); os.execvp("bash", ["bash"] + sys.argv[1:])' \
-    "$PWS/watch.sh" "$PWS" "$POLL" "$STALL" >> "$PWS/state/runner.log" 2>&1 < /dev/null &
-  printf '%s\n' "$!" > "$PWS/state/runner.pid"
-  printf '%s runner started pid=%s\n' "$(ts)" "$!" >> "$PWS/state/EVENTS.log"
-  sleep 1
-  if runner_alive; then
-    echo "phase-chain: runner running (pid $!), log $PWS/state/runner.log"
-  else
-    echo "phase-chain: runner did not stay up - see $PWS/state/runner.log" >&2
-    return 1
-  fi
+  bash "$PWS/runner.sh" start "$PWS" "$POLL" "$STALL"
 }
 
 case "$CMD" in
   init)
-    REF="${3:?usage: phase-chain.sh init <PWS> <SKILL_REFERENCES_DIR> <SLUG>}"
-    SLUG="${4:?usage: phase-chain.sh init <PWS> <SKILL_REFERENCES_DIR> <SLUG>}"
+    REF="${3:?usage: phase-chain.sh init <PWS> <SKILL_REFERENCES_DIR> <SLUG> [CONTEXT_WINDOW]}"
+    SLUG="${4:?usage: phase-chain.sh init <PWS> <SKILL_REFERENCES_DIR> <SLUG> [CONTEXT_WINDOW]}"
+    WINDOW="${5:-}"
     mkdir -p "$PWS/state"
     missing=""
-    for f in agents.sh launch.sh advance.sh watch.sh revive.sh close.sh classify-error.sh context-used.sh phase-chain.sh; do
+    for f in agents.sh launch.sh advance.sh watch.sh revive.sh close.sh classify-error.sh context-used.sh phase-chain.sh runner.sh; do
       if [ -f "$REF/$f" ]; then cp "$REF/$f" "$PWS/$f"; else missing="$missing $f"; fi
     done
     [ -z "$missing" ] || { echo "phase-chain: FAILED - missing from $REF:$missing" >&2; exit 1; }
     chmod +x "$PWS"/*.sh
     printf '%s\n' "$SLUG" > "$PWS/SLUG"
     [ -f "$PWS/PERMISSION_MODE" ] || printf 'auto\n' > "$PWS/PERMISSION_MODE"
+    # The runner measures every conductor against this window. Without it watch.sh assumes 200k,
+    # and a 1M conductor reads as 90% used a minute after launch - one false OVERDUE per conductor
+    # in every morning report.
+    [ -n "$WINDOW" ] && printf '%s\n' "$WINDOW" > "$PWS/CONTEXT_WINDOW"
     : > "$PWS/PHASE_CHAIN"
     printf '%s phase chain ready\n' "$(ts)" >> "$PWS/state/EVENTS.log"
     echo "phase-chain: $PWS ready"

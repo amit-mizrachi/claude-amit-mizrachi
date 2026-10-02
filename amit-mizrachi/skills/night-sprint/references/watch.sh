@@ -3,6 +3,11 @@
 #
 #   watch.sh <WORKSPACE> [POLL_SECONDS] [STALL_MINUTES] [--observe] [--once]
 #
+# It runs DETACHED, started by `runner.sh start` (or phase-chain.sh), never as a Monitor's child:
+# the harness kills a Monitor's command at its 30-minute cap, and a runner that dies with its
+# conductor cannot revive anything. What it prints goes to state/runner.log, and the conductor's
+# Monitor runs `runner.sh follow`, which turns each new line into one event.
+#
 # Every line it prints becomes a Monitor event in the conductor's context, so what it prints
 # is a budget. It used to print everything it saw: 28 routine heartbeats and 21 successful
 # handoffs in one night, each of which the conductor read, logged and answered with the same
@@ -126,9 +131,33 @@ classify() {
 # A phase conductor that ended its own turn with no error is WAITING - for the user's picks at
 # the review gate, for its Monitor, for its relay successor - whatever label the harness puts on
 # it. See turn_ended in agents.sh for the night this cost. Logged once per session, never revived.
+#
+# UNLESS NOTHING CAN END THE WAIT. A closed turn waits for its next message. That message comes
+# from a Monitor (an event, or the expiry notice the harness sends at 30 minutes at most), from a
+# background command that finishes, or from a person. The review gate is the one wait on a person,
+# and the conductor marks it with state/<TAG>.waiting-on-user. With no marker, a turn closed for
+# longer than WAKE_CAP_MIN, and no tool running in the session (nothing_armed in agents.sh), the
+# conductor is not waiting. It forgot to re-arm, or its watch died, and it will sleep until
+# morning. Before this check, the guard that protects a waiting conductor protected that one too.
+# Such a conductor is revived with CAUSE=unarmed, which tells it to re-arm.
+#
+# Sets UNARMED=1 when it returns 1 for that reason, so the caller passes the right cause.
+WAKE_CAP_MIN="${WAKE_CAP_MIN:-35}"   # the Monitor's 30-minute cap, plus slack for the re-arm
+UNARMED=0
 conductor_waiting() {
-  local tag="$1" sid="$2" cls="$3" label="$4"
+  local tag="$1" sid="$2" cls="$3" label="$4" last idle
+  UNARMED=0
   [ "$PHASE" -eq 1 ] && [ "$cls" = "none" ] && turn_ended "$sid" || return 1
+  if [ ! -f "$STATE/$tag.waiting-on-user" ]; then
+    last="$(session_last_activity "$sid")"
+    idle=0
+    [ -n "$last" ] && idle=$(( ( $(now_epoch) - last ) / 60 ))
+    if [ "$idle" -ge "$WAKE_CAP_MIN" ] && nothing_armed "$sid"; then
+      UNARMED=1
+      log "UNARMED $tag $sid - turn closed ${idle}m ago, no Monitor or background command to wake it ($label)"
+      return 1
+    fi
+  fi
   did_once "$tag:waiting:$sid" && \
     log "WAITING $tag $sid - ended its own turn with no error ($label); not revived"
   return 0
@@ -345,6 +374,10 @@ for r in rows:
         # the user something `blocked` too, and the review gate is exactly that.
         if conductor_waiting "$tag" "$sid" "$(classify "$sid")" "state blocked"; then
           :
+        elif [ "$UNARMED" -eq 1 ] && [ "$ACT" -eq 1 ]; then
+          do_revive "$tag" unarmed || true
+        elif [ "$UNARMED" -eq 1 ]; then
+          emit_once "$tag:UNARMED" "UNARMED $tag $sid"
         elif [ "$ACT" -eq 1 ]; then
           log "STUCK $tag permission-prompt $sid"
           do_revive "$tag" permission-prompt || true
@@ -386,6 +419,10 @@ for r in rows:
               # A conductor between turns. `busy` included: a session with a Monitor armed reads
               # busy while it waits, and a call that really hung never closed its turn.
               :
+            elif [ "$UNARMED" -eq 1 ] && [ "$ACT" -eq 1 ]; then
+              do_revive "$tag" unarmed || true
+            elif [ "$UNARMED" -eq 1 ]; then
+              emit_once "$tag:UNARMED" "UNARMED $tag $sid"
             elif [ "$ACT" -eq 1 ]; then
               log "STALLED $tag idle-${idle}m class=$cls $sid"
               do_revive "$tag" "$cause" || true

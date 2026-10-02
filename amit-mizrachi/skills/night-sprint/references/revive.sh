@@ -4,8 +4,9 @@
 #   revive.sh <WORKSPACE> <TAG> [CAUSE]
 #
 # CAUSE is the watcher's second field: api-error | ended-without-signal | idle |
-# permission-prompt (default: ended-without-signal), plus two the CALLER uses to say "I have
-# already dealt with the reason this stopped, try again now": budget-retry and auth-retry.
+# permission-prompt | unarmed (default: ended-without-signal), plus two the CALLER uses to say
+# "I have already dealt with the reason this stopped, try again now": budget-retry and auth-retry.
+# `unarmed` is phase chains only: a conductor that closed its turn with nothing left to wake it.
 #
 # Most night-time deaths are not the session's fault - the API drops the call mid-response,
 # stalls mid-stream, or returns 529/500. The process is gone but the whole conversation is
@@ -43,10 +44,13 @@
 #      its seen-file, a revived session that dies again is never reported.
 #
 # IN A PHASE CHAIN (the workspace holds a PHASE_CHAIN file, see phase-chain.sh) every tag is a
-# CONDUCTOR, not a ticket, and two things change. A conductor that ended its own turn with no
+# CONDUCTOR, not a ticket, and four things change. A conductor that ended its own turn with no
 # error is not dead - it waits on a person, a Monitor or its own relay - so it is left alone,
-# whatever the harness calls it (blocked, busy or idle) and whatever CAUSE the caller passed.
-# And the resume and restart messages send it back to its LOG.md, not to a commit and a push.
+# whatever the harness calls it (blocked, busy or idle) and whatever CAUSE the caller passed,
+# except `unarmed`. The resume and restart messages send it back to its LOG.md, not to a commit
+# and a push. The ladder budget counts only the last RUNG_WINDOW_MIN, because a conductor lives
+# all night and two deaths hours apart are two incidents, not one. And the abandon rung does not
+# stop a conductor that is still running: it only writes the status.
 
 set -uo pipefail
 
@@ -81,19 +85,38 @@ MODE="$(tr -d '[:space:]' < "$WS/PERMISSION_MODE" 2>/dev/null || echo auto)"
 SLUG="$(tr -d '[:space:]' < "$WS/SLUG" 2>/dev/null || echo sprint)"
 OLD_SID="$(tr -d '[:space:]' < "$SESSION_FILE" 2>/dev/null || echo)"
 
-resumes=0
-restarts=0
+# A CONDUCTOR'S BUDGET IS PER INCIDENT, NOT PER NIGHT - phase chains only.
+#
+# A ticket session lives for minutes, so one resume and one restart per tag is a fair bound on a
+# ticket that keeps dying. A phase conductor lives for hours and relays to new session ids along
+# the way, and every rung it ever used counted against the same budget. On 2026-10-02 the BUILD
+# conductor was revived at 14:01 and restarted at 14:27, and the third revive at 14:53 abandoned
+# the whole build. All three were false alarms. But the same arithmetic abandons a build after two
+# real dropped connections hours apart, which a resume fixes every time.
+#
+# So in a phase chain only the rungs of the last RUNG_WINDOW_MIN count. A conductor that dies three
+# times inside an hour is broken, and the ladder still ends it. A revive that bought an hour of work
+# succeeded, and the next death starts a new ladder. Every rung row carries `at=<epoch>` for this.
+# Rows written before that field existed have no time, so they always count.
+RUNG_WINDOW_MIN=60
+since=0
+[ "$PHASE" -eq 1 ] && since=$(( $(date +%s) - RUNG_WINDOW_MIN * 60 ))
+count_rungs() {
+  [ -f "$LEDGER" ] || { echo 0; return 0; }
+  awk -v k="$1" -v since="$since" '
+    $1 == k {
+      at = 0
+      for (i = 5; i <= NF; i++) if ($i ~ /^at=/) at = substr($i, 4) + 0
+      if (at == 0 || at >= since) n++
+    }
+    END { print n + 0 }' "$LEDGER" 2>/dev/null || echo 0
+}
+resumes="$(count_rungs resume)"
+restarts="$(count_rungs restart)"
 events=0
-if [ -f "$LEDGER" ]; then
-  # `grep -c` prints 0 and exits 1 when nothing matches - `|| true` swallows the status
-  # without printing a second count on top of it.
-  resumes="$(grep -c '^resume ' "$LEDGER" 2>/dev/null || true)"
-  restarts="$(grep -c '^restart ' "$LEDGER" 2>/dev/null || true)"
-  events="$(wc -l < "$LEDGER" 2>/dev/null || true)"
-  resumes="${resumes:-0}"
-  restarts="${restarts:-0}"
-  events="${events:-0}"
-fi
+[ -f "$LEDGER" ] && events="$(wc -l < "$LEDGER" 2>/dev/null || true)"
+events="${events:-0}"
+NOW_AT="at=$(date +%s)"
 
 # THE LAUNCH GENERATION IS NOT THE LADDER BUDGET, and conflating them broke session tracking.
 #
@@ -182,9 +205,19 @@ session_is_active() {
 # `permission-prompt` straight through, and the conductor the user was answering was stopped.
 # So decide before the stop below, not after it. Only the two retry causes skip the check: the
 # caller has already dealt with what ended the session and is asking for it back.
+#
+# `unarmed` is the one closed turn that IS revived: no Monitor and no background command is left
+# to wake it (see conductor_waiting in watch.sh). Check that again here, because a conductor can
+# re-arm between the watcher's look and this one. One that has a tool running again is waiting.
 if [ "$PHASE" -eq 1 ] && [ -n "$OLD_SID" ] && [ "$OLD_SID" != "unresolved" ]; then
   case "$CAUSE" in
     budget-retry|auth-retry) : ;;
+    unarmed)
+      if [ -n "$(session_pid "$OLD_SID")" ] && ! nothing_armed "$OLD_SID"; then
+        echo "revive: $TAG ($OLD_SID) has a Monitor or background command running again - waiting, not reviving it"
+        exit 0
+      fi
+      ;;
     *)
       if [ "$(bash "$WS/classify-error.sh" "$OLD_SID" 2>/dev/null || echo none)" = "none" ] \
          && turn_ended "$OLD_SID"; then
@@ -212,13 +245,34 @@ if session_is_active "$OLD_SID"; then
   echo "revive: $TAG is still WORKING ($OLD_SID, transcript grew < ${ACTIVE_STALL_MIN}m ago) - NOT interrupting it." >&2
   echo "        A live session manages its own window and hands its own ticket on. There is nothing" >&2
   echo "        to do from out here. If it is genuinely stuck it will stop growing; revive it then." >&2
-  echo "declined-still-working $CAUSE $OLD_SID -" >> "$LEDGER"
+  # No ledger row: nothing was spent. The watcher logs this refusal in EVENTS.log. As ledger rows,
+  # these refusals made the rung numbers unreadable: 13 of them turned the second real rung of
+  # 2026-10-02 into "revive attempt 15".
   exit 1
+fi
+
+# Is any rung left? The abandon rung below must know BEFORE the stop, not after it.
+rung_left=0
+if [ -n "$OLD_SID" ] && [ "$OLD_SID" != "unresolved" ] && [ "$resumes" -lt "$RESUME_BUDGET" ]; then
+  rung_left=1
+fi
+if [ "$restarts" -lt 1 ] && [ -f "$PROMPT" ]; then
+  rung_left=1
 fi
 
 # Stop whatever is left of the old session before starting anything. Harmless if it is already
 # gone, and the conversation survives - `claude stop` keeps it resumable.
-if ! stop_session "$OLD_SID"; then
+#
+# EXCEPT a phase conductor that is out of rungs. Nothing is launched after that stop, so stopping
+# it gains nothing. And it can be a conductor that was working. On 2026-10-02 the abandon rung
+# stopped a healthy BUILD conductor, and the sprint runner under its Monitor died with it. A
+# conductor that is really stuck costs a stuck process until a person looks. A healthy one that is
+# stopped costs the build.
+LEFT_RUNNING=0
+if [ "$PHASE" -eq 1 ] && [ "$rung_left" -eq 0 ] && [ -n "$(session_pid "$OLD_SID")" ]; then
+  LEFT_RUNNING=1
+  echo "revive: $TAG - out of rungs; leaving $OLD_SID running, not stopping a conductor nothing replaces" >&2
+elif ! stop_session "$OLD_SID"; then
   # Never put a second agent into a worktree that still has one. BOTH rungs below would do
   # exactly that - resume forks the conversation, restart launches a fresh session - and the old
   # process would go on committing to the same branch with nobody watching it. A tag that stalls
@@ -380,6 +434,7 @@ if [ -n "$OLD_SID" ] && [ "$OLD_SID" != "unresolved" ] && [ "$resumes" -lt "$RES
     api-error) WHY="an API error - the connection dropped or the model call failed. That is infrastructure, not something you did wrong." ;;
     permission-prompt) WHY="a permission prompt. Nobody is awake to answer it, so do not wait for approval: decide it yourself, and if an action stays refused, route around it and say so in your summary." ;;
     idle) WHY="a stall - you went quiet for a long time and the sprint could not tell whether you were still working." ;;
+    unarmed) WHY="you ended your turn with nothing armed to wake you - no Monitor and no background command - so you would have waited until morning. Re-arm your Monitor before anything else, and re-arm it every time it expires." ;;
     auth-retry) WHY="the CLI was logged out or its token had expired - nothing to do with your work. A human has re-authenticated and the sprint has brought you back. Your conversation is intact." ;;
     budget-retry) WHY="the account ran out of capacity mid-turn - a spend or session limit, nothing to do with your work. The sprint waited for capacity and has now brought you back. Your conversation is intact." ;;
     *) WHY="something that ended your process before you wrote your status file." ;;
@@ -392,9 +447,11 @@ What stopped you: $WHY
 
 You are a phase CONDUCTOR, and your role is $PROMPT. Everything you had is still in this
 conversation. DO NOT START OVER and do not redo a finished step. Re-establish ground truth first:
-re-read the LOG.md your role names and the state files it points at. Any Monitor or runner you had
-armed died with your process - re-arm it before anything else. Then carry on from the step LOG.md
-names. When your phase is finished, write DONE (or BLOCKED: <reason>) to $WS/state/$TAG.status as
+re-read the LOG.md your role names and the state files it points at. Any Monitor you had armed
+died with your process - re-arm it before anything else. A sprint runner you started with
+runner.sh did NOT die: it is detached. Check it with \`runner.sh status\`, and arm your Monitor on
+\`runner.sh follow\`, which starts again where the last follower stopped. Then carry on from the
+step LOG.md names. When your phase is finished, write DONE (or BLOCKED: <reason>) to $WS/state/$TAG.status as
 your LAST action - that file is what starts the next phase.
 
 Still an autonomous night run. Nobody is awake to answer a question - decide, note the decision
@@ -419,7 +476,13 @@ Still an autonomous night run. Nobody is awake to answer a question - decide, no
 in your summary, and keep going."
   fi
 
-  echo "revive: $TAG rung=resume attempt=$attempt cause=$CAUSE from=$OLD_SID"
+  # The rung's place in its budget, which is what a person reading the log wants. `launch` is the
+  # name generation (see above), which only counts up and says nothing about the budget.
+  case "$RESUME_KEY" in
+    resume) RUNG_OF="resume $(( resumes + 1 )) of $RESUME_BUDGET" ;;
+    *)      RUNG_OF="$RESUME_KEY, not counted against the ladder" ;;
+  esac
+  echo "revive: $TAG rung=resume ($RUNG_OF) launch=r$attempt cause=$CAUSE from=$OLD_SID"
   PRE_SIDS="$(known_sids)"
   ( cd "$WT" && claude --bg --resume "$OLD_SID" -n "$NAME" --permission-mode "$MODE" "$CONTINUE_PROMPT" ) \
     > "$STATE/$TAG.revive-$attempt.log" 2>&1
@@ -427,7 +490,7 @@ in your summary, and keep going."
 
   if [ $rc -eq 0 ] && new_sid="$(resolve_sid "$NAME" "$PRE_SIDS")"; then
     printf '%s\n' "$new_sid" > "$SESSION_FILE"
-    echo "$RESUME_KEY $CAUSE $OLD_SID $new_sid" >> "$LEDGER"
+    echo "$RESUME_KEY $CAUSE $OLD_SID $new_sid $NOW_AT" >> "$LEDGER"
     clear_seen
     echo "revive: $TAG resumed as $new_sid ($NAME) - conversation kept, watcher repointed"
     exit 0
@@ -435,7 +498,7 @@ in your summary, and keep going."
 
   # Resume failed. Record the spent attempt so the next call falls through to restart rather
   # than trying the same broken rung again.
-  echo "$RESUME_KEY $CAUSE $OLD_SID FAILED(rc=$rc)" >> "$LEDGER"
+  echo "$RESUME_KEY $CAUSE $OLD_SID FAILED(rc=$rc) $NOW_AT" >> "$LEDGER"
   echo "revive: $TAG resume FAILED (rc=$rc, see $STATE/$TAG.revive-$attempt.log) - falling through to restart" >&2
   resumes=$(( resumes + 1 ))
   attempt=$(( attempt + 1 ))
@@ -455,8 +518,9 @@ if [ "$restarts" -lt 1 ]; then
 
 An earlier session in this role ended before it wrote its status ($CAUSE), and its conversation
 could not be resumed. It may have finished several steps. Before anything else, read the LOG.md
-this prompt names and resume at the step it names. Never redo a finished step, and re-arm any
-runner the log says was armed.
+this prompt names and resume at the step it names. Never redo a finished step. A sprint runner
+started with runner.sh is detached and is still running: check it with \`runner.sh status\`, then
+arm your Monitor on \`runner.sh follow\`.
 EOF
       fi
     elif ! grep -q '^## RESUME - the earlier session died' "$PROMPT" 2>/dev/null; then
@@ -474,17 +538,21 @@ EOF
 
     rm -rf "$STATE/claim-$TAG" "$SESSION_FILE"
     clear_seen
-    echo "restart $CAUSE $OLD_SID -" >> "$LEDGER"
-    echo "revive: $TAG rung=restart attempt=$attempt cause=$CAUSE - fresh session on the ticket prompt"
+    echo "restart $CAUSE $OLD_SID - $NOW_AT" >> "$LEDGER"
+    echo "revive: $TAG rung=restart (restart 1 of 1) launch=$attempt cause=$CAUSE - fresh session on the ticket prompt"
     exec bash "$WS/launch.sh" "$WS" "$TAG"
   fi
 fi
 
 # ---------------------------------------------------------------- rung 3: abandon
-echo "abandon $CAUSE $OLD_SID -" >> "$LEDGER"
+echo "abandon $CAUSE $OLD_SID - $NOW_AT" >> "$LEDGER"
 # Count the rungs actually spent, not this call - the abandon itself is not a revive attempt.
 spent=$(( resumes + restarts ))
+WITHIN=""
+[ "$PHASE" -eq 1 ] && WITHIN=" in ${RUNG_WINDOW_MIN}m"
+KEPT=""
+[ "$LEFT_RUNNING" -eq 1 ] && KEPT="; $OLD_SID left running, not stopped"
 [ -f "$STATE/$TAG.summary" ] || \
-  echo "ABANDONED - died again after $spent revive attempts ($CAUSE), never reported a status" > "$STATE/$TAG.summary"
-echo "BLOCKED: ABANDONED after $spent revive attempts ($CAUSE)" > "$STATE/$TAG.status"
-echo "revive: $TAG rung=abandon - out of attempts. Skip its dependents and report the gap."
+  echo "ABANDONED - died again after $spent revive attempts$WITHIN ($CAUSE), never reported a status$KEPT" > "$STATE/$TAG.summary"
+echo "BLOCKED: ABANDONED after $spent revive attempts$WITHIN ($CAUSE)$KEPT" > "$STATE/$TAG.status"
+echo "revive: $TAG rung=abandon - out of attempts$KEPT. Skip its dependents and report the gap."

@@ -39,7 +39,7 @@ Read <NS_DIR>/SKILL.md, then <NS_DIR>/references/research-mode.md. Kickoff steps
 
   bash <NS_DIR>/references/bootstrap.sh <WS> <NS_DIR>/references
 
-then render every prompt, wire the chain, write PLAN.md, launch T01 with `bash <WS>/launch.sh <WS> T01`, and arm `bash <WS>/watch.sh <WS>` under a persistent Monitor.
+then render every prompt, wire the chain, write PLAN.md, launch T01 with `bash <WS>/launch.sh <WS> T01`, start the runner with `bash <WS>/runner.sh start <WS>`, and arm a Monitor on `bash <WS>/runner.sh follow <WS>` (timeout 30 minutes; re-arm it at every expiry - the runner itself keeps running).
 
 ## STEP 4 - THE MONITOR LOOP
 

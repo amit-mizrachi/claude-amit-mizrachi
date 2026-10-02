@@ -82,8 +82,9 @@ into the workspace. So:
 6. **Wire the chain:** `T01.next` = `T02` ... `T<TOTAL>.next` = `REVIEW-FINAL`,
    `REVIEW-FINAL.next` = `FIX-FINAL`, `FIX-FINAL.next` = `SYNTH`, `SYNTH.next` empty.
 7. **`PLAN.md`** from `research-plan-template.md`, filled from `spec.md`.
-8. **Launch `T01`** with `launch.sh`, arm `watch.sh` under a persistent `Monitor`, and go into
-   the monitor loop.
+8. **Launch `T01`** with `launch.sh`, start the runner with `bash <WS>/runner.sh start <WS>`, arm
+   a `Monitor` on `bash <WS>/runner.sh follow <WS>` (re-arm it at every 30-minute expiry), and go
+   into the monitor loop.
 
 **One review, at the end.** Research has no seams that break each other the way a schema
 change breaks its callers, so there are no checkpoint reviews. `REVIEW-FINAL` always runs.

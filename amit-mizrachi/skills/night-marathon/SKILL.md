@@ -112,7 +112,7 @@ Then `AskUserQuestion`: "Start with this brief?" - **Approve and start** / **Cha
    Leave out `TOTAL`; the conductor adds it once the tickets exist.
 3. **Set up the phase chain** - one runner over the whole run. Each conductor of the run is a phase: the research conductor, then the build. The runner launches each phase when the one before it writes `DONE`, and it classifies and resumes any conductor that dies, the way night-sprint's runner does for tickets. It lives in `<WS>/phases/`, **not** `<WS>/state/`, where the research sprint's runner treats every `.session` file as a ticket.
 
-       bash <NS>/references/phase-chain.sh init <WS>/phases <NS>/references <SLUG>
+       bash <NS>/references/phase-chain.sh init <WS>/phases <NS>/references <SLUG> <CONTEXT_WINDOW>
        bash <NS>/references/phase-chain.sh add  <WS>/phases CONDUCTOR <WS> BUILD
        bash <NS>/references/phase-chain.sh add  <WS>/phases BUILD <REPO_PATH>
 
@@ -126,7 +126,7 @@ Then `AskUserQuestion`: "Start with this brief?" - **Approve and start** / **Cha
        bash <NS>/references/render.sh <WS> <NM>/references/conductor-prompt.md <WS>/phases/prompt-CONDUCTOR.txt
        bash <WS>/phases/phase-chain.sh start <WS>/phases CONDUCTOR
 
-   The render must report no unfilled slot. `start` launches the conductor (its id lands in `<WS>/phases/state/CONDUCTOR.session`), then starts the runner detached from every session, so no conductor's death takes it down. It must print `runner running`. Start it from here, while the user is at the keyboard: if starting a detached process asks for a permission, the user can answer it now and nobody can at 3am.
+   The render must report no unfilled slot. `start` launches the conductor (its id lands in `<WS>/phases/state/CONDUCTOR.session`), then starts the runner detached from every session, so no conductor's death takes it down. It must print `runner: running`. Start it from here, while the user is at the keyboard: if starting a detached process asks for a permission, the user can answer it now and nobody can at 3am.
 
 If the launch or the runner fails - most often because `auto` mode is not available on the account's model - do not ask what to do. Say what failed and give one command the user can paste into a fresh terminal: an absolute `cd <WS>/phases`, then the `start` line.
 

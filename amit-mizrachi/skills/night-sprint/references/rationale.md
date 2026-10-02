@@ -541,3 +541,51 @@ conductor.
 
 The classifier also learned the exact text: `Connection lost` had fallen through to
 `transient unknown`. It now reads `transient connection-lost`, with that night's line as a fixture.
+
+## The build runner died with its conductor (2026-10-02, machina-api)
+
+The machina-api BUILD conductor was abandoned at 14:53Z. It was healthy every time it was
+"revived", and abandoning it stopped the build for four hours. Four things went wrong together.
+
+**The waiting check could not see a Monitor wait.** A conductor arms its Monitor and ends its turn.
+The harness caps a Monitor at 30 minutes. The sprint runner is silent while things go well (seven
+advances between 13:30Z and 14:47Z, zero events), so the conductor's transcript did not change
+for 30 minutes at a time. The phase runner killed it at 25. It did this three times, each 4 to 5
+minutes before the Monitor would have woken it: 14:00:56Z (wake due 14:01:54Z), 14:27:11Z (wake
+due 14:31:12Z), and 14:53:23Z (wake due 14:57:33Z). The research conductor got the same at
+12:13Z. The 1.10.0 guard skipped any `busy` session, and a session with a Monitor armed reads
+`busy`. 1.10.1 (`turn_ended`) fixed the check, but the run had copied the 1.10.0 scripts at init.
+A running sprint never picks up a fix.
+
+**The sprint runner was the Monitor's child.** So it died at every Monitor expiry, and it died
+with the conductor. The abandon rung's `stop_session` stopped conductor 1137692f, and the runner
+under its Monitor died with it (last sweep 14:51:47Z, next one due 14:53:47Z never ran).
+REVIEW-C2 launched FIX-C2 itself at 14:55:00Z. FIX-C2 died at 14:58:39Z on `Connection lost
+mid-response`, which a resume fixes in minutes. Nothing was left to resume it until 19:16Z.
+`runner.sh` now runs every runner detached, as phase-chain.sh already did for the phase runner.
+The conductor's Monitor only follows `state/runner.log` from a stored offset, so an expiry or a
+relay loses no line. The follower also restarts a runner that died without `SWEEP 0`.
+
+**A conductor's ladder was per night.** One resume plus one restart per tag fits a ticket that
+lives for minutes. A conductor lives for hours and relays to new ids, and every rung it ever used
+counted. In a phase chain, only the rungs of the last 60 minutes count now. The `declined-still-
+working` refusals also went into the rung ledger, and those 13 rows turned the second real rung
+into "revive attempt 15". Refusals now go only to EVENTS.log, and rung messages say
+"resume 1 of 1".
+
+**Abandon stopped what it did not replace.** `stop_session` ran before the rung choice, so the
+abandon rung stopped a live conductor and launched nothing. In a phase chain, abandon now writes
+the status and leaves a live conductor running.
+
+**The waiting guard now needs an end to the wait.** `turn_ended` alone would protect a conductor
+that forgot to re-arm, and it would sleep until morning. A closed turn is waiting only while
+something can wake it. That means a tool command running in the session (the harness runs Monitor
+scripts and background Bash as `zsh -c source .../shell-snapshots/...` children of the session's
+pid, checked live), or the review gate's `state/<PHASE>.waiting-on-user` marker. A closed turn
+older than 35 minutes with neither is `UNARMED`, and it is resumed with an order to re-arm.
+
+**Not a cause: the 30% relay right after kickoff.** The gauge was right: 298,250 of 1,000,000
+tokens. A fresh conductor starts near 100k, and the BUILD conductor writes the spec and the tickets
+itself. The relay took 15 seconds. The only context bug was the phase runner's: phase-chain.sh
+did not get `CONTEXT_WINDOW`, so it measured against 200k and logged a false "OVERDUE used-90pct"
+a minute after launch. `init` now takes the window.

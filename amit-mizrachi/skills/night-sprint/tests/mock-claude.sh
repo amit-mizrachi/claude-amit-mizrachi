@@ -10,7 +10,8 @@
 #   last-prompt   the prompt the last `--bg` invocation was given (its final argument).
 #   next-sid      the sessionId the NEXT --bg launch should register (default: a fresh uuid-ish)
 #   register      if 1, a --bg launch appends its new session to agents.json. Default 1.
-#   stops         one line per `stop`: `stop <id>`. Tests read this.
+#   stops         one line per `stop`: `stop <id>`. Tests read this. `stop` also kills the row's
+#                 pid, if it has one, as the real `claude stop` ends the session's process.
 #   rms           one line per `rm`: `rm <id>`. `rm` also drops the matching row from agents.json,
 #                 unless rm-sticks holds 1 (an rm that does not take).
 #
@@ -31,6 +32,21 @@ case "${1:-}" in
     ;;
   stop)
     printf '%s\n' "stop ${2:-}" >> "$S/stops"
+    # Like the real one: the session's process goes away. Tests that give a row a live pid (a
+    # stand-in process they spawned) see it stopped; a made-up pid is simply not there to kill.
+    pid="$(python3 - "$S/agents.json" "${2:-}" <<'PY'
+import json, sys
+try:
+    rows = json.load(open(sys.argv[1]))
+except Exception:
+    rows = []
+for r in rows:
+    if r.get("id") == sys.argv[2] and r.get("pid"):
+        print(r["pid"])
+        break
+PY
+)"
+    [ -n "$pid" ] && kill "$pid" 2>/dev/null
     exit 0
     ;;
   rm)
