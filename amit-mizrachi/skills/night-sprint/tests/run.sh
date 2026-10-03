@@ -803,6 +803,20 @@ done
 grep -q 'night-marathon picks: pricing-20261001' "$QWS/prompt-SYNTH.txt" \
   && ok "the plan prompt pins the picks header the conductor parses" \
   || no "the plan prompt pins the picks header the conductor parses" "header missing"
+grep -q 'gpt-6-astra' "$QWS/prompt-SYNTH.txt" && grep -q '`effort`: `medium`' "$QWS/prompt-SYNTH.txt" \
+  && ok "the plan prompt asks Codex gpt-6-astra at medium effort" \
+  || no "the plan prompt asks Codex gpt-6-astra at medium effort" "model or effort missing"
+grep -q 'does not start with `ready: yes`' "$QWS/prompt-SYNTH.txt" && grep -q 'Skipped - <codex-bridge is not connected' "$QWS/prompt-SYNTH.txt" \
+  && ok "the plan prompt runs without Codex when the bridge is not connected" \
+  || no "the plan prompt runs without Codex when the bridge is not connected" "no skip rule"
+grep -q 'Ask again ONCE with the same arguments and no `model`' "$QWS/prompt-SYNTH.txt" \
+  && ok "an account without gpt-6-astra falls back to its default Codex model, once" \
+  || no "an account without gpt-6-astra falls back to its default Codex model, once" "no fallback rule"
+s3=$(grep -n '^## STEP 3 - A SECOND OPINION FROM CODEX' "$QWS/prompt-SYNTH.txt" | cut -d: -f1)
+s4=$(grep -n '^## STEP 4 - DRAW THE UI' "$QWS/prompt-SYNTH.txt" | cut -d: -f1)
+[ -n "$s3" ] && [ -n "$s4" ] && [ "$s3" -lt "$s4" ] \
+  && ok "Codex reviews the plan before the mockups are drawn" \
+  || no "Codex reviews the plan before the mockups are drawn" "STEP 3 at '$s3', STEP 4 at '$s4'"
 rm -rf "$QWS"
 
 echo
@@ -1224,6 +1238,41 @@ grep -q 'phase-chain.sh init <WS>/phases <NS>/references <SLUG> <CONTEXT_WINDOW>
 grep -q 'CONDUCTOR.waiting-on-user' "$NMD/references/conductor-prompt.md" \
   && ok "the review gate marks its wait on a person" \
   || no "the review gate marks its wait on a person" "no waiting-on-user marker"
+
+echo
+echo "== codex-bridge: the plugin ships the MCP server night-marathon consults =="
+PLUGIN="$HERE/../../.."
+CB="$PLUGIN/mcp/codex-bridge/server.py"
+python3 -c 'import json,sys; a=json.load(open(sys.argv[1]))["mcpServers"]["codex-bridge"]["args"]; sys.exit(0 if a==["${CLAUDE_PLUGIN_ROOT}/mcp/codex-bridge/server.py"] else 1)' "$PLUGIN/.mcp.json" 2>/dev/null \
+  && ok "the plugin .mcp.json registers codex-bridge from the plugin root" \
+  || no "the plugin .mcp.json registers codex-bridge from the plugin root" "missing or wrong args"
+CBH="$(mktemp -d)"
+tools=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+  | CODEX_BRIDGE_HOME="$CBH" python3 "$CB" 2>/dev/null \
+  | python3 -c 'import sys,json; print(" ".join(t["name"] for l in sys.stdin for t in json.loads(l).get("result",{}).get("tools",[])))')
+missing=""
+for t in codex_ask codex_check codex_cancel codex_status; do
+  case " $tools " in *" $t "*) ;; *) missing="$missing $t" ;; esac
+done
+[ -z "$missing" ] \
+  && ok "the bundled server lists codex_ask, codex_check, codex_cancel and codex_status" \
+  || no "the bundled server lists codex_ask, codex_check, codex_cancel and codex_status" "missing:$missing"
+cbcall() {
+  printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+    "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":$1}" \
+    | CODEX_BRIDGE_HOME="$CBH" CODEX_BIN=/nonexistent/codex python3 "$CB" 2>/dev/null | tail -1
+}
+cbcall '{"name":"codex_status","arguments":{}}' | grep -q 'ready: no.*npm install -g @openai/codex' \
+  && ok "without codex, codex_status says not ready and how to install it" \
+  || no "without codex, codex_status says not ready and how to install it" "no install hint"
+cbcall "{\"name\":\"codex_ask\",\"arguments\":{\"prompt\":\"hi\",\"cwd\":\"$CBH\"}}" | grep 'was not found' | grep -q '"isError": true' \
+  && ok "without codex, codex_ask fails at once with a clear error" \
+  || no "without codex, codex_ask fails at once with a clear error" "no clear error"
+[ ! -d "$CBH/runs" ] || [ -z "$(ls -A "$CBH/runs")" ] \
+  && ok "and leaves no empty run behind" \
+  || no "and leaves no empty run behind" "$(ls "$CBH/runs")"
+rm -rf "$CBH"
 
 echo
 echo "== $pass passed, $fail failed =="
