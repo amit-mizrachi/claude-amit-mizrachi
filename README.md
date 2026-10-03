@@ -3,7 +3,8 @@
 Seven [Claude Code](https://claude.com/claude-code) skills for running work you are not
 sitting and watching - handing a session off, turning a feature into a spec and tickets, taking
 it through the night, researching a product question end to end, taking a feature from idea to
-plan to PR, and keeping a big effort's map legible - plus the macOS hook that stops your machine
+plan to PR, and keeping a big effort's map legible - plus `codex-bridge`, an MCP server that lets
+Claude ask OpenAI Codex for a second opinion, and the macOS hook that stops your machine
 sleeping through it.
 
 ## Install
@@ -185,8 +186,14 @@ about it, and how deep to research. It writes a brief; you approve it. Then:
    repo is a source, read from a detached snapshot of `origin/<base>` and cited as
    `repo:<path>:<line> @<sha>`. When the feature has UI, one question is always the UI kit:
    the token files, the component packages, and the screens the new UI must look like.
-2. **Plan.** The research sprint's last stage publishes a **short, UI-first** artifact instead of
-   a findings page: mockups drawn from the repo's real tokens and components, in their real page
+2. **Plan.** The research sprint's last stage drafts the plan, then - when `codex-bridge` is
+   connected - asks Codex (`gpt-6-astra`, medium effort, read only) to review it: a pick and its
+   reasoning for every decision, any decision the plan is missing, and the biggest risk. The
+   stage settles the final recommendations with that second opinion, confirming what Codex cites
+   before it changes one, and records each agree, change and keep in `PLAN.md` and on the page.
+   If `codex` is missing or not logged in, there is no second opinion, the brief says so, and
+   the run goes on. An account without `gpt-6-astra` falls back to its default Codex model. Then it publishes a **short,
+   UI-first** artifact instead of a findings page: mockups drawn from the repo's real tokens and components, in their real page
    shell, in every state that exists, each captioned with its components and import paths. Only
    the decisions that change what users see, are expensive to reverse, or split the evidence
    reach the page - at most five, each with a recommendation and a **Pick this** radio. The rest
@@ -214,6 +221,22 @@ reports name the time each one cost.
 `night-sprint` gained what this needs: a kickoff with `approval: delegated`, where a calling
 skill has already run the approval gate and nothing is asked, and `repo:` source locators in the
 research citation check.
+
+### `codex-bridge` (MCP server)
+
+A local stdio MCP server that drives the OpenAI Codex CLI, so you can ask Codex questions from
+Claude Code: `codex_ask` blocks for an answer, `codex_start` runs longer work in the background,
+`codex_check` / `codex_reply` / `codex_list` / `codex_cancel` poll, continue, list and stop
+runs, and `codex_status` checks that `codex` is installed and logged in. Every run is a normal Codex session, so `codex resume <session_id>` takes it over in a
+terminal. It registers itself from the plugin's `.mcp.json` as
+`plugin:amit-mizrachi:codex-bridge`.
+
+Needs `python3` 3.9+ (no packages) and the `codex` CLI, logged in once (`npm install -g
+@openai/codex`, then `codex login`). It finds `codex` in the usual install folders even when
+Claude Code's `PATH` misses them. Nothing else to set up: no key, no config. If you registered
+the bridge by hand before, remove that copy so the tools do not show up twice:
+`claude mcp remove codex-bridge --scope user`. Details in
+[`amit-mizrachi/mcp/codex-bridge/README.md`](amit-mizrachi/mcp/codex-bridge/README.md).
 
 ### `to-spec` and `to-tickets`
 
@@ -292,6 +315,7 @@ Nothing below is required. Where a skill is missing, the caller degrades and say
 | `artifact-design`, `dataviz` | `product-research` | the final page - built into Claude Code |
 | `night-sprint`, `to-spec`, `to-tickets`, `next-prompt` | `night-marathon` | both sprints and the hand-offs - all ship here |
 | `artifact-design`, `artifact-diagramming` | `night-marathon` | the plan page and its mockups - built into Claude Code |
+| `codex-bridge` MCP server | `night-marathon` | the optional second opinion on the plan - ships here |
 
 `night-sprint` also references review and dev-environment skills generically. Substitute
 whatever your repo uses; the sprint reads the names out of its own prompt files, which you fill

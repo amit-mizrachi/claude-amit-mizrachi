@@ -38,7 +38,7 @@ Each decision gets 2 or 3 options, exactly one marked Recommended. Never pad wit
 
     # <feature title> - plan
 
-    **Artifact:** <filled in at step 5>
+    **Artifact:** <filled in at step 6>
     **Repo:** <REPO_SNAPSHOT> @ <REPO_SHA>
 
     ## What we build
@@ -57,6 +57,7 @@ Each decision gets 2 or 3 options, exactly one marked Recommended. Never pad wit
     - <id>: <option title> - <one line>
     - <id>: <option title> - <one line>
     **Why:** <one sentence>
+    **Codex:** <filled in at step 3>
 
     ## Decided for you
     - <choice>: <what you chose> - <why, one clause>
@@ -67,12 +68,51 @@ Each decision gets 2 or 3 options, exactly one marked Recommended. Never pad wit
     ## Risks and gaps
     - <at most 5>
 
+    ## Second opinion
+    <filled in at step 3>
+
     ## Sources
     - [<n>] <as in the findings files>
 
-Option ids are short and stable (A, B, C). The pick text in step 4 uses the same ids, and the build matches on them.
+Option ids are short and stable (A, B, C). The pick text in step 5 uses the same ids, and the build matches on them.
 
-## STEP 3 - DRAW THE UI, FROM THE REAL KIT
+## STEP 3 - A SECOND OPINION FROM CODEX, THEN THE FINAL DECISIONS
+
+A different model reviews the draft before anything is drawn, so the mockups and the page show the final recommendations. This step runs only if the codex-bridge MCP server is connected.
+
+**Is it usable?** Call ToolSearch with the query `codex_status codex_ask`. Use the tools whose names end in `codex-bridge__codex_status`, `codex-bridge__codex_ask`, `codex-bridge__codex_check` and `codex-bridge__codex_cancel` (from this plugin they are `mcp__plugin_amit-mizrachi_codex-bridge__*`). Call `codex_status`. No such tool, or the result does not start with `ready: yes`: write `Skipped - <codex-bridge is not connected | the status result's codex: or login: line>.` under `## Second opinion` and `**Codex:** not consulted` under each decision, and go to STEP 4.
+
+**Ask.** One `codex_ask` call:
+- `model`: `gpt-6-astra`, `effort`: `medium`, `sandbox`: `read-only`, `cwd`: `<WS>`, `wait_seconds`: `900`.
+- `prompt`, filled in:
+
+      You are reviewing a feature plan before it is built. Feature: <FEATURE>.
+      Read <WS>/plan/PLAN.md (the draft plan) and <WS>/BRIEF.md. The evidence is in <WS>/findings/; the code is a read-only snapshot at <REPO_SNAPSHOT>. Open them to check a claim; do not edit anything.
+      For EACH decision under "## Decisions", answer in this shape:
+        D<n>: pick <option id> | confidence high/medium/low
+        Reasoning: <2-4 sentences. Cite the finding or repo:<path>:<line> it rests on.>
+      Then:
+        Missing decisions: <a choice the plan should put to a human and does not, with why - or "none">
+        Decided-for-you to overturn: <an item under "## Decided for you" you would decide differently, with why - or "none">
+        Biggest risk: <one, with why>
+      Disagree with the draft where the evidence says so. Agreeing everywhere is fine only if you checked. At most 700 words.
+
+The run exits at once with an error that names the model (not supported, not found, no access): this account cannot use `gpt-6-astra`. Ask again ONCE with the same arguments and no `model`, so Codex uses the account's default; the result's `model:` line names it. Any other failure gets no second try.
+
+If the result says the run is still going, call `codex_check` with that `run_id` and `wait_seconds` `900`, once. Still not finished, or the run failed: `codex_cancel` it, write `Skipped - <timeout | the error line>.` under `## Second opinion` and `**Codex:** not consulted` under each decision, and go to STEP 4. Never retry in a loop; the plan is good without it.
+
+**Keep the answer.** Write Codex's answer verbatim to <WS>/plan/CODEX-REVIEW.md, with a header line naming the model, the effort, the session id, and the `codex resume <session_id>` takeover line from the result.
+
+**Decide.** You own the final call; Codex's opinion is evidence, not a vote. For each decision:
+- Codex agrees: keep it.
+- Codex picks another option: change your recommendation when its reasoning rests on a finding or code you missed or weighed wrong. Open what it cites and confirm it first; a cited fact you could not confirm changes nothing. Keep yours when its reasoning contradicts the findings or rests on an assumption the sources do not support.
+- A missing decision Codex names passes STEP 1's filter: add it (still at most 5, merge or decide the least consequential yourself). A decided-for-you item it argues well against: change it, or promote it to a decision if it now passes the filter.
+
+Then fill in PLAN.md:
+- Under each decision: `**Codex:** <id> (<confidence>) - <its reasoning, one sentence>`. If your recommendation changed: `**Changed after review:** was <old id> - <why, one clause>`. If you kept yours against Codex: `**Kept over Codex:** <why, one clause>`.
+- Under `## Second opinion`: `Codex <the model that answered> (medium effort). Agreed on <n> of <total>; changed <ids or "none">; kept over Codex <ids or "none">. Takeover: <the codex resume line>.` Then its missing-decision and biggest-risk points in one line each, and what you did with them. A risk you accept goes under `## Risks and gaps` too.
+
+## STEP 4 - DRAW THE UI, FROM THE REAL KIT
 
 Load the `artifact-design` skill first. If the feature has no UI at all, skip the mockups: the page's UI section becomes one flow diagram plus the contract (load `artifact-diagramming` for the diagram), and PLAN.md's `## UI` says "No UI".
 
@@ -93,13 +133,13 @@ Each mockup is self-contained HTML (inline CSS, no scripts, no remote images), w
 
 because the build sprint's implementers use these files as their UI spec. On the page, embed each one in a sandboxed `<iframe srcdoc>` that is sized to its content.
 
-## STEP 4 - BUILD THE PAGE
+## STEP 5 - BUILD THE PAGE
 
 ONE self-contained HTML page at <WS>/artifact/index.html, following the `artifact-design` page contract (its dual theme applies to the page; the mockups keep the product's own look). In this order:
 
-1. **Header** - the feature name, at most 4 sentences on what gets built and for whom, and one meta line: repo @ <REPO_SHA>, the date, "autonomous run".
+1. **Header** - the feature name, at most 4 sentences on what gets built and for whom, and one meta line: repo @ <REPO_SHA>, the date, "autonomous run", and "reviewed by Codex <the model that answered>" (or "no second opinion" when STEP 3 skipped).
 2. **The UI** - the biggest section. One block per screen: the mockup with its state tabs, then a caption with the components. No paragraphs.
-3. **Your decisions** - one card per decision from step 1, options side by side. Each option: its id, a title, one line on what it is, at most 3 pros and 3 cons, a cost (S / M / L), its mockup if it has one, a "Recommended" badge on one, and a **Pick this** radio. Under the options: "Why <id>:" in one sentence, and a note box ("Note for the build, optional").
+3. **Your decisions** - one card per decision from step 1, options side by side. Each option: its id, a title, one line on what it is, at most 3 pros and 3 cons, a cost (S / M / L), its mockup if it has one, a "Recommended" badge on one, and a **Pick this** radio. Under the options: "Why <id>:" in one sentence; a **Codex** line - its pick and its reasoning in one sentence, marked "agrees", "disagrees - kept <id>" or "changed the recommendation from <id>" (leave the line out when STEP 3 skipped); and a note box ("Note for the build, optional").
 4. **Decided for you** - a collapsed `<details>`, one line each. <USER> can still override any of them in a note.
 5. **Build outline** - the numbered list from PLAN.md.
 6. **Risks and gaps** - at most 5 bullets.
@@ -128,7 +168,7 @@ Under the bar's buttons, one line of instruction:
 
 A static page: no runtime capabilities, no external data. Never put a secret, a credential, or personal data about a private individual on the page. Keep it under 16MB.
 
-## STEP 5 - PUBLISH IT
+## STEP 6 - PUBLISH IT
 
 Publish <WS>/artifact/index.html with the Artifact tool: a short title (the feature name), a one-sentence description, `icon` = `layout`. The page is private to <USER> until they share it.
 
@@ -140,7 +180,7 @@ If the Artifact tool is not available, or the publish is refused, do not retry i
 
   echo "LOCAL-ONLY <WS>/artifact/index.html (<why publishing failed>)" > <WS>/state/ARTIFACT.url
 
-## STEP 6 - ACCEPTANCE
+## STEP 7 - ACCEPTANCE
 
   bash <WS>/research-check.sh <WS> --final && test -s <WS>/plan/PLAN.md && grep -q '^## Decisions' <WS>/plan/PLAN.md
 
@@ -155,13 +195,13 @@ On FAIL you get ONE repair pass, then run the check again and write the honest r
 
 ## CONTEXT
 
-Measure: `bash <WS>/context-used.sh --self <CONTEXT_WINDOW>` (counts UP) after reading the findings, after each mockup, and after writing the page. If you reach <RELAY_AT_USED>% before publishing, write PLAN.md and every finished mockup to disk first, then relay per the CONTEXT RELAY section of <WS>/PLAN.md, naming the mockups still to draw.
+Measure: `bash <WS>/context-used.sh --self <CONTEXT_WINDOW>` (counts UP) after reading the findings, after STEP 3, after each mockup, and after writing the page. If you reach <RELAY_AT_USED>% before publishing, write PLAN.md and every finished mockup to disk first, then relay per the CONTEXT RELAY section of <WS>/PLAN.md, naming the mockups still to draw. If <WS>/plan/CODEX-REVIEW.md exists, or `## Second opinion` says Skipped, STEP 3 is done: your successor does not ask Codex again.
 
 ## WHEN DONE - in this order
 
-1. `echo "<published URL or LOCAL-ONLY>, <n> decisions, <n> mockups" > <WS>/state/<TAG>.summary`
+1. `echo "<published URL or LOCAL-ONLY>, <n> decisions, <n> mockups, codex: <agreed n of N | skipped>" > <WS>/state/<TAG>.summary`
 2. `: > <WS>/state/<TAG>.next` - nothing follows you in this sprint. The conductor takes it from here.
 3. `echo "DONE" > <WS>/state/<TAG>.status` (or `BLOCKED: <reason>`). LAST.
 4. `bash <WS>/advance.sh <WS> <TAG>`
 
-Post a summary as your last message: the artifact URL, each decision with its recommended option, and the biggest risk.
+Post a summary as your last message: the artifact URL, each decision with its recommended option and Codex's pick, and the biggest risk.

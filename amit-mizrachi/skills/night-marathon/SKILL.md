@@ -11,7 +11,7 @@ argument-hint: "<feature description> [mode: autonomous|review] [test: none|dev-
 One feature, three stages, one approval at the start:
 
 1. **Research** - a `night-sprint` in research mode answers what the plan needs to know, from the repo and the allowed sources, with citations.
-2. **Plan** - its last stage publishes a plan artifact: UI mockups built from the repo's real tokens and components, and only the decisions worth a human's time, each with a recommendation and a **Pick this** radio. The page copies the picks as text.
+2. **Plan** - its last stage drafts the plan, asks Codex (`gpt-6-astra`, medium effort) to review it when the codex-bridge MCP server is connected, settles the final recommendations with that second opinion, then publishes a plan artifact: UI mockups built from the repo's real tokens and components, and only the decisions worth a human's time, each with a recommendation and a **Pick this** radio. The page copies the picks as text.
 3. **Build** - a code `night-sprint` runs `to-spec` and `to-tickets` on the chosen plan and delivers one PR.
 
 **Between stages 2 and 3 the mode decides.** `autonomous` (default): the conductor takes every recommended option and starts the build. `review`: the conductor stops, sends the artifact link, and waits until the user pastes their copied picks into it.
@@ -29,6 +29,8 @@ This skill builds on `night-sprint`, `to-spec`, `to-tickets` and `next-prompt`, 
 The repo is the git top level of the working directory (`git rev-parse --show-toplevel`). Not in a repo? Ask for its path in plain text. `BASE` is the default branch: `git -C <repo> symbolic-ref --short refs/remotes/origin/HEAD`, without the `origin/`.
 
 Anything missing: stop and say exactly what. Do not interview for a run that cannot start.
+
+Codex is optional. ToolSearch `codex_status` and call the tool whose name ends in `codex-bridge__codex_status` (this plugin ships the server). A result starting `ready: yes` means the plan stage gets a second opinion. No tool, or `ready: no`, means it runs without one: never stop the run over it, and say which in the brief, with the status result's `fix:` line when there is one.
 
 ## 2. Interview - short
 
@@ -53,6 +55,7 @@ Write `<WS>/BRIEF.md`:
     **Repo:** <owner/repo>, base <BASE>
     **Mode:** <autonomous | review> - <what that means, one line>
     **Build test:** <none | dev-stack | evals | the command>
+    **Second opinion:** <Codex gpt-6-astra (medium) reviews the draft plan before it is final | none - <codex-bridge is not connected | the fix: line>>
 
     ## What the plan must learn
     1. <one line per research question, answerable from the sources>
@@ -153,3 +156,4 @@ Do not watch the run from this session. The conductors own it.
 | "The conductor can launch the build itself with `claude --bg` and stop." | That is how a night was lost: the build died 2.5 minutes in on a dropped connection and nothing watched it for six hours. The phase runner owns every hop, and keeps watching. |
 | "The build conductor can use `~/.claude/night-sprint/<slug>/` like a normal sprint." | It is a background session; a write there stops on a prompt. It uses `<WS>/build`. |
 | "`to-tickets` found a GitHub tracker config, publishing issues is fine." | Nothing is posted at night. Spec and tickets stay local in the workspace. |
+| "Codex disagrees, so its option wins." | It is a second opinion, not a vote. The plan stage confirms what Codex cites before it changes a recommendation, and records every agree, change and keep in PLAN.md. |
