@@ -652,6 +652,54 @@ class MarathonRun(Run):
         return out
 
 
+# ---------------------------------------------------------------- the banner
+
+MOTTO = "THE NIGHT IS DARK AND FULL OF TERRORS"
+
+# A 5-pixel-high font, drawn with half blocks so each letter is 3 terminal rows tall.
+FONT = {
+    "T": ["###", ".#.", ".#.", ".#.", ".#."],
+    "H": ["#.#", "#.#", "###", "#.#", "#.#"],
+    "E": ["###", "#..", "##.", "#..", "###"],
+    "N": ["#..#", "##.#", "#.##", "#..#", "#..#"],
+    "I": ["###", ".#.", ".#.", ".#.", "###"],
+    "G": [".###", "#...", "#.##", "#..#", ".###"],
+    "S": [".##", "#..", ".#.", "..#", "##."],
+    "D": ["##.", "#.#", "#.#", "#.#", "##."],
+    "A": [".#.", "#.#", "###", "#.#", "#.#"],
+    "R": ["##.", "#.#", "##.", "#.#", "#.#"],
+    "K": ["#.#", "#.#", "##.", "#.#", "#.#"],
+    "F": ["###", "#..", "##.", "#..", "#.."],
+    "U": ["#.#", "#.#", "#.#", "#.#", "###"],
+    "L": ["#..", "#..", "#..", "#..", "###"],
+    "O": [".#.", "#.#", "#.#", "#.#", ".#."],
+    " ": ["..", "..", "..", "..", ".."],
+}
+
+
+def big(text):
+    """Three terminal rows of block letters for `text`, which uses only FONT's letters."""
+    pixels = ["", "", "", "", ""]
+    for ch in text:
+        glyph = FONT[ch]
+        for r in range(5):
+            pixels[r] += glyph[r] + "."
+    pixels.append("." * len(pixels[0]))
+    cell = {(True, True): "█", (True, False): "▀", (False, True): "▄", (False, False): " "}
+    return ["".join(cell[(top[i] == "#", bottom[i] == "#")] for i in range(len(top))).rstrip()
+            for top, bottom in zip(pixels[0::2], pixels[1::2])]
+
+
+def banner(width, sty):
+    """The motto in big letters: one line when it fits, two when it does not, else plain text."""
+    words = MOTTO.split(" ")
+    for parts in ([MOTTO], [" ".join(words[:4]), " ".join(words[4:])]):
+        rows = [row for part in parts for row in big(part)]
+        if max(len(row) for row in rows) <= width:
+            return [sty("31;1", row) for row in rows] + [""]
+    return [sty("31;1", MOTTO), ""]
+
+
 # ---------------------------------------------------------------- the board
 
 def discover(roots, world, filters, show_all):
@@ -698,7 +746,7 @@ def board(roots, filters, show_all, width, sty, tick):
     head += sty("2", " · %d finished" % (len(runs) - active - stale))
     if stale:
         head += sty("2", " · %d stale" % stale)
-    out = [head, sty("2", "─" * width)]
+    out = banner(width, sty) + [head, sty("2", "─" * width)]
     if not runs:
         out.append(sty("2", "No night-sprint or night-marathon runs %s." % ("match" if filters else "in the last 12 hours (try --all)")))
         out.append(sty("2", "Looked in: " + ", ".join(roots)))
