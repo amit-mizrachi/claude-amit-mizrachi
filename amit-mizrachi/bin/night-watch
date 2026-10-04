@@ -173,7 +173,7 @@ class Stage(object):
 
 def tag_state(state, tag):
     st = read1(os.path.join(state, tag + ".status"))
-    word = re.split(r"[:\s]", st, 1)[0].upper() if st else ""
+    word = re.split(r"[:\s]", st, maxsplit=1)[0].upper() if st else ""
     if word in ("DONE", "SKIPPED", "BLOCKED"):
         return word.lower(), st
     if word == "RELAYED":
