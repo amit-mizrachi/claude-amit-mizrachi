@@ -67,6 +67,9 @@ start_runner() {
   elif [ -f "$STATE/runner.args" ]; then
     read -r poll stall < "$STATE/runner.args"
   fi
+  # The runner inherits this shell's cwd, and it outlives that shell by hours. Give it one nobody
+  # deletes (2026-10-04: started from inputs/stage-c-spec/issues, which a peer re-copied at 07:26).
+  cd "$WS" || return 1
   # setsid puts the runner in its own session, so it outlives the tool call that started it and
   # the session that ran that call. macOS has no setsid binary; python3's os.setsid is the same
   # system call. The pid survives the exec, so runner.pid names the runner itself.

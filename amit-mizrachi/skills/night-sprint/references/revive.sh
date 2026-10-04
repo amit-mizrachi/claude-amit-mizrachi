@@ -35,6 +35,7 @@
 #   6  held on auth. A human must re-authenticate, then call this again with CAUSE=auth-retry.
 #      No terminal status is written: the work is fine, only the login is not
 #   7  out of budget for good - waited the full ladder of waits and capacity never returned
+#   8  FORKED - the resume found the old session still running, and its copy would not stop. A DUP.
 #
 # TWO THINGS THAT MAKE HAND-REVIVING WRONG, both handled here:
 #   1. A resumed session gets a NEW session id and does NOT inherit its display name. The
@@ -168,26 +169,43 @@ clear_seen() {
 # `busy` that has been silent longer than the watcher's stall window is not working, it is hung
 # mid-call, and that is precisely what the conductor was called here to fix.
 ACTIVE_STALL_MIN=25   # matches watch.sh's default STALL_MINUTES
+# Prints "<status> <live|gone>" for the session, or returns 1 when the list cannot be read.
 harness_status() {
-  agents_json "$WT" | python3 -c 'import json,sys
+  local rows
+  rows="$(agents_json "$WT")" || return 1
+  printf '%s' "$rows" | python3 -c 'import json,sys
 sid=sys.argv[1]
 try: rows=json.load(sys.stdin)
 except Exception: sys.exit(0)
 for r in rows:
     if r.get("sessionId")==sid or r.get("id")==sid[:8]:
-        print(r.get("status") or ""); break' "$1"
+        live="live" if r.get("pid") and r.get("state")!="done" else "gone"
+        print((r.get("status") or "-")+" "+live); break' "$1"
 }
+GROWING_MIN=2         # a transcript written this recently belongs to a live process
 session_is_active() {
-  local sid="$1" f last now
+  local sid="$1" f last now hs
   case "$sid" in ""|unresolved) return 1 ;; esac
 
-  [ "$(harness_status "$sid")" = "busy" ] || return 1
-
   f="$(ls -t "$HOME"/.claude/projects/*/"$sid".jsonl 2>/dev/null | head -1)"
-  [ -n "$f" ] || return 0            # busy with no transcript to check - assume working, hands off
-  last="$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null)"
-  [ -n "$last" ] || return 0
+  last=""
+  [ -n "$f" ] && last="$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null)"
   now="$(date +%s)"
+
+  # NO ANSWER FROM THE HARNESS IS NO LICENCE TO ACT. This guard used to read a failed `claude
+  # agents` as status "", which is "not busy", so it passed without ever looking at the transcript.
+  # On 2026-10-04 c5081c1b wrote a record every few seconds right through the revive that forked
+  # it. Hands off; the next sweep asks again.
+  hs="$(harness_status "$sid")" || return 0
+
+  # A LIVE PROCESS WITH A GROWING TRANSCRIPT IS WORKING, whatever `status` says - it reads `idle`
+  # between model calls. Only a live pid counts: a session that just died also has a fresh file.
+  if [ "${hs#* }" = "live" ] && [ -n "$last" ] && [ $(( (now - last) / 60 )) -lt "$GROWING_MIN" ]; then
+    return 0
+  fi
+  [ "${hs%% *}" = "busy" ] || return 1
+
+  [ -n "$last" ] || return 0         # busy with no transcript to check - assume working, hands off
   [ $(( (now - last) / 60 )) -lt "$ACTIVE_STALL_MIN" ]
 }
 
@@ -242,7 +260,7 @@ fi
 # permission prompt nobody can answer is not working either - it will sit there until morning, and
 # it is not mid-edit, so stopping it costs only the prompt it was stuck on.
 if session_is_active "$OLD_SID"; then
-  echo "revive: $TAG is still WORKING ($OLD_SID, transcript grew < ${ACTIVE_STALL_MIN}m ago) - NOT interrupting it." >&2
+  echo "revive: $TAG is still WORKING ($OLD_SID: transcript still growing, harness busy, or harness unreadable) - NOT interrupting it." >&2
   echo "        A live session manages its own window and hands its own ticket on. There is nothing" >&2
   echo "        to do from out here. If it is genuinely stuck it will stop growing; revive it then." >&2
   # No ledger row: nothing was spent. The watcher logs this refusal in EVENTS.log. As ledger rows,
@@ -397,9 +415,10 @@ fi
 # script fully controls - the harness may truncate or reuse it. An id that was already there
 # cannot be the session we just started, whatever it is called.
 resolve_sid() {
-  local want="$1" exclude="${2:-}" sid=""
+  local want="$1" exclude="${2:-}" sid="" rows
   for _ in $(seq 1 15); do
-    sid="$(agents_json "$WT" \
+    rows="$(agents_json "$WT")" || return 1   # the list cannot be read: 30s of retries will not help
+    sid="$(printf '%s' "$rows" \
       | python3 -c 'import json,sys
 want=sys.argv[1]
 exclude=set(sys.argv[2].split())
@@ -488,12 +507,42 @@ in your summary, and keep going."
     > "$STATE/$TAG.revive-$attempt.log" 2>&1
   rc=$?
 
-  if [ $rc -eq 0 ] && new_sid="$(resolve_sid "$NAME" "$PRE_SIDS")"; then
-    printf '%s\n' "$new_sid" > "$SESSION_FILE"
-    echo "$RESUME_KEY $CAUSE $OLD_SID $new_sid $NOW_AT" >> "$LEDGER"
-    clear_seen
-    echo "revive: $TAG resumed as $new_sid ($NAME) - conversation kept, watcher repointed"
-    exit 0
+  RLOG="$STATE/$TAG.revive-$attempt.log"
+  if [ $rc -eq 0 ]; then
+    new_sid="$(resolve_sid "$NAME" "$PRE_SIDS")" || new_sid="$(sid_from_launch_log "$RLOG")" || new_sid=""
+
+    # THE HARNESS SAYS SO IN WORDS when the conversation is still live: "session <id> is already
+    # running in the background, so this started a copy as <id>". Then the old session was never
+    # dead - whatever told the watcher so was wrong - and the copy is seconds old and has done
+    # nothing. Stop the copy, keep the original and its session file, and spend no rung. Only a
+    # copy that will not stop is a real DUP, and that goes to the conductor.
+    if grep -q 'already running in the background' "$RLOG" 2>/dev/null; then
+      if [ -n "$new_sid" ] && stop_session "$new_sid"; then
+        echo "forked-stopped $CAUSE $OLD_SID $new_sid $NOW_AT" >> "$LEDGER"
+        clear_seen
+        echo "revive: $TAG - $OLD_SID is ALIVE (the resume found it running); stopped the copy $new_sid, nothing revived" >&2
+        exit 1
+      fi
+      [ -n "$new_sid" ] && printf '%s\n' "$new_sid" > "$SESSION_FILE"
+      echo "forked $CAUSE $OLD_SID ${new_sid:-unresolved} $NOW_AT" >> "$LEDGER"
+      echo "revive: $TAG - $OLD_SID is ALIVE and its copy ${new_sid:-unresolved} did not stop. DUP - no further rung." >&2
+      exit 8
+    fi
+
+    if [ -n "$new_sid" ]; then
+      printf '%s\n' "$new_sid" > "$SESSION_FILE"
+      echo "$RESUME_KEY $CAUSE $OLD_SID $new_sid $NOW_AT" >> "$LEDGER"
+      clear_seen
+      echo "revive: $TAG resumed as $new_sid ($NAME) - conversation kept, watcher repointed"
+      exit 0
+    fi
+
+    # rc=0 means a session STARTED. Its id is unknown, but it exists, so the restart rung below
+    # would put a second one on the tag. Stop here and let the conductor look.
+    echo "unresolved" > "$SESSION_FILE"
+    echo "$RESUME_KEY $CAUSE $OLD_SID unresolved $NOW_AT" >> "$LEDGER"
+    echo "revive: $TAG resumed (rc=0) but its id did not resolve - NOT restarting on top of it; see $RLOG" >&2
+    exit 1
   fi
 
   # Resume failed. Record the spent attempt so the next call falls through to restart rather

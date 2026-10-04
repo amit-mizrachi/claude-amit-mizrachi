@@ -14,6 +14,13 @@
 #                 pid, if it has one, as the real `claude stop` ends the session's process.
 #   rms           one line per `rm`: `rm <id>`. `rm` also drops the matching row from agents.json,
 #                 unless rm-sticks holds 1 (an rm that does not take).
+#   agents-fail   if 1, `agents` exits 1 with no output (a CLI that cannot answer).
+#   fork-note     if 1, a `--bg --resume` prints the harness's note that the resumed session is
+#                 still running and a copy was started.
+#
+# Like the real CLI it refuses every command from a deleted cwd (2026-10-04: the runner's cwd
+# was deleted under it, and every call it made failed this way), and a `--bg` launch prints the
+# real banner, `backgrounded . <short id> . <name>`.
 #
 # It supports only what the sprint's scripts actually call: `agents --json`, `stop`, `rm`, and
 # `--bg --resume`. Anything else exits 0 quietly so a stray call cannot fail a test for the
@@ -22,11 +29,18 @@
 set -uo pipefail
 
 S="${MOCK_STATE:?mock-claude needs MOCK_STATE}"
+
+if ! pwd -P >/dev/null 2>&1; then
+  echo "error: The current working directory was deleted, so that command didn't work. Please cd into a different directory and try again." >&2
+  exit 1
+fi
+
 mkdir -p "$S"
 [ -f "$S/agents.json" ] || printf '[]' > "$S/agents.json"
 
 case "${1:-}" in
   agents)
+    [ "$(cat "$S/agents-fail" 2>/dev/null || echo 0)" = "1" ] && exit 1
     cat "$S/agents.json"
     exit 0
     ;;
@@ -100,4 +114,8 @@ rows.append({"sessionId": sid, "id": sid[:8], "name": name,
 json.dump(rows, open(path, "w"))
 PY
 fi
+if [ -n "$resumed" ] && [ "$(cat "$S/fork-note" 2>/dev/null || echo 0)" = "1" ]; then
+  echo "note: session ${resumed:0:8} is already running in the background, so this started a copy as ${new_sid:0:8}."
+fi
+printf 'backgrounded \302\267 %s \302\267 %s\n' "${new_sid:0:8}" "$name"
 exit 0

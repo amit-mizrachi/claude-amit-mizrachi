@@ -1218,6 +1218,125 @@ pkill -f "$RN/watch.sh" 2>/dev/null
 rm -rf "$RN"
 
 echo
+echo "== a runner whose cwd is deleted: unknown is not dead, and one tag keeps one session =="
+# The night of 2026-10-04 (machina-stage-c-production). The runner was started from the
+# conductor's shell folder, inputs/stage-c-spec/issues. A peer re-copied the spec with `rm -rf` +
+# `cp -R` at 07:26, and from then on every `claude` call the runner made failed with "The current
+# working directory was deleted". agents_json turned that into `[]`, so a working session was
+# called DIED, its stop was a no-op, the resume forked a copy, the id did not resolve, the restart
+# added a third session, and DUP saw nothing. It happened on T02, T03 and T04.
+DC="$(mktemp -d)"
+DBIN="$DC/bin"; mkdir -p "$DBIN" "$DC/wt" "$DC/home/.claude/projects/p"
+cp "$HERE/mock-claude.sh" "$DBIN/claude"; chmod +x "$DBIN/claude"
+D="$DC/ws"
+DSID=c5081c1b-cf5a-4f08-8347-a74c6dd5bf0e
+DT="$DC/home/.claude/projects/p/$DSID.jsonl"
+dreset() {
+  rm -rf "$D" "$DC/mock"; mkdir -p "$D/state" "$DC/mock"
+  for f in agents.sh watch.sh revive.sh launch.sh advance.sh close.sh classify-error.sh context-used.sh; do
+    cp "$REF/$f" "$D/"
+  done
+  echo dslug > "$D/SLUG"; echo "$DC/wt" > "$D/WORKTREE"; echo auto > "$D/PERMISSION_MODE"
+  echo "do ticket T02" > "$D/prompt-T02.txt"
+  echo "$DSID" > "$D/state/T02.session"; mkdir "$D/state/claim-T02"
+  : > "$DC/mock/launches"; : > "$DC/mock/stops"
+  printf '%s\n' 11111111-0000-4000-8000-000000000001 > "$DC/mock/next-sid"
+  echo '{"type":"user","message":{"content":"go"}}' > "$DT"
+}
+drow() { printf '[{"sessionId":"%s","id":"%s","name":"ns-dslug-T02","state":"%s","status":"%s","pid":%s,"startedAt":1}]' \
+           "$DSID" "${DSID:0:8}" "$1" "$2" "$3" > "$DC/mock/agents.json"; }
+denv() { MOCK_STATE="$DC/mock" HOME="$DC/home" PATH="$DBIN:$PATH" "$@"; }
+dlaunches() { wc -l < "$DC/mock/launches" | tr -d '[:space:]'; }
+# One runner process with 1-second polls, as on the night: watch.sh empties its seen-file at
+# start, so two `--once` runs never get past the grace poll. Stops once a revive ran, or after $1 s.
+drunner() {
+  # Not through denv: `func &` forks a subshell, and killing that leaves watch.sh running.
+  MOCK_STATE="$DC/mock" HOME="$DC/home" PATH="$DBIN:$PATH" bash "$D/watch.sh" "$D" 1 25 >/dev/null 2>&1 &
+  local w=$! i=0
+  while [ "$i" -lt "$1" ]; do
+    grep -qE '^[0-9TZ:-]+ revive\(' "$D/state/EVENTS.log" 2>/dev/null && break
+    sleep 1; i=$((i + 1))
+  done
+  kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
+}
+# A live session: a real process, a `working busy` row, and a transcript touched every second.
+sleep 600 & DPID=$!
+( while kill -0 "$DPID" 2>/dev/null; do touch "$DT" 2>/dev/null; sleep 1; done ) & DTOUCH=$!
+
+dreset; drow working busy "$DPID"
+mkdir "$DC/gone"
+( cd "$DC/gone" && rmdir "$DC/gone" && drunner 12 )
+check "a runner started in a since-deleted folder launches nothing on top of a live session" "0" "$(dlaunches)"
+grep -q "DIED T02" "$D/state/EVENTS.log" 2>/dev/null \
+  && no "it does not call the live session DIED" "$(grep DIED "$D/state/EVENTS.log")" \
+  || ok "it does not call the live session DIED"
+check "the session file still names the live session" "$DSID" "$(cat "$D/state/T02.session")"
+kill -0 "$DPID" 2>/dev/null && ok "the live session's process was not stopped" \
+  || no "the live session's process was not stopped" "it was killed"
+
+dreset; drow working busy "$DPID"; echo 1 > "$DC/mock/agents-fail"
+( cd "$DC/wt" && drunner 6 )
+check "an agent list that cannot be read revives nothing" "0" "$(dlaunches)"
+grep -q "EMIT AGENTS-UNREADABLE" "$D/state/EVENTS.log" \
+  && ok "and says AGENTS-UNREADABLE once it has failed three sweeps" \
+  || no "and says AGENTS-UNREADABLE once it has failed three sweeps" "$(tail -3 "$D/state/EVENTS.log")"
+( . "$D/agents.sh"; denv agents_json >/dev/null 2>&1 ) \
+  && no "agents_json returns non-zero when the CLI fails" "it returned 0" \
+  || ok "agents_json returns non-zero when the CLI fails"
+rm -f "$DC/mock/agents-fail"
+
+# A live process whose row reads `idle` between model calls, transcript still growing. The old
+# guard looked at the transcript only when the harness said `busy`, so this was stopped and forked.
+dreset; drow working idle "$DPID"; sleep 1
+rc="$(cd "$DC/wt" && denv bash "$D/revive.sh" "$D" T02 idle >/dev/null 2>&1; echo $?)"
+check "revive.sh refuses a live session whose transcript is still growing, whatever its status" "1" "$rc"
+check "and launches nothing" "0" "$(dlaunches)"
+
+# The harness says it in words when a resume finds the session still running.
+dreset; drow working idle null; echo 1 > "$DC/mock/fork-note"
+python3 -c 'import os,sys,time; t=time.time()-900; os.utime(sys.argv[1],(t,t))' "$DT"
+kill "$DTOUCH" 2>/dev/null
+rc="$(cd "$DC/wt" && denv bash "$D/revive.sh" "$D" T02 ended-without-signal >/dev/null 2>&1; echo $?)"
+check "a resume that forked a live session spends no rung and does not restart" "1" "$rc"
+check "exactly one launch (the copy), no restart on top of it" "1" "$(dlaunches)"
+grep -q '^stop 11111111$' "$DC/mock/stops" && ok "the copy is stopped by its short id" \
+  || no "the copy is stopped by its short id" "$(cat "$DC/mock/stops")"
+check "the original stays in the session file" "$DSID" "$(cat "$D/state/T02.session")"
+grep -q '^forked-stopped ' "$D/state/T02.revivals" && ok "the ledger says forked-stopped" \
+  || no "the ledger says forked-stopped" "$(cat "$D/state/T02.revivals" 2>/dev/null)"
+rm -f "$DC/mock/fork-note"
+
+# A resume that started (rc=0) but whose id does not resolve must not fall through to a restart.
+dreset; drow working idle null; echo 0 > "$DC/mock/register"
+python3 -c 'import os,sys,time; t=time.time()-900; os.utime(sys.argv[1],(t,t))' "$DT"
+printf '[]' > "$DC/mock/agents.json"
+(cd "$DC/wt" && denv bash "$D/revive.sh" "$D" T02 ended-without-signal >/dev/null 2>&1)
+check "a started resume is never followed by a restart" "1" "$(dlaunches)"
+check "it is tracked by the short id its banner printed" "11111111" "$(cat "$D/state/T02.session")"
+
+# launch.sh: a new session the list does not show yet is still tracked, by its banner.
+dreset; rm -rf "$D/state/claim-T02" "$D/state/T02.session"; echo 0 > "$DC/mock/register"
+printf '[]' > "$DC/mock/agents.json"
+(cd "$DC/wt" && denv bash "$D/launch.sh" "$D" T02 >/dev/null 2>&1)
+check "launch.sh falls back to the banner's short id, not 'unresolved'" "11111111" "$(cat "$D/state/T02.session")"
+rm -f "$DC/mock/register"
+
+# DUP is checked on a tag that already wrote DONE: T02 had three live sessions when its DONE landed.
+dreset; echo DONE > "$D/state/T02.status"; : > "$D/state/.advanced-T02"; : > "$D/state/.closed-T02"
+printf '[{"sessionId":"%s","id":"c5081c1b","name":"ns-dslug-T02","state":"working","status":"busy","pid":%s,"startedAt":1},{"sessionId":"8afc87c2-0000-4000-8000-000000000001","id":"8afc87c2","name":"ns-dslug-T02-r1","state":"working","status":"busy","pid":%s,"startedAt":2}]' \
+  "$DSID" "$DPID" "$DPID" > "$DC/mock/agents.json"
+(cd "$DC/wt" && denv bash "$D/watch.sh" "$D" 0 25 --once >/dev/null 2>&1)
+grep -q "EMIT DUP T02 8afc87c2 c5081c1b" "$D/state/EVENTS.log" \
+  && ok "DUP fires on a tag with a status when two sessions are live" \
+  || no "DUP fires on a tag with a status when two sessions are live" "$(grep -c DUP "$D/state/EVENTS.log")"
+
+grep -q 'cd "$WS"' "$REF/runner.sh" && ok "runner.sh starts the runner from the workspace, not the caller's cwd" \
+  || no "runner.sh starts the runner from the workspace, not the caller's cwd" "no cd"
+kill "$DPID" "$DTOUCH" 2>/dev/null; wait "$DPID" "$DTOUCH" 2>/dev/null
+pkill -f "$D/watch.sh" 2>/dev/null
+rm -rf "$DC"
+
+echo
 echo "== the docs arm a follower, never the runner itself =="
 SK="$HERE/../SKILL.md"
 NMD="$HERE/../../night-marathon"

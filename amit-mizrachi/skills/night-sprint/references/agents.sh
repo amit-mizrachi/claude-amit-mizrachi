@@ -30,13 +30,39 @@ agents_json() {
   # UNRELATED row - a non-empty answer the old fallback trusted, which made the runner call the
   # sprint's own live sessions dead. Every caller already matches rows by name or session id, so
   # the unfiltered list is both sufficient and correct.
-  local out=""
-  out="$(claude agents --json --all 2>/dev/null || true)"
+  #
+  # A FAILED READ IS NOT AN EMPTY LIST. On 2026-10-04 the runner's cwd was deleted under it (a
+  # peer session ran `rm -rf` + `cp -R` on the spec folder the runner was started from). From then
+  # on every `claude` call it made exited 1 with "The current working directory was deleted", this
+  # function turned that into `[]`, and every caller read `[]` as "no such session": a working
+  # session was called DIED, its stop was a no-op, the resume forked a copy, the new ids never
+  # resolved and the restart put a third session on the tag. So: run the CLI from `/`, which always
+  # exists, and on any failure still print `[]` (callers parse it) but RETURN 1, so a caller that
+  # must not guess - liveness, stop, close - can tell "unknown" from "gone".
+  local out="" rc=0
+  out="$(cd / && claude agents --json --all 2>/dev/null)" || rc=$?
   out="$(printf '%s' "$out" | tr -d '\000')"
-  case "$(printf '%s' "$out" | tr -d '[:space:]')" in
-    "") printf '[]' ;;
-    *)  printf '%s' "$out" ;;
-  esac
+  if [ "$rc" -ne 0 ] || ! printf '%s' "$out" | python3 -c 'import json,sys
+sys.exit(0 if isinstance(json.load(sys.stdin), list) else 1)' 2>/dev/null; then
+    echo "agents_json: 'claude agents' failed (rc=$rc) - the agent list is UNKNOWN, not empty" >&2
+    printf '[]'
+    return 1
+  fi
+  printf '%s' "$out"
+}
+
+# The 8-char short id a `claude --bg` banner names ("backgrounded . <short> . <name>"), mapped to
+# the full session id through its transcript when that already exists. The banner is the one
+# record of a launch that does not depend on `claude agents` answering. Prints nothing if absent.
+sid_from_launch_log() {
+  local short f
+  short="$(python3 -c 'import re,sys
+s=re.sub(r"\x1b\[[0-9;]*m","",open(sys.argv[1],errors="replace").read())
+m=re.findall(r"backgrounded\s+\S+\s+([0-9a-f]{8})\b",s)
+print(m[-1] if m else "")' "$1" 2>/dev/null)"
+  [ -n "$short" ] || return 1
+  f="$(ls -t "$HOME"/.claude/projects/*/"$short"*.jsonl 2>/dev/null | head -1)"
+  if [ -n "$f" ]; then basename "$f" .jsonl; else printf '%s' "$short"; fi
 }
 
 # ---------------------------------------------------------------- did it end its own turn?
@@ -90,7 +116,9 @@ sys.exit(0 if last=="ended" else 1)'
 
 # The pid the harness holds for a LIVE session. A finished one carries no pid and `state:done`.
 session_pid() {
-  agents_json | python3 -c 'import json,sys
+  local rows
+  rows="$(agents_json)" || return 2   # unknown - the caller must not read "no pid" as "dead"
+  printf '%s' "$rows" | python3 -c 'import json,sys
 sid=sys.argv[1]
 try: rows=json.load(sys.stdin)
 except Exception: sys.exit(0)
@@ -135,8 +163,11 @@ stop_session() {
   case "$sid" in ""|unresolved) return 0 ;; esac
   short="${sid%%-*}"
 
-  pid="$(session_pid "$sid")"
-  claude stop "$short" >/dev/null 2>&1
+  if ! pid="$(session_pid "$sid")"; then
+    echo "stop_session: cannot read the agent list - refusing to call $short stopped" >&2
+    return 1
+  fi
+  ( cd / && claude stop "$short" ) >/dev/null 2>&1
   rc=$?
 
   # No live pid means there is nothing to wait for - the usual case when reviving a session that
@@ -189,7 +220,9 @@ stop_session() {
 # session_listed SID -> 0 if the agent list still has a row for it. An unreadable list counts as
 # listed, so a bad read makes a removal retry instead of passing.
 session_listed() {
-  agents_json | python3 -c 'import json,sys
+  local rows
+  rows="$(agents_json)" || return 0   # the header says it: an unreadable list counts as listed
+  printf '%s' "$rows" | python3 -c 'import json,sys
 sid=sys.argv[1]
 try: rows=json.load(sys.stdin)
 except Exception: sys.exit(0)
@@ -207,7 +240,7 @@ remove_session() {
   stop_session "$sid" || return 1
 
   for i in 1 2 3; do
-    claude rm "$short" >/dev/null 2>&1
+    ( cd / && claude rm "$short" ) >/dev/null 2>&1
     session_listed "$sid" || return 0
     sleep 1
   done

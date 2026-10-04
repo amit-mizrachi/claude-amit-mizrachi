@@ -1,6 +1,6 @@
 {
   "name": "amit-mizrachi",
-  "version": "1.12.0",
+  "version": "1.12.1",
   "description": "Amit Mizrachi's Claude Code skills. next-prompt hands work off to a fresh background agent; night-sprint delivers a whole feature overnight as one PR, or runs research in research mode; product-research takes one approval and returns a cited research artifact built from your connectors and the web; night-marathon takes a feature from research to a plan artifact with realistic UI mockups and a decision pick list to one PR, autonomously or with your picks in between; to-spec and to-tickets turn a feature into a spec and tracer-bullet tickets, callable by agents as well as humans; mywayfinder draws a wayfinder map's blocking graph as a published chart. Ships codex-bridge, an MCP server that lets Claude ask OpenAI Codex questions, which night-marathon uses for a second opinion on the plan when it is connected. Ships a macOS caffeinate hook that keeps the machine awake for a sliding 8 hours after the last Claude interaction.",
   "author": {
     "name": "Amit Mizrachi",

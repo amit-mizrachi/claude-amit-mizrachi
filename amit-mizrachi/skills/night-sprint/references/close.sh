@@ -64,7 +64,11 @@ case "$sid" in
 esac
 
 # The harness's own word for it: does it still hold a process, and is a model call running?
-row="$(agents_json | python3 -c 'import json,sys
+if ! rows="$(agents_json)"; then
+  echo "close: cannot read the agent list - not marking $TAG closed; next sweep retries" >&2
+  exit 1
+fi
+row="$(printf '%s' "$rows" | python3 -c 'import json,sys
 sid=sys.argv[1]
 try: rows=json.load(sys.stdin)
 except Exception: print("unknown -"); sys.exit(0)

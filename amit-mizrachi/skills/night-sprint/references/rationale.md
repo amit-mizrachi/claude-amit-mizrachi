@@ -589,3 +589,33 @@ tokens. A fresh conductor starts near 100k, and the BUILD conductor writes the s
 itself. The relay took 15 seconds. The only context bug was the phase runner's: phase-chain.sh
 did not get `CONTEXT_WINDOW`, so it measured against 200k and logged a false "OVERDUE used-90pct"
 a minute after launch. `init` now takes the window.
+
+## A deleted cwd put three sessions on one tag (2026-10-04, machina-stage-c-production)
+
+The conductor ran `cd inputs/stage-c-spec/issues` at 07:11Z and started the runner from that shell
+at 07:14Z. At 07:26Z a peer session refreshed the spec with `rm -rf inputs/stage-c-spec && cp -R`.
+The runner's cwd was now a deleted folder, and every `claude` call it made exited 1 with "The
+current working directory was deleted". `claude --bg` still worked, because launch.sh and revive.sh
+`cd` into the worktree first. So sessions started, and nothing could see them.
+
+**`agents_json` turned "cannot read" into "nothing there".** Every caller then drew the wrong
+conclusion: the watcher called a working T02 DIED (it wrote 95 transcript records in the two
+minutes around the verdict). `session_is_active` read status "" as not busy and never looked at the
+growing transcript. `stop_session` found no pid and reported success. The resume forked a copy (the
+harness said so in words: "already running in the background, so this started a copy"), the copy's
+id did not resolve, the rung was counted FAILED and the restart added a third session. DUP counted
+rows in the same empty list. close.sh logged "already off the list". The same happened on T03 (the
+abandon rung then wrote BLOCKED over three live sessions) and on T04, until the conductor restarted
+the runner from the workspace root.
+
+**Fixes.** The runner changes to the workspace itself (watch.sh and runner.sh). `agents_json` runs
+the CLI from `/` and returns non-zero on a failed or non-JSON answer; every caller that would act on
+"gone" treats that as unknown and does nothing, and the watcher says `AGENTS-UNREADABLE` after three
+such sweeps. The still-working guard trusts a live pid with a growing transcript whatever its
+status, and does nothing when the harness cannot be read. A resume with exit 0 never falls through
+to a restart; the fork note stops the copy and keeps the original. launch.sh and revive.sh fall
+back to the short id in the `--bg` banner. The DUP check runs before the status branch, because a
+duplicate does not end when one copy writes DONE.
+
+**Worth checking.** The `--cwd` comments above (2026-09-23) describe `claude agents` returning `[]`
+for sessions that were plainly running. A caller in a deleted cwd produces exactly that symptom.

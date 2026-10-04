@@ -89,7 +89,8 @@ fi
 # stable contract, but `claude agents --json` reporting `name` is.
 sid=""
 for _ in $(seq 1 15); do
-  sid="$(agents_json "$WT" \
+  rows="$(agents_json "$WT")" || break
+  sid="$(printf '%s' "$rows" \
     | python3 -c 'import json,sys
 want=sys.argv[1]
 try: rows=json.load(sys.stdin)
@@ -102,6 +103,10 @@ if best: print(best.get("sessionId",""))' "$NAME")"
   [ -n "$sid" ] && break
   sleep 2
 done
+
+# The banner names the short id whatever `claude agents` does. The watcher matches a row on
+# `sessionId` OR its first 8 characters, so even the bare short id keeps the tag watched.
+[ -n "$sid" ] || sid="$(sid_from_launch_log "$STATE/$TAG.launch.log")" || sid=""
 
 if [ -z "$sid" ]; then
   # The session may still be up; we just cannot watch it by id. Say so loudly

@@ -50,6 +50,12 @@
 set -uo pipefail
 
 WS="${1:?usage: watch.sh <WORKSPACE> [POLL_SECONDS] [STALL_MINUTES] [--observe]}"
+
+# A RUNNER LIVES ALL NIGHT, SO IT MUST NOT LIVE IN A FOLDER SOMEONE MAY DELETE. It inherits the
+# cwd of whatever shell ran `runner.sh start`, and every child - `claude agents`, `claude stop` -
+# inherits it from here. On 2026-10-04 that was inputs/stage-c-spec/issues, a peer re-copied the
+# spec at 07:26, and the runner spent the rest of the night unable to see any session.
+cd "$WS" 2>/dev/null || cd /
 POLL="${2:-120}"
 STALL_MIN="${3:-25}"
 ACT=1
@@ -231,6 +237,7 @@ do_revive() {
        ;;
     6) say "AUTH $tag - re-authenticate; no retry can fix this" ;;
     7) say "BUDGET-EXHAUSTED $tag - capacity never returned" ;;
+    8) emit_once "$tag:DUP" "DUP $tag - a resume forked a live session and the copy would not stop; see EVENTS.log" ;;
     1) emit_once "$tag:revive-refused" "REVIVE-REFUSED $tag - see EVENTS.log" ;;
   esac
   return "$rc"
@@ -284,7 +291,16 @@ while true; do
     esac
   fi
 
-  agents="$(agents_json "$WT")"
+  # UNKNOWN IS NOT DEAD. With no agent list, every open tag would look like a session that exited.
+  # Advance and close still run on status files; liveness, DUP and revive wait for a good read.
+  if agents="$(agents_json "$WT" 2>/dev/null)"; then
+    agents_ok=1; agents_bad=0
+  else
+    agents_ok=0; agents_bad=$(( ${agents_bad:-0} + 1 ))
+    log "agents read FAILED (sweep $agents_bad running) - liveness checks skipped this sweep"
+    [ "$agents_bad" -ge 3 ] && emit_once "sprint:agents-unreadable" \
+      "AGENTS-UNREADABLE - 'claude agents' failed $agents_bad sweeps running; no tag is revived until it reads again (see EVENTS.log)"
+  fi
 
   open_tags=""
   open_n=0
@@ -295,6 +311,23 @@ while true; do
     tag="$(basename "$sf" .session)"
     sid="$(tr -d '[:space:]' < "$sf")"
     st="$STATE/$tag.status"
+
+    # 0. ONE TAG, ONE SESSION. Never auto-fixed: picking the live session out of two and
+    #    auditing which files they overwrote in each other's blind spot is judgement, and
+    #    nothing else this watcher says about the tag can be trusted until it is settled.
+    #    Checked BEFORE the status branch: a duplicate does not stop being one because one copy
+    #    wrote DONE (2026-10-04, T02 had three live sessions when its DONE landed).
+    if [ -n "$SLUG" ] && [ "$agents_ok" -eq 1 ]; then
+      dup="$(printf '%s' "$agents" | python3 -c 'import json,sys
+pre=sys.argv[1]
+try: rows=json.load(sys.stdin)
+except Exception: sys.exit(0)
+live=[r for r in rows
+      if r.get("pid") and r.get("state")!="done"
+      and (r.get("name")==pre or str(r.get("name") or "").startswith(pre+"-"))]
+if len(live)>1: print(" ".join(sorted(str(r.get("id") or "?") for r in live)))' "ns-$SLUG-$tag" 2>/dev/null)"
+      [ -n "$dup" ] && emit_once "$tag:DUP" "DUP $tag $dup"
+    fi
 
     # 1. The session reported its own outcome. That always wins, and it is also the moment
     #    the chain moves - through advance.sh, which reads `.next` (written BEFORE the status)
@@ -337,21 +370,7 @@ while true; do
 
     open_n=$((open_n + 1))
     open_tags="$open_tags $tag"
-
-    # 2. ONE TAG, ONE SESSION. Never auto-fixed: picking the live session out of two and
-    #    auditing which files they overwrote in each other's blind spot is judgement, and
-    #    nothing else this watcher says about the tag can be trusted until it is settled.
-    if [ -n "$SLUG" ]; then
-      dup="$(printf '%s' "$agents" | python3 -c 'import json,sys
-pre=sys.argv[1]
-try: rows=json.load(sys.stdin)
-except Exception: sys.exit(0)
-live=[r for r in rows
-      if r.get("pid") and r.get("state")!="done"
-      and (r.get("name")==pre or str(r.get("name") or "").startswith(pre+"-"))]
-if len(live)>1: print(" ".join(sorted(str(r.get("id") or "?") for r in live)))' "ns-$SLUG-$tag" 2>/dev/null)"
-      [ -n "$dup" ] && emit_once "$tag:DUP" "DUP $tag $dup"
-    fi
+    [ "$agents_ok" -eq 1 ] || continue
 
     # The harness's `state` decides the branch below; its `status` (busy = a model call is
     # running) only tells a conductor that is waiting from one that hung mid-call.

@@ -152,6 +152,10 @@ Decide that deliberately rather than discovering it in the morning.
        bash <WS>/runner.sh start <WS>          # must print `runner: running`
        Monitor: bash <WS>/runner.sh follow <WS>   (timeout_ms 1800000; re-arm on every expiry)
 
+   The runner changes to `<WS>` itself, so the folder you call it from does not matter. Still,
+   never `cd` into `inputs/` or any folder a peer may re-copy: your Bash cwd persists between
+   calls, and a command you run there fails the moment the folder is deleted.
+
 ## Roles
 
 | Role | Count | Writes code | Job |
@@ -300,6 +304,7 @@ waits and closing finished sessions itself, and logs all of them to `state/EVENT
 | `SWEEP 0 tags= all-sessions-terminal` | The runner **exited** and has removed every finished session - nothing but you is on the agent list. Your follower exits with it. Tags left? Launch the next, `runner.sh start`, and **re-arm the follower**. Sprint complete? Write the morning report. Never leave the sprint with no running runner and work outstanding. |
 | `RUNNER-RESTARTED` | The runner had died mid-run (killed, a restart of the machine) and the follower started it again. Nothing to do. Name it in the morning report. |
 | `RUNNER-DOWN` | The runner died three times in 30 minutes. Nothing is advancing or reviving the sprint. Read `state/runner.log`, fix the cause, then `runner.sh start` and re-arm the follower. |
+| `AGENTS-UNREADABLE` | `claude agents` failed three sweeps in a row, so the runner cannot see any session and revives nothing. Run `claude agents --json --all` from `/` by hand. If that works, the runner's cwd is the problem (`lsof -a -d cwd -p $(cat <WS>/state/runner.pid)`): kill it and `runner.sh start <WS>` again. If it fails too, the CLI is the problem - report it. |
 | `SWEEP <n> tags=...` | A heartbeat, and only after a full hour with nothing to say. Nothing to do. |
 
 Everything else - `DONE`, `RELAYED`, `SKIPPED`, `DIED`, `STALLED`, `STUCK`, `OVERDUE` - the
@@ -388,7 +393,11 @@ the fix is upstream: put it in the template so the next sprint's sessions alread
 A tag may burn through many sessions in a night - handed on, revived - but **never two at once**.
 Three things hold the invariant, one per way in: `launch.sh` claims a tag with an atomic `mkdir`;
 nothing interrupts a working session, so nothing can fork one; `revive.sh` refuses any session
-whose transcript grew recently, and stops what is left by **short id** before resuming.
+whose process is alive with a transcript that grew recently, and stops what is left by **short
+id** before resuming. **An agent list that cannot be read is UNKNOWN, never empty**: nothing is
+called dead, stopped, closed or revived on it. A resume that finds the old session still running
+(the harness says "started a copy") stops the copy and keeps the original, and a resume that
+started but did not resolve never falls through to a restart.
 
 **When `DUP <tag> <id> <id> ...` fires**, the invariant broke anyway. Fix it before anything
 else:
