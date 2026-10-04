@@ -138,7 +138,7 @@ If the launch or the runner fails - most often because `auto` mode is not availa
 Five lines, no more:
 
 - It is running. Autonomous: nothing more will be asked. Review: the next stop is the plan artifact.
-- The workspace path, and `claude agents` / `claude attach <short id>` to look in. Every conductor launch, death and revive is logged in `<WS>/phases/state/EVENTS.log`.
+- The workspace path, and `claude agents` / `claude attach <short id>` to look in. Every conductor launch, death and revive is logged in `<WS>/phases/state/EVENTS.log`. `night-watch` in any terminal draws the run's live progress, stage by stage.
 - What arrives: the plan artifact link (push notification and `<WS>/REPORT.md`), then the PR from the build session (`<WS>/build/REPORT.md`).
 - Review mode: on the page, pick, press **Copy decisions**, then `claude attach <short id>` and paste. The notification carries the id.
 - The rough duration: a few hours for the research and plan at Standard depth, then a night for the build.

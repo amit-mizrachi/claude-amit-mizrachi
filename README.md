@@ -4,8 +4,8 @@ Seven [Claude Code](https://claude.com/claude-code) skills for running work you 
 sitting and watching - handing a session off, turning a feature into a spec and tickets, taking
 it through the night, researching a product question end to end, taking a feature from idea to
 plan to PR, and keeping a big effort's map legible - plus `codex-bridge`, an MCP server that lets
-Claude ask OpenAI Codex for a second opinion, and the macOS hook that stops your machine
-sleeping through it.
+Claude ask OpenAI Codex for a second opinion, `night-watch`, a live terminal board of every
+sprint and marathon in flight, and the macOS hook that stops your machine sleeping through it.
 
 ## Install
 
@@ -281,6 +281,43 @@ the ticket array, because counts typed into markup go stale on their own schedul
 > It looks for `wayfinder` in your available skills, then `~/.claude/skills/`, then
 > `~/.agents/skills/`, and stops with an explanation if it finds none rather than improvising
 > a substitute.
+
+### `night-watch` (a command, not a skill)
+
+A live progress board for every `night-sprint` and `night-marathon` on your Mac. Open any
+terminal and run:
+
+```
+night-watch
+```
+
+For each run in flight it shows a progress bar and `N/M` stages, the stage running now (how
+long, which session of that ticket, how much of its context window it used, when its
+transcript last moved, and the `claude attach <id>` to look in), the stages still to do, a rough
+ETA, the PR, and whether the runner is alive. A marathon gets one line per stage: Research,
+Plan, your picks (review mode), then each Build with its own bar.
+
+Runs that need you go to the top in red, with the command that fixes them: a plan waiting for
+your picks, a logged-out pause, a runner that died while work is still open, red CI. Quota waits
+show when they resume. Runs that finished in the last 12 hours stay at the bottom; older
+finished runs and abandoned ones (no runner, nothing moved for 12 hours) are hidden.
+
+| Command | Does |
+|---|---|
+| `night-watch` | live board, redraws every 5s. `q` quits, `a` toggles old runs, `r` redraws now |
+| `night-watch --once` | print it one time (also what you get when the output is piped) |
+| `night-watch <text>` | only the runs whose slug contains `<text>` |
+| `night-watch --all` | include finished and abandoned runs of any age |
+
+It only reads workspace files (`~/.claude/night-sprint/*` and `~/claude-research/*`, or
+`NIGHT_WATCH_ROOTS`), so it never changes a run. Needs `python3` 3.9+, no packages.
+
+**How it gets on your PATH.** Inside Claude Code the plugin's `bin/` is already on `PATH`. For
+your own terminals, a `SessionStart` hook links `bin/night-watch` into the first of
+`~/.local/bin`, `~/bin`, `/opt/homebrew/bin`, `/usr/local/bin` that is on your `PATH` and
+writable (else `~/.local/bin`), and re-links it after each plugin update. It never replaces a
+file of the same name that it did not put there. So after installing or updating the plugin,
+start one Claude Code session, then `night-watch` works everywhere.
 
 ### The `caffeinate` hook
 

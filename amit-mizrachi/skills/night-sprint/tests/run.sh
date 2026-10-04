@@ -1394,5 +1394,74 @@ cbcall "{\"name\":\"codex_ask\",\"arguments\":{\"prompt\":\"hi\",\"cwd\":\"$CBH\
 rm -rf "$CBH"
 
 echo
+echo "== night-watch draws progress from the workspace files, and only reads them =="
+NW="$HERE/../../../bin/night-watch"
+NWR="$(mktemp -d)"
+nw() { COLUMNS=140 NO_COLOR=1 python3 "$NW" --once --root "$NWR" "$@" 2>&1; }
+
+# A sprint mid-relay: T02 handed on to T02c2, which rewrote T02.next, so nothing points at T03 yet.
+S="$NWR/relay-sprint"; mkdir -p "$S/state/claim-T01" "$S/state/claim-T02" "$S/state/claim-T02c2"
+printf 'T02\n' > "$S/state/T01.next";  printf 'DONE\n' > "$S/state/T01.status"
+printf 'T02c2\n' > "$S/state/T02.next"; printf 'RELAYED: T02c2\n' > "$S/state/T02.status"
+printf 'REVIEW-FINAL\n' > "$S/state/T03.next"
+printf 'FIX-FINAL\n' > "$S/state/REVIEW-FINAL.next"; : > "$S/state/FIX-FINAL.next"
+printf 'aaaabbbb-0000-0000-0000-000000000000\n' > "$S/state/T02c2.session"
+printf '%s bootstrap workspace ready\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$S/state/EVENTS.log"
+out="$(nw relay)"
+printf '%s' "$out" | grep -q '1/5' && ok "a relay is one stage: 1 of 5 done" || no "a relay is one stage: 1 of 5 done" "$out"
+printf '%s' "$out" | grep -q 'T02c2 running.*session 2.*claude attach aaaabbbb' \
+  && ok "the running continuation, its session count and attach id" || no "the running continuation, its session count and attach id" "$out"
+printf '%s' "$out" | grep -q 'next: T03 REVIEW-FINAL FIX-FINAL' \
+  && ok "the chain continues past the relay to T03" || no "the chain continues past the relay to T03" "$out"
+printf '%s' "$out" | grep -q 'runner is not running' \
+  && ok "a started sprint with no runner is flagged" || no "a started sprint with no runner is flagged" "$out"
+
+# A review-mode marathon whose plan is done: the next move is the user's.
+M="$NWR/gate-marathon"; mkdir -p "$M/phases/state/claim-CONDUCTOR" "$M/state/claim-T01" "$M/state/claim-SYNTH"
+: > "$M/phases/PHASE_CHAIN"; printf 'MARATHON_MODE=review\n' > "$M/facts.env"
+printf 'BUILD\n' > "$M/phases/state/CONDUCTOR.next"
+printf 'ccccdddd-0000-0000-0000-000000000000\n' > "$M/phases/state/CONDUCTOR.session"
+: > "$M/phases/state/CONDUCTOR.waiting-on-user"
+printf '%s phase chain ready\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$M/phases/state/EVENTS.log"
+printf 'SYNTH\n' > "$M/state/T01.next"; printf 'DONE\n' > "$M/state/T01.status"
+: > "$M/state/SYNTH.next"; printf 'DONE\n' > "$M/state/SYNTH.status"
+out="$(nw gate)"
+printf '%s' "$out" | grep -q 'waiting for your picks - `claude attach ccccdddd`' \
+  && ok "a marathon at the review gate asks for the picks" || no "a marathon at the review gate asks for the picks" "$out"
+printf '%s' "$out" | grep -q 'stage 3 of 4 (Your picks)' \
+  && ok "and counts Research, Plan, picks, Build as its stages" || no "and counts Research, Plan, picks, Build as its stages" "$out"
+
+# Abandoned a week ago: off the board by default, on it (dim, not urgent) with --all.
+O="$NWR/old-sprint"; mkdir -p "$O/state/claim-T01"
+printf 'T02\n' > "$O/state/T01.next"; : > "$O/state/T02.next"
+find "$O" -exec touch -t 202601010000 {} +
+nw | grep -q old-sprint && no "a week-old unfinished sprint is hidden" "shown" || ok "a week-old unfinished sprint is hidden"
+nw --all | grep -q '◌ old-sprint.*stale' && ok "--all shows it as stale" || no "--all shows it as stale" "$(nw --all)"
+
+# The 2026-09 kickoff that wrote `T01 T02.next`: no chain, so no run.
+B="$NWR/broken-kickoff"; mkdir -p "$B/state"; : > "$B/state/T01 T02.next"
+nw --all | grep -q broken-kickoff && no "tags with spaces are not a chain" "shown" || ok "tags with spaces are not a chain"
+
+before="$(find "$NWR" -newer "$S/state/EVENTS.log" -type f | wc -l | tr -d ' ')"
+nw >/dev/null; nw --all >/dev/null
+check "it writes nothing into a workspace" "$before" "$(find "$NWR" -newer "$S/state/EVENTS.log" -type f | wc -l | tr -d ' ')"
+rm -rf "$NWR"
+
+echo
+echo "== the SessionStart hook links night-watch onto PATH, and never over somebody else's file =="
+LH="$HERE/../../../hooks/link-night-watch.sh"
+FH="$(mktemp -d)"; mkdir -p "$FH/.local/bin" "$FH/plug/amit-mizrachi/bin"
+cp "$NW" "$FH/plug/amit-mizrachi/bin/night-watch"
+run_hook() { HOME="$FH" PATH="$FH/.local/bin:/usr/bin:/bin" CLAUDE_PLUGIN_ROOT="$FH/plug/amit-mizrachi" bash "$LH"; }
+out="$(run_hook)"
+check "it prints nothing (SessionStart stdout is context)" "" "$out"
+check "it links into the first bin dir on PATH" "$FH/plug/amit-mizrachi/bin/night-watch" "$(readlink "$FH/.local/bin/night-watch")"
+ln -sfn "$FH/gone/amit-mizrachi/bin/night-watch" "$FH/.local/bin/night-watch"; run_hook
+check "it re-points a link left by an old plugin version" "$FH/plug/amit-mizrachi/bin/night-watch" "$(readlink "$FH/.local/bin/night-watch")"
+rm "$FH/.local/bin/night-watch"; printf 'mine\n' > "$FH/.local/bin/night-watch"; run_hook
+check "it leaves a real file of the same name alone" "mine" "$(command cat "$FH/.local/bin/night-watch")"
+rm -rf "$FH"
+
+echo
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

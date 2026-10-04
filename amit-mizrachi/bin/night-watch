@@ -1,0 +1,787 @@
+#!/usr/bin/env python3
+"""night-watch - a live progress board for every night-sprint and night-marathon on this Mac.
+
+    night-watch                 live board, redraws every 5s (q quit, a all runs, r refresh)
+    night-watch --once          print the board one time and exit
+    night-watch --all           also show runs that finished more than 12 hours ago
+    night-watch <text> ...      only the runs whose slug contains one of these strings
+    night-watch --root <DIR>    look for runs in DIR instead of the default roots (repeatable)
+
+It only READS workspace files. It never launches, stops, revives or writes anything, so it is
+safe to run beside a sprint at any time, as many times as you like.
+
+WHERE RUNS ARE FOUND. Every directory directly under the roots: `~/.claude/night-sprint/` (a
+night-sprint started by hand) and `~/claude-research/` (night-marathon and product-research).
+NIGHT_WATCH_ROOTS (colon-separated) replaces the defaults.
+
+HOW PROGRESS IS COUNTED. A sprint is a chain: `state/<TAG>.next` names each tag's successor, and
+`state/<TAG>.status` is written last by the session that ran the tag. The board walks that chain
+from its head. A relay (`T03` -> `T03c2`) is one more session on the SAME stage, so continuations
+fold into the ticket they continue. A stage is finished when its last tag says DONE, SKIPPED or
+BLOCKED. The ETA is the average duration of the finished stages times the stages left, so it is
+rough on purpose: reviews and quota waits are not the same size as tickets.
+
+A night-marathon (a `phases/PHASE_CHAIN` marker) is drawn as its own stages: Research (the
+research sprint in `state/`, minus SYNTH), Plan (SYNTH), your picks (review mode only), then one
+Build per build phase, each with its own sprint in `build/` or `build-<x>/`.
+"""
+
+import argparse
+import glob
+import os
+import re
+import select
+import shutil
+import signal
+import subprocess
+import sys
+import time
+from datetime import datetime
+
+HOME = os.path.expanduser("~")
+DEFAULT_ROOTS = [os.path.join(HOME, ".claude", "night-sprint"), os.path.join(HOME, "claude-research")]
+RECENT_SECONDS = 12 * 3600       # a finished run stays on the board this long
+QUIET_SECONDS = 30 * 60          # a running session whose transcript has not moved this long is "quiet"
+TERMINAL = ("done", "skipped", "blocked")
+
+
+# ---------------------------------------------------------------- small file helpers
+
+def read1(path):
+    """First line of a file, stripped, or '' when it is missing or unreadable."""
+    try:
+        with open(path, "r", errors="replace") as fh:
+            return fh.readline().strip()
+    except OSError:
+        return ""
+
+
+def mtime(path):
+    try:
+        return os.stat(path).st_mtime
+    except OSError:
+        return 0.0
+
+
+def facts(ws):
+    out = {}
+    try:
+        with open(os.path.join(ws, "facts.env"), "r", errors="replace") as fh:
+            for line in fh:
+                if "=" in line and not line.lstrip().startswith("#"):
+                    k, v = line.rstrip("\n").split("=", 1)
+                    out[k.strip()] = v.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return out
+
+
+def natural_key(tag):
+    return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", tag)]
+
+
+def dur(seconds):
+    seconds = int(max(0, seconds))
+    if seconds < 60:
+        return "%ds" % seconds
+    if seconds < 3600:
+        return "%dm" % (seconds // 60)
+    if seconds < 86400:
+        return "%dh%02dm" % (seconds // 3600, (seconds % 3600) // 60)
+    return "%dd%02dh" % (seconds // 86400, (seconds % 86400) // 3600)
+
+
+def ago(ts, now):
+    return dur(now - ts) + " ago" if ts else "never"
+
+
+# ---------------------------------------------------------------- processes and transcripts
+
+class World(object):
+    """What one refresh knows about the machine: live processes, and transcript lookups."""
+
+    def __init__(self):
+        self.now = time.time()
+        self.procs = {}
+        try:
+            out = subprocess.run(["ps", "-axo", "pid=,command="], stdout=subprocess.PIPE,
+                                 stderr=subprocess.DEVNULL, universal_newlines=True, timeout=5).stdout
+            for line in out.splitlines():
+                parts = line.strip().split(None, 1)
+                if len(parts) == 2 and parts[0].isdigit():
+                    self.procs[int(parts[0])] = parts[1]
+        except Exception:
+            pass
+        self._transcripts = {}
+
+    def runner_alive(self, state_dir):
+        """runner.sh writes the pid of watch.sh. A recycled pid must not pass for the runner."""
+        pid = read1(os.path.join(state_dir, "runner.pid"))
+        return pid.isdigit() and "watch.sh" in self.procs.get(int(pid), "")
+
+    def transcript(self, sid):
+        if not sid:
+            return None
+        if sid not in self._transcripts:
+            hits = glob.glob(os.path.join(HOME, ".claude", "projects", "*", sid + "*.jsonl"))
+            self._transcripts[sid] = max(hits, key=mtime) if hits else None
+        return self._transcripts[sid]
+
+
+def context_used(path, window):
+    """Percent of the window USED, read the same way context-used.sh reads it: the last
+    main-thread assistant turn's input + cache + output tokens. None when it cannot tell."""
+    import json
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as fh:
+            fh.seek(max(0, size - 400000))
+            lines = fh.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        if '"assistant"' not in line or '"usage"' not in line:
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if row.get("type") != "assistant" or row.get("isSidechain"):
+            continue
+        msg = row.get("message")
+        usage = msg.get("usage") if isinstance(msg, dict) else None
+        if not isinstance(usage, dict):
+            continue
+        used = sum((usage.get(k) or 0) for k in ("input_tokens", "cache_creation_input_tokens",
+                                                   "cache_read_input_tokens", "output_tokens"))
+        return max(0, min(100, int(round(100.0 * used / (window or 200000)))))
+    return None
+
+
+# ---------------------------------------------------------------- one sprint (a chain of tags)
+
+class Stage(object):
+    def __init__(self, name):
+        self.name = name
+        self.tags = []
+        self.status = "pending"
+        self.detail = ""
+        self.start = 0.0
+        self.end = 0.0
+        self.revivals = 0
+
+
+def tag_state(state, tag):
+    st = read1(os.path.join(state, tag + ".status"))
+    word = re.split(r"[:\s]", st, 1)[0].upper() if st else ""
+    if word in ("DONE", "SKIPPED", "BLOCKED"):
+        return word.lower(), st
+    if word == "RELAYED":
+        return "relayed", st
+    if os.path.isdir(os.path.join(state, "claim-" + tag)) or os.path.exists(os.path.join(state, tag + ".session")):
+        return "running", ""
+    return "pending", ""
+
+
+def walk_chain(state):
+    """The tags in run order: from the head, follow RELAYED targets and `.next` files."""
+    nexts = {}
+    for p in glob.glob(os.path.join(state, "*.next")):
+        tag = os.path.basename(p)[:-5]
+        if tag and not re.search(r"\s", tag):      # a tag with a space is a broken kickoff, not a tag
+            nexts[tag] = (read1(p).split() or [""])[0]
+    if not nexts:
+        return []
+    targets = set(v for v in nexts.values() if v)
+    heads = sorted((t for t in nexts if t not in targets), key=natural_key) or sorted(nexts, key=natural_key)
+    if "T01" in heads:
+        heads.remove("T01")
+        heads.insert(0, "T01")
+    # A relay rewrites its tag's `.next` to the continuation (T01 -> T01c2), and the continuation's
+    # own `.next` only appears when it hands on. Until then nothing points at T02, so it looks like
+    # a second head. Walking every head in ticket order puts it back where it belongs.
+    chain, seen = [], set()
+    for tag in heads:
+        while tag and tag not in seen and len(chain) < 500:
+            seen.add(tag)
+            chain.append(tag)
+            st = read1(os.path.join(state, tag + ".status"))
+            if st.upper().startswith("RELAYED:"):
+                tag = (st.split(":", 1)[1].split() or [""])[0]
+            else:
+                tag = nexts.get(tag, "")
+    return chain
+
+
+def base_tag(tag):
+    """T03c2 -> T03. Continuations use a lowercase `c`, so FIX-C1 is left alone."""
+    folded = re.sub(r"c\d+$", "", tag)
+    return folded or tag
+
+
+class Sprint(object):
+    def __init__(self, ws, world):
+        self.ws = ws
+        self.state = os.path.join(ws, "state")
+        self.world = world
+        self.facts = facts(ws)
+        self.mode = read1(os.path.join(ws, "MODE")) or self.facts.get("MODE", "code")
+        try:
+            self.window = int(read1(os.path.join(ws, "CONTEXT_WINDOW")) or self.facts.get("CONTEXT_WINDOW") or 200000)
+        except ValueError:
+            self.window = 200000
+        self.stages = self._stages()
+        self.runner = world.runner_alive(self.state)
+        self.paused = read1(os.path.join(self.state, "PAUSED"))
+        self.pr = read1(os.path.join(self.state, "PR.url"))
+        self.acceptance = read1(os.path.join(self.state, "ACCEPTANCE.verdict")).split(" ")[0]
+        self.golden = read1(os.path.join(self.state, "GOLDEN.verdict")).split(" ")[0]
+        self.events = os.path.join(self.state, "EVENTS.log")
+        self.last_event = mtime(self.events)
+
+    def _stages(self):
+        order, by_name = [], {}
+        for tag in walk_chain(self.state):
+            name = base_tag(tag)
+            if name not in by_name:
+                by_name[name] = Stage(name)
+                order.append(by_name[name])
+            by_name[name].tags.append(tag)
+        for s in order:
+            first, last = s.tags[0], s.tags[-1]
+            s.status, s.detail = tag_state(self.state, last)
+            if s.status == "relayed":
+                s.status = "running"         # handing its ticket to the next session
+            s.start = mtime(os.path.join(self.state, "claim-" + first)) or mtime(os.path.join(self.state, first + ".session"))
+            if s.status in TERMINAL:
+                s.end = mtime(os.path.join(self.state, last + ".status"))
+            for t in s.tags:
+                try:
+                    with open(os.path.join(self.state, t + ".revivals")) as fh:
+                        s.revivals += sum(1 for line in fh if line.split(" ", 1)[0] in ("resume", "restart"))
+                except OSError:
+                    pass
+        return order
+
+    # derived facts -------------------------------------------------------------------
+    @property
+    def started(self):
+        return any(s.status != "pending" for s in self.stages)
+
+    @property
+    def finished(self):
+        return bool(self.stages) and all(s.status in TERMINAL for s in self.stages)
+
+    def count(self, *statuses):
+        return sum(1 for s in self.stages if s.status in statuses)
+
+    def current(self):
+        for s in self.stages:
+            if s.status == "running":
+                return s
+        return None
+
+    def remaining(self):
+        return [s for s in self.stages if s.status not in TERMINAL]
+
+    def eta(self):
+        spans = [s.end - s.start for s in self.stages if s.status == "done" and s.start and s.end - s.start >= 30]
+        left = self.remaining()
+        if not spans or not left:
+            return None
+        avg = sum(spans) / len(spans)
+        cur = self.current()
+        if not cur or not cur.start:
+            return avg * len(left)
+        # A stage already past the average is not "done any second now": give it a quarter more.
+        return avg * (len(left) - 1) + max(avg - (self.world.now - cur.start), avg * 0.25)
+
+    def session_of(self, stage):
+        for t in reversed(stage.tags):
+            sid = read1(os.path.join(self.state, t + ".session"))
+            if sid:
+                return t, sid
+        return stage.tags[-1], ""
+
+    def started_at(self):
+        first = read1(self.events)
+        m = re.match(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)", first)
+        if m:
+            try:
+                import calendar
+                return calendar.timegm(time.strptime(m.group(1), "%Y-%m-%dT%H:%M:%SZ"))
+            except ValueError:
+                pass
+        starts = [s.start for s in self.stages if s.start]
+        return min(starts) if starts else 0.0
+
+
+# ---------------------------------------------------------------- styling
+
+class Style(object):
+    def __init__(self, color):
+        self.color = color
+
+    def __call__(self, code, text):
+        return "\x1b[%sm%s\x1b[0m" % (code, text) if self.color and text else text
+
+
+ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
+def visible_len(s):
+    return len(ANSI.sub("", s))
+
+
+def clip(s, width):
+    """Cut a styled line to `width` visible characters without breaking an escape code."""
+    if visible_len(s) <= width:
+        return s
+    out, n, i = [], 0, 0
+    while i < len(s) and n < width - 1:
+        m = ANSI.match(s, i)
+        if m:
+            out.append(m.group(0))
+            i = m.end()
+            continue
+        out.append(s[i])
+        n += 1
+        i += 1
+    return "".join(out) + "…" + ("\x1b[0m" if "\x1b[" in s else "")
+
+
+GLYPH = {"done": ("32", "✓"), "skipped": ("2;32", "✓"), "blocked": ("31", "✗"),
+         "running": ("33", "●"), "pending": ("2", "·"), "waiting": ("35;1", "!")}
+
+
+def bar(stages, width, sty, tick):
+    """One cell per stage when it fits, else stages share the bar in proportion."""
+    n = len(stages)
+    if not n:
+        return sty("2", "░" * width)
+    cells = []
+    for i in range(width):
+        s = stages[min(n - 1, i * n // width)]
+        if s.status in ("done", "skipped"):
+            cells.append(sty("32" if s.status == "done" else "2;32", "█"))
+        elif s.status == "blocked":
+            cells.append(sty("31", "█"))
+        elif s.status == "running":
+            cells.append(sty("33", "▓" if tick % 2 else "▒"))
+        else:
+            cells.append(sty("2", "░"))
+    return "".join(cells)
+
+
+def pr_label(url):
+    m = re.search(r"/pull/(\d+)", url or "")
+    return ("PR #" + m.group(1)) if m else (url or "")
+
+
+# ---------------------------------------------------------------- one run on the board
+
+class Run(object):
+    """Something the board shows: a plain sprint or a marathon. `lines()` draws it."""
+
+    attention = False     # sorts to the top and turns the marker red
+    finished = False
+    stale = False         # unfinished, runner gone, nothing moved for RECENT_SECONDS: abandoned
+    last_activity = 0.0
+
+    def settle(self, runner_up):
+        old = self.world.now - self.last_activity > RECENT_SECONDS
+        self.stale = not self.finished and not runner_up and old
+        # Something from last week is history, not a thing to do tonight.
+        self.attention = not old and any(a[0] == 2 for a in self.alerts)
+
+
+def running_line(sprint, stage, sty, now, indent):
+    tag, sid = sprint.session_of(stage)
+    bits = [sty("33;1", tag) + " running " + dur(now - stage.start if stage.start else 0)]
+    if len(stage.tags) > 1:
+        bits.append("session %d" % len(stage.tags))
+    if stage.revivals:
+        bits.append(sty("33", "revived %dx" % stage.revivals))
+    path = sprint.world.transcript(sid)
+    if path:
+        pct = context_used(path, sprint.window)
+        if pct is not None:
+            bits.append(sty("31" if pct >= 30 else ("33" if pct >= 20 else "0"), "ctx %d%%" % pct))
+        quiet = now - mtime(path)
+        bits.append(sty("33" if quiet > QUIET_SECONDS else "2", "active " + ago(mtime(path), now)))
+    if sid:
+        bits.append(sty("2", "attach: claude attach " + sid[:8]))
+    return indent + " · ".join(bits)
+
+
+def sprint_alerts(sprint, label=""):
+    """(severity, text) the user should see. severity 2 = needs you, 1 = worth knowing."""
+    out = []
+    pre = (label + ": ") if label else ""
+    if sprint.paused.startswith("auth"):
+        out.append((2, pre + "logged out - run `claude /login`, then `bash %s/revive.sh %s <tag> auth-retry`" % (short(sprint.ws), short(sprint.ws))))
+    elif sprint.paused:
+        m = re.search(r"retry-at=(\d+)", sprint.paused)
+        when = datetime.fromtimestamp(int(m.group(1))).strftime("%H:%M") if m else "?"
+        out.append((1, pre + "quota wait (%s) - resumes by itself at %s" % (sprint.paused.split(" ")[0], when)))
+    for s in sprint.stages:
+        if s.status == "blocked":
+            reason = s.detail if len(s.detail) <= 160 else s.detail[:160].rsplit(" ", 1)[0] + " …"
+            out.append((1, pre + "%s %s" % (s.name, reason)))
+    if sprint.started and not sprint.finished and not sprint.runner and not sprint.paused.startswith("auth"):
+        out.append((2, pre + "runner is not running, nothing advances or revives - `bash %s/runner.sh start %s`" % (short(sprint.ws), short(sprint.ws))))
+    if sprint.acceptance == "FAIL":
+        out.append((2, pre + "CI is red at the pushed sha (ACCEPTANCE.verdict FAIL)"))
+    return out
+
+
+class SprintRun(Run):
+    def __init__(self, ws, world):
+        self.ws = ws
+        self.slug = os.path.basename(ws)
+        self.sprint = Sprint(ws, world)
+        self.world = world
+        self.alerts = sprint_alerts(self.sprint)
+        self.finished = self.sprint.finished
+        cur = self.sprint.current()
+        talk = mtime(world.transcript(self.sprint.session_of(cur)[1]) or "") if cur else 0.0
+        self.last_activity = max(self.sprint.last_event, mtime(self.sprint.state), talk)
+        self.valid = bool(self.sprint.stages)
+        self.settle(self.sprint.runner)
+
+    def lines(self, width, sty, tick):
+        sp, now = self.sprint, self.world.now
+        total, finished = len(sp.stages), sp.count(*TERMINAL)
+        kind = "sprint · " + sp.mode
+        elapsed = ((max(s.end for s in sp.stages) if self.finished else now) - sp.started_at()) if sp.started_at() else 0
+        out = [header(self, kind + " · " + dur(elapsed), width, sty)]
+        bw = max(10, min(60, width - 22))
+        pct = int(round(100.0 * finished / total)) if total else 0
+        out.append("  " + bar(sp.stages, bw, sty, tick) + "  %s/%d  %s" % (sty("1", str(finished)), total, sty("2", "%d%%" % pct)))
+        cur = sp.current()
+        if cur:
+            out.append(running_line(sp, cur, sty, now, "  "))
+        left = sp.remaining()
+        if self.finished:
+            out.append("  " + verdict_text(sp, sty))
+        elif left:
+            names = [s.name for s in left if s is not cur]
+            eta = sp.eta()
+            tail = (" · ~%s left" % dur(eta)) if eta is not None else ""
+            if names:
+                out.append("  " + sty("2", "next: ") + " ".join(names) + sty("2", tail))
+        foot = []
+        if sp.pr:
+            foot.append(pr_label(sp.pr))
+        foot.append(sty("32", "runner ok") if sp.runner else sty("2", "runner off"))
+        foot.append("last event " + ago(sp.last_event, now))
+        out.append("  " + sty("2", " · ").join(foot))
+        out.extend(alert_lines(self.alerts, sty, width))
+        return out
+
+
+def verdict_text(sp, sty):
+    blocked = sp.count("blocked")
+    if sp.mode == "research":
+        return sty("32", "finished") + (sty("31", " · %d blocked" % blocked) if blocked else "")
+    acc = sp.acceptance or "no CI verdict"
+    col = "32" if sp.acceptance == "PASS" and not blocked else ("31" if sp.acceptance == "FAIL" or blocked else "33")
+    text = "finished · CI " + acc
+    if sp.golden:
+        text += " · golden path " + sp.golden
+    if blocked:
+        text += " · %d blocked" % blocked
+    return sty(col, text)
+
+
+def short(path):
+    return path.replace(HOME, "~", 1) if path.startswith(HOME) else path
+
+
+def alert_lines(alerts, sty, width):
+    import textwrap
+    out = []
+    for sev, text in alerts:
+        code, mark = ("31;1", "▲ ") if sev == 2 else ("33", "△ ")
+        for i, part in enumerate(textwrap.wrap(text, max(30, width - 6), break_on_hyphens=False)):
+            out.append("  " + sty(code, (mark if i == 0 else "  ") + part))
+    return out
+
+
+def header(run, right, width, sty):
+    if run.stale:
+        mark = sty("2", "◌")
+        right = "stale, nothing moved for %s · %s" % (dur(run.world.now - run.last_activity), right)
+    elif run.attention:
+        mark = sty("31;1", "▲")
+    elif run.finished:
+        mark = sty("32", "✓")
+    else:
+        mark = sty("33;1", "▶")
+    left = mark + " " + sty("1", run.slug)
+    pad = max(2, width - visible_len(left) - visible_len(right) - 1)
+    return left + " " * pad + sty("2", right)
+
+
+# ---------------------------------------------------------------- a marathon
+
+class Row(object):
+    def __init__(self, name, status, text, sprint=None):
+        self.name, self.status, self.text, self.sprint = name, status, text, sprint
+
+
+class MarathonRun(Run):
+    def __init__(self, ws, world):
+        self.ws = ws
+        self.slug = os.path.basename(ws)
+        self.world = world
+        self.facts = facts(ws)
+        self.mode = self.facts.get("MARATHON_MODE", "autonomous")
+        self.pstate = os.path.join(ws, "phases", "state")
+        self.phases = walk_chain(self.pstate)
+        self.phase_runner = world.runner_alive(self.pstate)
+        self.alerts = []
+        self.rows = self._rows()
+        self.valid = True
+        done = [r for r in self.rows if r.status in ("done", "skipped")]
+        self.finished = bool(self.rows) and len(done) == len(self.rows)
+        if not self.finished and not self.phase_runner and any(tag_state(self.pstate, p)[0] != "pending" for p in self.phases):
+            self.alerts.append((2, "phase runner is not running, nothing launches the next phase - "
+                                   "`bash %s/phases/phase-chain.sh runner %s/phases`" % (short(ws), short(ws))))
+        acts = [mtime(os.path.join(self.pstate, "EVENTS.log")), mtime(os.path.join(ws, "state", "EVENTS.log"))]
+        acts += [mtime(os.path.join(d, "state", "EVENTS.log")) for d in glob.glob(os.path.join(ws, "build*"))]
+        self.last_activity = max(acts)
+        runners = [self.phase_runner] + [r.sprint.runner for r in self.rows if r.sprint is not None]
+        self.settle(any(runners))
+
+    def _rows(self):
+        rows = []
+        research = Sprint(self.ws, self.world)
+        plan = [s for s in research.stages if s.name == "SYNTH"]
+        research.stages = [s for s in research.stages if s.name != "SYNTH"]
+        self.alerts += sprint_alerts(research, "research")
+        if research.stages:
+            st = "done" if research.finished else ("running" if research.started else "pending")
+            rows.append(Row("Research", st, "", research))
+        else:
+            conductor = tag_state(self.pstate, "CONDUCTOR")[0]
+            rows.append(Row("Research", "running" if conductor == "running" else "pending",
+                            "conductor is setting up the research sprint" if conductor == "running" else "not started"))
+        plan_status = plan[0].status if plan else "pending"
+        rows.append(Row("Plan", plan_status, "", research if plan else None))
+        rows[-1].stage = plan[0] if plan else None
+
+        builds = self.phases[1:] or ["BUILD"]
+        build_started = any(tag_state(self.pstate, b)[0] != "pending" for b in builds)
+        if self.mode == "review":
+            waiting = glob.glob(os.path.join(self.pstate, "*.waiting-on-user"))
+            if waiting or (plan_status == "done" and not build_started):
+                sid = read1(os.path.join(self.pstate, "CONDUCTOR.session"))
+                rows.append(Row("Your picks", "waiting", "the plan is ready - pick on the artifact, then paste into `claude attach %s`" % sid[:8]))
+                self.alerts.append((2, "waiting for your picks - `claude attach %s`" % sid[:8]))
+            elif build_started or tag_state(self.pstate, "CONDUCTOR")[0] == "done":
+                rows.append(Row("Your picks", "done", "picked"))
+            else:
+                rows.append(Row("Your picks", "pending", "after the plan"))
+
+        for phase in builds:
+            label = "Build" if phase == "BUILD" else "Build " + phase.split("-", 1)[-1]
+            bws = os.path.join(self.ws, phase.lower())
+            pstat = tag_state(self.pstate, phase)[0]
+            if os.path.isdir(os.path.join(bws, "state")) and walk_chain(os.path.join(bws, "state")):
+                sp = Sprint(bws, self.world)
+                self.alerts += sprint_alerts(sp, label.lower())
+                st = "done" if (sp.finished or pstat == "done") else ("running" if sp.started or pstat == "running" else "pending")
+                rows.append(Row(label, st, "", sp))
+            elif pstat == "running":
+                rows.append(Row(label, "running", "conductor is writing the spec and tickets"))
+            else:
+                rows.append(Row(label, pstat if pstat in TERMINAL else "pending", "not started"))
+        return rows
+
+    def lines(self, width, sty, tick):
+        now = self.world.now
+        first = read1(os.path.join(self.pstate, "EVENTS.log"))
+        m = re.match(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)", first)
+        elapsed = ""
+        if m:
+            import calendar
+            t0 = calendar.timegm(time.strptime(m.group(1), "%Y-%m-%dT%H:%M:%SZ"))
+            elapsed = " · " + dur((self.last_activity if self.finished else now) - t0)
+        out = [header(self, "marathon · %s%s" % (self.mode, elapsed), width, sty)]
+        bw = max(10, min(40, width - 40))
+        for r in self.rows:
+            code, g = GLYPH.get(r.status, GLYPH["pending"])
+            name = sty(code, g) + " " + r.name.ljust(11)
+            sp = r.sprint
+            if r.name == "Plan" and getattr(r, "stage", None):
+                st = r.stage
+                if st.status == "running":
+                    out.append("  " + name + running_line(sp, st, sty, now, ""))
+                else:
+                    out.append("  " + name + sty(code, st.status) + (sty("2", " · " + st.detail[:80]) if st.detail and st.status == "blocked" else ""))
+            elif sp is not None and sp.stages:
+                fin, tot = sp.count(*TERMINAL), len(sp.stages)
+                extra = ""
+                if r.status != "done":
+                    eta = sp.eta()
+                    extra = sty("2", " · ~%s left" % dur(eta)) if eta is not None else ""
+                elif sp.mode != "research":
+                    extra = " " + verdict_text(sp, sty)
+                if sp.pr:
+                    extra += sty("2", " · ") + pr_label(sp.pr)
+                out.append("  " + name + bar(sp.stages, bw, sty, tick) + "  %d/%d" % (fin, tot) + extra)
+                cur = sp.current()
+                if cur and r.status == "running":
+                    out.append(running_line(sp, cur, sty, now, "      "))
+                    names = [s.name for s in sp.remaining() if s is not cur]
+                    if names:
+                        out.append("      " + sty("2", "next: ") + " ".join(names))
+            else:
+                out.append("  " + name + sty("2" if r.status == "pending" else code, r.text))
+        stage_no = next((i for i, r in enumerate(self.rows) if r.status not in ("done", "skipped")), len(self.rows))
+        foot = []
+        if self.finished:
+            foot.append(sty("32", "all %d stages finished" % len(self.rows)))
+        else:
+            foot.append("stage %d of %d (%s)" % (stage_no + 1, len(self.rows), self.rows[stage_no].name))
+        foot.append(sty("32", "phase runner ok") if self.phase_runner else sty("2", "phase runner off"))
+        foot.append("last event " + ago(self.last_activity, now))
+        out.append("  " + sty("2", " · ").join(foot))
+        out.extend(alert_lines(self.alerts, sty, width))
+        return out
+
+
+# ---------------------------------------------------------------- the board
+
+def discover(roots, world, filters, show_all):
+    runs = []
+    for root in roots:
+        for ws in sorted(glob.glob(os.path.join(root, "*"))):
+            if not os.path.isdir(ws):
+                continue
+            if filters and not any(f.lower() in os.path.basename(ws).lower() for f in filters):
+                continue
+            try:
+                if os.path.exists(os.path.join(ws, "phases", "PHASE_CHAIN")):
+                    run = MarathonRun(ws, world)
+                elif os.path.isdir(os.path.join(ws, "state")):
+                    run = SprintRun(ws, world)
+                    if not run.valid:
+                        continue
+                else:
+                    continue
+            except Exception as exc:   # one odd workspace must not take the board down
+                run = Run()
+                run.slug, run.valid, run.world, run.alerts = os.path.basename(ws), False, world, []
+                run.error = "%s: %s" % (type(exc).__name__, exc)
+                run.last_activity = mtime(ws)
+            if not show_all and not filters and (run.finished or run.stale) and world.now - run.last_activity > RECENT_SECONDS:
+                continue
+            runs.append(run)
+
+    def order(r):
+        return (0 if r.attention else (3 if r.stale else (2 if r.finished else 1)), -r.last_activity)
+    return sorted(runs, key=order)
+
+
+def board(roots, filters, show_all, width, sty, tick):
+    world = World()
+    runs = discover(roots, world, filters, show_all)
+    active = sum(1 for r in runs if not r.finished and not r.stale)
+    stale = sum(1 for r in runs if r.stale)
+    needs = sum(1 for r in runs if r.attention)
+    head = sty("1", "NIGHT WATCH") + sty("2", " · " + datetime.now().strftime("%H:%M:%S"))
+    head += " · %d running" % active
+    if needs:
+        head += " · " + sty("31;1", "%d need%s you" % (needs, "" if needs == 1 else "s"))
+    head += sty("2", " · %d finished" % (len(runs) - active - stale))
+    if stale:
+        head += sty("2", " · %d stale" % stale)
+    out = [head, sty("2", "─" * width)]
+    if not runs:
+        out.append(sty("2", "No night-sprint or night-marathon runs %s." % ("match" if filters else "in the last 12 hours (try --all)")))
+        out.append(sty("2", "Looked in: " + ", ".join(roots)))
+    for r in runs:
+        if not getattr(r, "valid", True) and getattr(r, "error", ""):
+            out.append(sty("31", "? " + r.slug) + sty("2", "  could not read: " + r.error))
+        else:
+            out.extend(r.lines(width, sty, tick))
+        out.append("")
+    return [clip(line, width) for line in out]
+
+
+def live(args, roots):
+    sty = Style(not os.environ.get("NO_COLOR"))
+    out = sys.stdout
+    import termios
+    import tty
+    fd = sys.stdin.fileno()
+    saved = termios.tcgetattr(fd)
+    show_all = args.all
+
+    def restore(*_):
+        termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+        out.write("\x1b[?25h\x1b[?1049l")
+        out.flush()
+
+    signal.signal(signal.SIGTERM, lambda *_: (restore(), sys.exit(0)))
+    out.write("\x1b[?1049h\x1b[?25l")
+    tick = 0
+    try:
+        tty.setcbreak(fd)
+        while True:
+            cols, rows = shutil.get_terminal_size((100, 40))
+            lines = board(roots, args.filters, show_all, cols, sty, tick)
+            foot = sty("2", "q quit · a %s · r refresh · every %ds" % ("recent only" if show_all else "all runs", args.interval))
+            if len(lines) > rows - 1:
+                hidden = len(lines) - (rows - 2)
+                lines = lines[:rows - 2] + [sty("2", "… %d more lines - make the window taller, or pass a slug filter" % hidden)]
+            frame = "\x1b[H" + "".join(line + "\x1b[K\n" for line in lines) + foot + "\x1b[K\x1b[J"
+            out.write(frame)
+            out.flush()
+            tick += 1
+            deadline = time.time() + args.interval
+            while True:
+                left = deadline - time.time()
+                if left <= 0:
+                    break
+                ready, _, _ = select.select([sys.stdin], [], [], left)
+                if not ready:
+                    break
+                key = os.read(fd, 1).decode("utf-8", "replace").lower()
+                if key in ("q", "\x03", "\x1b"):
+                    return
+                if key == "a":
+                    show_all = not show_all
+                    break
+                if key == "r":
+                    break
+    except KeyboardInterrupt:
+        pass
+    finally:
+        restore()
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="night-watch", description="Live progress of every night-sprint and night-marathon on this Mac.")
+    p.add_argument("filters", nargs="*", help="only runs whose slug contains one of these")
+    p.add_argument("--once", action="store_true", help="print the board one time and exit")
+    p.add_argument("--all", action="store_true", help="also show runs that finished more than 12 hours ago")
+    p.add_argument("--interval", type=int, default=5, help="seconds between redraws (default 5)")
+    p.add_argument("--root", action="append", help="a directory that holds run workspaces (repeatable)")
+    args = p.parse_args(argv)
+    env_roots = [r for r in os.environ.get("NIGHT_WATCH_ROOTS", "").split(":") if r]
+    roots = [os.path.expanduser(r) for r in (args.root or env_roots or DEFAULT_ROOTS)]
+    if args.once or not (sys.stdin.isatty() and sys.stdout.isatty()):
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)    # `night-watch --once | head` exits quietly
+        sty = Style(sys.stdout.isatty() and not os.environ.get("NO_COLOR"))
+        width = shutil.get_terminal_size((110, 40)).columns
+        print("\n".join(board(roots, args.filters, args.all, width, sty, 1)).rstrip())
+        return 0
+    live(args, roots)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

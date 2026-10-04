@@ -203,6 +203,7 @@ tests what actually ships.
 | Setup verdict | `state/SETUP.verdict` = `NEEDED` or `NONE` |
 | Follow-ups | `state/FOLLOWUPS.md` - one line per real-but-out-of-scope thing |
 | Durable ledger | `state/EVENTS.log` - every launch, advance, revive and pause, timestamped |
+| Human view | `night-watch` (ships in this plugin's `bin/`) draws every sprint's progress from `state/`, read-only. Name it in the kickoff summary so the user can watch the night. It walks the `.next` chain, so keep every tag on it |
 | Watching | the runner runs detached (`bash <WS>/runner.sh start <WS>`, pid in `state/runner.pid`, output in `state/runner.log`). You listen with `Monitor` on `bash <WS>/runner.sh follow <WS>`. The harness caps every Monitor at 30 minutes, so re-arm it at each expiry. That kills only the follower, never the runner, and the next follower picks up at the line where the last one stopped |
 
 ## The templates and scripts
