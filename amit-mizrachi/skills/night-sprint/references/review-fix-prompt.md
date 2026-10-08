@@ -41,16 +41,12 @@ Permissions or access-control changes always need a human (charter #9). Do not s
 
 ## STEP 2 - CHECK, THEN CONFIRM THE FIX ACTUALLY FIXED IT
 
-**Tests run once in this sprint, at the end, in FIX-FINAL.** No session before FIX-FINAL has run them.
+**THE FULL SUITE NEVER RUNS LOCALLY IN THIS SPRINT - PR CI RUNS IT, AND THE CI WATCHER FIXES WHAT IS RED.** Never run `<VERIFY>` or any other whole-suite command, at any stage.
 
-- **Checkpoint fix (FIX-C<n>): DO NOT RUN TESTS** - not `<VERIFY>`, not one test file. Run the static checks only: `<FORMAT_CHECK>`, plus the typecheck or compile step for the code you touched if the repo has one. This rule beats the repo's own instructions: if its AGENTS.md, CLAUDE.md or docs say to run the tests, a verify script or a CI-parity script before every commit, skip that until FIX-FINAL. A git hook that runs tests by itself still runs - never `--no-verify`.
-- **FIX-FINAL and FIX-TEST: run the full suite.**
+- **Checkpoint fix (FIX-C<n>): DO NOT RUN TESTS** - not one test file. Run the static checks only: `<FORMAT_CHECK>`, plus the typecheck or compile step for the code you touched if the repo has one. This rule beats the repo's own instructions: if its AGENTS.md, CLAUDE.md or docs say to run the tests, a verify script or a CI-parity script before every commit, skip that entirely. A git hook that runs tests by itself still runs - never `--no-verify`.
+- **FIX-FINAL and FIX-TEST: static checks, plus at most a FEW TARGETED tests.** Run `<FORMAT_CHECK>` and the typecheck or compile step. You MAY run a handful of test files by name (or a `-t` / `-k` filter) that cover the code your own fixes changed, when that is quick and real evidence. Never more than that, and never the suite: the full suite runs on the PR, and the CI watcher you hand off to in STEP 4 fixes whatever it finds red.
 
-      <VERIFY>
-
-  For FIX-FINAL this is the first time the suite has run over the sprint's work. Every red test is yours to fix, whichever ticket caused it - treat each one as a BLOCKER on your list. Re-run only the failing tests while you fix them, then run `<VERIFY>` in full once more before you commit.
-
-Green before you commit, and never `--no-verify`. If one fix cannot be made green, revert THAT fix, record it as rejected with the failure text, and keep the rest - one stuck item must not hold the whole pass hostage. A red test that predates your fixes cannot be reverted away: fix it, or write `BLOCKED: tests red - <which>` as your status.
+Green before you commit, and never `--no-verify`. If one fix cannot be made green (static checks or your targeted tests), revert THAT fix, record it as rejected with the failure text, and keep the rest - one stuck item must not hold the whole pass hostage. Do not go looking for other red tests: CI finds them, and the watcher owns them.
 
 Then, per item you fixed: **re-read the lines you changed against the manifest's ACTION and the affected ticket's acceptance criteria.** An edit is not a resolution. This is the step that separates "I changed something near the finding" from "the finding is gone".
 
@@ -84,7 +80,7 @@ It starts ONE background watcher session outside the sprint chain, in its own wo
 - Make sure the PR description reflects everything the sprint delivered.
 - Then WHEN DONE as usual: your `.next` is TEST or EMPTY, whatever CI is doing.
 
-**Local green and CI green are not the same thing.** A formatter difference came back from CI twice and was twice read as a warning-only lint rule. If you know `<VERIFY>` misses a gate CI runs, fix the parity now - make the local command run what CI runs - and say so in your summary so the next sprint inherits the fix.
+**Local green and CI green are not the same thing.** A formatter difference came back from CI twice and was twice read as a warning-only lint rule. If you know `<FORMAT_CHECK>` misses a gate CI runs, fix the parity now - make the local command run what CI runs - and say so in your summary so the next sprint inherits the fix.
 
 Never merge and never deploy. Those are <USER>'s, always.
 

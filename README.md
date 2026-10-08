@@ -126,9 +126,10 @@ The parts that make it survive an unattended night:
   runner stops its session and takes it off the agent list with `claude rm`. The shared worktree
   and the transcript are kept, so `claude --resume <sessionId>` still reopens it. At the end only
   the conductor, with the morning report, is left on the list.
-- **Tests run once, at the end.** Implementers, continuations and checkpoint fixers run only the
-  static checks (format / lint, typecheck or compile). `FIX-FINAL` runs the full suite over the
-  finished branch and fixes whatever is red, whichever ticket caused it.
+- **The full suite never runs locally.** Every session runs the static checks (format / lint,
+  typecheck or compile); `FIX-FINAL` and `FIX-TEST` may add a few targeted test files for their
+  own fixes. The suite runs on the PR in CI, and the CI watcher fixes whatever is red, whichever
+  ticket caused it.
 - **Prompts are rendered, not retyped.** `bootstrap.sh` assembles the workspace and fails loudly
   on a missing script or fact; `render.sh` fills each prompt from one `facts.env` and **refuses a
   template with an unfilled slot**, because an unfilled verify command is a session that wakes at

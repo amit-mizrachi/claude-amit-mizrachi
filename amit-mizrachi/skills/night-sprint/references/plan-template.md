@@ -16,8 +16,8 @@
 | Worktree | `<WORKTREE>` - the ONLY worktree, shared by every session |
 | Workspace | `<WS>` |
 | Toolchain | `<env setup, e.g. source ~/.nvm/nvm.sh && nvm use 22>` |
-| Verify | `<VERIFY>` - the full check, tests included. It runs ONCE, at the end, in FIX-FINAL (and FIX-TEST after it). Confirmed to resolve at kickoff, not run |
-| Format / CI parity | `<FORMAT_CHECK>` - the formatter or lint gate CI runs that `Verify` does not. Every session before FIX-FINAL runs this (plus a typecheck or compile if the repo has one) instead of tests. Local green is not CI green, and that gap has turned a green report into a red PR |
+| Verify | `<VERIFY>` - the full check, tests included, as CI runs it. It is NEVER run locally, by any session: PR CI runs it and the CI watcher fixes what is red. Recorded so the watcher knows which lanes CI runs |
+| Format / CI parity | `<FORMAT_CHECK>` - the formatter or lint gate CI runs that `Verify` does not. Every session runs this (plus a typecheck or compile if the repo has one) instead of the test suite; FIX-FINAL and FIX-TEST may add a few targeted test files. Local green is not CI green, and that gap has turned a green report into a red PR |
 | Permission mode | `<auto - the default; only something else if the user asked for it>` |
 | Context window | `<200000 | 1000000>` - the sprint model's window, pinned because it cannot be read off a transcript |
 | Warn at | `<20>`% of the window USED - the session is nudged to start nothing new |
@@ -72,9 +72,10 @@ row, an eval score.>
 
 1. Work in `<WORKTREE>` on `<BRANCH>`. Never create a branch or worktree. Never rebase,
    force-push, or merge.
-2. Implement only your own tag's scope. **Do not run tests until FIX-FINAL** - tests run once,
-   at the end. Before FIX-FINAL, run the static checks (format / lint, typecheck or compile)
-   before each commit; FIX-FINAL and FIX-TEST run the verify command. Never `--no-verify`.
+2. Implement only your own tag's scope. **The full suite never runs locally** - PR CI runs it,
+   and the CI watcher fixes what is red. Run the static checks (format / lint, typecheck or
+   compile) before each commit; FIX-FINAL and FIX-TEST may add a few targeted test files for
+   their own fixes, never the suite. Never `--no-verify`.
 3. Final commit body carries `SIGNAL: <TAG>-DONE` or `SIGNAL: <TAG>-BLOCKED: <reason>`. Push.
 4. Write `state/<TAG>.summary` (one line, what you did), then `state/<TAG>.status`
    (`DONE` / `BLOCKED: <reason>`) LAST - the status is what releases the next session.
