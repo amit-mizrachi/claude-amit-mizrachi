@@ -44,15 +44,15 @@ refuse() { echo "handback: $*" >&2; exit 1; }
 # NEVER HAND BACK A TAG WHOSE RENDERED PROMPT CARRIES OBLIGATIONS THIS ONE DOES NOT.
 #
 # The prompt below is a generic "fix these, verify, push, advance" contract. FIX-FINAL's rendered
-# prompt is not: it also runs accept.sh, gets one bounded repair pass on a red result, writes
-# state/ACCEPTANCE.verdict, and only takes the PR out of draft on PASS. Resuming an implementer
+# prompt is not: it also hands the pushed head to the detached CI watcher (ci-watch.sh), which
+# fixes a red result, writes state/ACCEPTANCE.verdict, and takes the PR out of draft on green. Resuming an implementer
 # with the generic prompt silently drops every one of those, so a one-line final fix could end
-# the sprint - or launch TEST - with nothing having checked CI at all.
+# the sprint - or launch TEST - with nothing having handed CI to anyone at all.
 #
 # The test is mechanical rather than a name match, so it keeps holding if the acceptance step
-# moves to another tag: if the tag's own rendered prompt mentions accept.sh, that prompt is the
-# contract and the caller must launch it.
-if [ -f "$WS/prompt-$FIX_TAG.txt" ] && grep -q 'accept\.sh' "$WS/prompt-$FIX_TAG.txt"; then
+# moves to another tag: if the tag's own rendered prompt mentions ci-watch.sh (the CI hand-off) or
+# accept.sh (the older blocking gate), that prompt is the contract and the caller must launch it.
+if [ -f "$WS/prompt-$FIX_TAG.txt" ] && grep -q 'ci-watch\.sh\|accept\.sh' "$WS/prompt-$FIX_TAG.txt"; then
   refuse "$FIX_TAG's rendered prompt has an acceptance gate this handback would drop - launch it instead"
 fi
 

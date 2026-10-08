@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # night-sprint acceptance gate - is the thing actually green, at the sha that is actually pushed?
 #
-#   accept.sh <WORKSPACE> [TIMEOUT_SECONDS]
+#   accept.sh <WORKSPACE> [TIMEOUT_SECONDS] [WORKTREE]
+#
+# WORKTREE defaults to the sprint's own (`<WS>/WORKTREE`). The CI watcher (`ci-watch.sh`) passes
+# its OWN worktree, so it can fix a red check without touching the one a sprint session works in.
 #
 # Writes state/ACCEPTANCE.verdict, one line:
 #   PASS <sha>                every required check passed at the pushed head
@@ -25,13 +28,14 @@
 
 set -uo pipefail
 
-WS="${1:?usage: accept.sh <WORKSPACE> [TIMEOUT_SECONDS]}"
+WS="${1:?usage: accept.sh <WORKSPACE> [TIMEOUT_SECONDS] [WORKTREE]}"
 TIMEOUT="${2:-900}"
+WT_ARG="${3:-}"
 
 STATE="$WS/state"
 mkdir -p "$STATE"
 OUT="$STATE/ACCEPTANCE.verdict"
-WT="$(tr -d '[:space:]' < "$WS/WORKTREE")"
+WT="${WT_ARG:-$(tr -d '[:space:]' < "$WS/WORKTREE")}"
 
 verdict() {
   printf '%s\n' "$*" > "$OUT"

@@ -115,7 +115,7 @@ BOTH TESTS OR IT IS NOT A BLOCK: (1) the shipped feature does not work until a h
 DELETE THIS WHOLE SECTION when rendering a checkpoint review. It applies only to REVIEW-FINAL.
 
 - **Re-read every ticket in <WS>/tickets/ against what actually landed.** Post any UNMET acceptance criterion as a finding like any other. This is the last honest check before <USER> sees it.
-- **Do NOT take the PR out of draft.** The fixer does that, and only after `accept.sh` says PASS.
+- **Do NOT take the PR out of draft.** The CI watcher does that, and only once the required checks are green at the pushed head.
 - **SWEEP THE DIFF FOR SETUP AND WRITE THE VERDICT.** You already have the whole diff loaded, so this is nearly free here. Over `git diff <BASE>...HEAD`: new env or config reads and whether `.env.example` documents them; new `secrets.*` or `vars.*` in `.github/workflows/*`; new terraform / terragrunt units; new migrations; new infrastructure a deploy will not create; a new third-party integration or OAuth client; anything a ticket's acceptance criteria assume exists but no code creates. Then check what is ALREADY set: `gh secret list`, `gh variable list`, `.env.example`, the repo's own store. **A FAILED READ IS NOT AN EMPTY ANSWER** - if a listing errors, say the read failed; never record it as "not configured".
 
   Apply BOTH TESTS from STEP 5 to every <WS>/state/*.manual block and to everything the sweep turned up, then write one word:
@@ -145,7 +145,7 @@ Check it after the review lanes return; that is where the number jumps. You do n
        echo "<TAG> posted no findings and the PR has no open comments" > <WS>/state/<FIX_TAG>.summary
        echo "<NEXT_AFTER_FIX>" > <WS>/state/<FIX_TAG>.next
        echo "<NEXT_AFTER_FIX>" > <WS>/state/<TAG>.next
-     <For a FINAL review with nothing to address, also run `gh pr ready "$PR"` yourself, since no fixer will - but only after `bash <WS>/accept.sh <WS>` says PASS.>
+     <For a FINAL review with nothing to address, no fixer will hand CI on, so you do it: `bash <WS>/ci-watch.sh <WS>`. It returns at once; do not wait for CI and do not take the PR out of draft yourself - the watcher does that on green.>
 
    - **A SMALL fix set** - 5 findings or fewer, no BLOCKER, and all of them inside files <IMPL_TAG> itself changed. **Checkpoint reviews only: a FINAL review always launches its rendered fixer**, because that prompt carries the acceptance gate and a handback would drop it. Otherwise hand it back to the session that wrote the code rather than paying for a fresh window to re-read it:
        echo "<FIX_TAG>" > <WS>/state/<TAG>.next

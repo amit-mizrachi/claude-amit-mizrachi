@@ -28,10 +28,10 @@ mkdir -p "$WS/state" "$WS/tickets"
 
 # --- the scripts the sprint runs. agents.sh is sourced by five of them; classify-error.sh is
 #     what makes recovery correct rather than merely persistent.
-SCRIPTS="agents.sh launch.sh advance.sh watch.sh runner.sh revive.sh close.sh classify-error.sh context-used.sh handback.sh accept.sh render.sh research-check.sh"
+SCRIPTS="agents.sh launch.sh advance.sh watch.sh runner.sh revive.sh close.sh classify-error.sh context-used.sh handback.sh accept.sh ci-watch.sh render.sh research-check.sh"
 # --- the templates. continuation-prompt.md stays a template on purpose: each session that
 #     hands off fills its own copy for its successor.
-TEMPLATES="continuation-prompt.md implementer-prompt.md review-find-prompt.md review-fix-prompt.md test-prompt.md plan-template.md"
+TEMPLATES="continuation-prompt.md implementer-prompt.md review-find-prompt.md review-fix-prompt.md test-prompt.md plan-template.md ci-watch-prompt.md"
 # --- research mode (MODE=research in facts.env): the same runner, research templates. Copied in
 #     every mode so one list stays the truth; a code sprint simply never renders them.
 TEMPLATES="$TEMPLATES research-ticket-prompt.md research-continuation-prompt.md research-review-find-prompt.md research-review-fix-prompt.md research-synth-prompt.md research-plan-template.md"

@@ -115,9 +115,13 @@ The parts that make it survive an unattended night:
   finished its work; it has never meant the branch is acceptable. A sprint once reported all 21
   stages complete over a red PR, and every stage was telling the truth about itself - the local
   check and CI simply did not check the same things, and a formatter failure was twice read as a
-  warning-only lint rule. So `accept.sh` compares local HEAD to the **pushed** head and then reads
-  the required checks GitHub actually ran, writing `state/ACCEPTANCE.verdict`; the tester writes
-  `state/GOLDEN.verdict` separately. The morning report's headline comes from those two files.
+  warning-only lint rule. So `accept.sh` compares the **pushed** head with what it checks and then
+  reads the required checks GitHub actually ran, writing `state/ACCEPTANCE.verdict`; the tester
+  writes `state/GOLDEN.verdict` separately. The morning report's headline comes from those two files.
+- **Nobody waits on CI.** The last session that pushes code hands CI to ONE detached watcher session
+  (`ci-watch.sh`) and advances at once. The watcher runs outside the chain, in its own worktree: it
+  waits for the required checks, fixes and pushes what is red (three passes at most), and takes the
+  PR out of draft on green. The report says `PENDING` and names the watcher when CI has not finished.
 - **Finished sessions are removed.** Once a tag is terminal and the chain has moved past it, the
   runner stops its session and takes it off the agent list with `claude rm`. The shared worktree
   and the transcript are kept, so `claude --resume <sessionId>` still reopens it. At the end only

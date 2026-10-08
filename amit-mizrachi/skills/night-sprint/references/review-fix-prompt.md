@@ -11,7 +11,7 @@ DO NOT RUN A REVIEW OF ANY KIND. Not `code-review`, not "just on the files I tou
 
 WORK HERE - DO NOT CREATE A WORKTREE OR BRANCH:
   cd <WORKTREE>
-Branch <BRANCH>, shared by the whole sprint. You hold it exclusively; no implementer is running. Never rebase, force-push, or merge.
+Branch <BRANCH>, shared by the whole sprint. You hold it exclusively; no implementer is running. Never rebase, force-push, or merge - with ONE exception: once a CI watcher is running (FIX-TEST), it may push a CI fix to the same branch, so if your push is rejected because the branch moved, `git pull --rebase` your own unpushed commits onto it and push again. Never force.
 
 THE PR NUMBER IS NOT IN THIS PROMPT - the draft PR did not exist when it was written. Get it
 once, at the start:
@@ -74,17 +74,17 @@ Both tests before you write one: the shipped feature does not work until a human
 
 DELETE THIS WHOLE SECTION when rendering a checkpoint fix. It applies only to FIX-FINAL.
 
-Your fixes are pushed. Now find out whether the branch is actually acceptable, which is not the same question as whether your session finished:
+Your fixes are pushed. **Do not wait for CI - nobody waits on CI in this sprint.** Hand it to the detached CI watcher and move on:
 
-    bash <WS>/accept.sh <WS>
+    bash <WS>/ci-watch.sh <WS>
 
-It compares your local HEAD to the pushed head, then reads the required checks GitHub actually ran, and writes `<WS>/state/ACCEPTANCE.verdict`.
+It starts ONE background watcher session outside the sprint chain, in its own worktree, and returns at once. The watcher waits for the required checks at the pushed head, fixes and pushes what is red (three passes at most), takes the PR out of draft on green, and writes `<WS>/state/ACCEPTANCE.verdict`. Until it does, that file reads `PENDING ...`. If `ci-watch.sh` exits non-zero, say so in your summary and carry on - CI is still not yours to wait for.
 
-- **PASS** -> `gh pr ready "$PR"` to take it out of draft, and make sure the description reflects everything the sprint delivered.
-- **FAIL** -> you get ONE bounded repair pass. Read the failing check's log, fix it, push, run `accept.sh` again. If it still fails, leave the PR in DRAFT and write `BLOCKED: CI red - <which checks>` as your status. **Do not take a red PR out of draft and do not report the sprint delivered.** A sprint that says "one lane is red and here is which" is worth more than one that reports 21 green stages over a red branch.
-- **UNKNOWN** -> say so plainly in your summary and leave the PR in draft.
+- **Do NOT run `accept.sh`, `gh pr checks --watch`, or any loop or wake-up that waits on checks.** Do not take the PR out of draft yourself: the watcher does it on green.
+- Make sure the PR description reflects everything the sprint delivered.
+- Then WHEN DONE as usual: your `.next` is TEST or EMPTY, whatever CI is doing.
 
-**Local green and CI green are not the same thing, and assuming they are has cost this sprint a night.** A formatter difference came back from CI twice and was twice read as a warning-only lint rule. If `<VERIFY>` passes and CI fails on formatting or lint, that mismatch IS the finding: fix the parity - make the local command run what CI runs - and say so in your summary so the next sprint inherits the fix.
+**Local green and CI green are not the same thing.** A formatter difference came back from CI twice and was twice read as a warning-only lint rule. If you know `<VERIFY>` misses a gate CI runs, fix the parity now - make the local command run what CI runs - and say so in your summary so the next sprint inherits the fix.
 
 Never merge and never deploy. Those are <USER>'s, always.
 
@@ -99,7 +99,9 @@ The tester deliberately did NOT write the setup verdict, because a verdict writt
 golden path passes judges a broken feature. That verdict is yours now, and you write it only
 after you have proved the failures are gone.
 
-1. Fix the findings, verify, and push, exactly as STEP 1 and STEP 2 say.
+1. Fix the findings, verify, and push, exactly as STEP 1 and STEP 2 say. Then hand the new head to
+   CI without waiting: `bash <WS>/ci-watch.sh <WS>` (a no-op if a watcher is still running - it
+   re-reads the head - and a fresh watcher if the last one already finished).
 2. **Re-run the golden-path steps that failed.** They are named in <WS>/state/TEST-REPORT.md
    along with how the tester got the stack or suite running. Do not re-walk steps that passed.
 3. Rewrite <WS>/state/GOLDEN.verdict with the honest result:
@@ -137,4 +139,4 @@ Several sessions for one fix pass is fine. A pass that dies holding un-recorded 
 5. `bash <WS>/advance.sh <WS> <TAG>` - it reads the pair you just wrote and starts whatever
    comes next. Run it once and do not second-guess the result.
 
-Post a summary as your last message: what you fixed, what you rejected and why, what you deferred, the acceptance verdict if you ran it, and anything needing a human decision in the morning.
+Post a summary as your last message: what you fixed, what you rejected and why, what you deferred, whether you handed CI to the watcher (and its session id), and anything needing a human decision in the morning.
