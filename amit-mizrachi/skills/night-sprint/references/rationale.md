@@ -590,6 +590,28 @@ itself. The relay took 15 seconds. The only context bug was the phase runner's: 
 did not get `CONTEXT_WINDOW`, so it measured against 200k and logged a false "OVERDUE used-90pct"
 a minute after launch. `init` now takes the window.
 
+## Nobody waits on CI (2026-10-08)
+
+`FIX-FINAL` used to end the sprint by WAITING: `accept.sh` polled the required checks for up to 15
+minutes, a red result got one repair pass and another poll, and the report waited on all of it. The
+user's global instructions said the same thing outside sprints ("watch the checks until green"), so a
+finished task routinely sat on CI. The user's call: CI must not hold up the sprint or them. The last
+code-changing session should finish (or start TEST) and CI should be fixed asynchronously.
+
+**What changed.** `ci-watch.sh` starts ONE detached watcher session and returns. `FIX-FINAL`,
+`REVIEW-FINAL` on a SKIP route and `FIX-TEST` call it instead of `accept.sh`. The watcher runs
+outside the chain: its files live in `state/ci-watch/`, never `state/<TAG>.*` or `claim-*`, because
+`watch.sh` globs those and would revive, count or close it as a tag. It works in its own worktree
+(`<WORKTREE>-ci`, detached), so a CI fix never edits the tree TEST or FIX-TEST is using, and pushes
+`HEAD:<branch>` without force. A second call while it lives is a no-op (it re-reads the head each
+loop); a finished or dead watcher is replaced. `FIX-TEST` gets one narrow exception to "never
+rebase": its own unpushed commits, when the watcher pushed in between. `handback.sh` now refuses a
+tag whose rendered prompt mentions `ci-watch.sh`, for the same reason it refused `accept.sh`.
+
+**What it costs.** The morning report can no longer promise a CI verdict: `PENDING` is a normal
+answer, and the watcher's own PR comment and `state/ci-watch/status` carry the result. The PR leaves
+draft only when the watcher sees green, which may be after the report.
+
 ## A deleted cwd put three sessions on one tag (2026-10-04, machina-stage-c-production)
 
 The conductor ran `cd inputs/stage-c-spec/issues` at 07:11Z and started the runner from that shell

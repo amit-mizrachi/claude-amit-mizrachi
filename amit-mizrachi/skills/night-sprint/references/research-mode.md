@@ -21,7 +21,7 @@ fix route, Acceptance, The manual steps, The PR, and the morning report's items 
 | implementer per ticket | researcher per ticket, `research-ticket-prompt.md` | writes `findings/<NN>-<slug>.md` |
 | review lanes over the diff | ONE lane, **evidence**, `research-review-find-prompt.md` | re-opens the sources behind the claims |
 | fixer, or a handback | always a fresh fixer, `research-review-fix-prompt.md`, or SKIP | the findings files are short; a handback buys nothing |
-| optional `TEST`, `accept.sh` reads CI | `SYNTH` builds and publishes the artifact, runs `research-check.sh --final` | there is no CI; the artifact is the thing delivered |
+| optional `TEST`, a detached CI watcher (`ci-watch.sh`) handles CI | `SYNTH` builds and publishes the artifact, runs `research-check.sh --final` | there is no CI; the artifact is the thing delivered |
 | asks permission mode and test session | **asks nothing**: `auto`, no test session | the brief was approved before the sprint began |
 | connectors as the work needs | connectors **READ ONLY**, always | nothing may post under the user's name at 3am |
 

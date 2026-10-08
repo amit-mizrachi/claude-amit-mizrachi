@@ -1,6 +1,6 @@
 ---
 name: night-sprint
-description: Delivers a whole feature overnight through autonomous sessions run strictly one after another, all on ONE branch landing as ONE pull request. A conductor session writes no code - it sets the sprint up, then a deterministic runner launches each ticket, advances the chain, revives what dies and waits out spending limits, escalating only what needs judgement. Each implementer watches its own context window and hands its ticket to a fresh session before it fills. Gets or builds a ticket breakdown first (via a spec and a ticket-splitting skill), decides whether to review once at the end or at checkpoints, runs each review as a FIND step plus a FIX step with only the review lanes that diff actually earns, optionally runs a test session that boots the stack or runs evals, and makes the required CI checks at the pushed sha decide whether the sprint delivered. Also runs in research mode (`mode: research`), where each ticket is a research question answered from cited sources and the sprint ends in one published artifact instead of a PR. Use when the user says "night sprint", "sprint this feature", "build this overnight", "run this while I sleep", "ticket after ticket", or wants a feature taken end to end unattended in a single PR.
+description: Delivers a whole feature overnight through autonomous sessions run strictly one after another, all on ONE branch landing as ONE pull request. A conductor session writes no code - it sets the sprint up, then a deterministic runner launches each ticket, advances the chain, revives what dies and waits out spending limits, escalating only what needs judgement. Each implementer watches its own context window and hands its ticket to a fresh session before it fills. Gets or builds a ticket breakdown first (via a spec and a ticket-splitting skill), decides whether to review once at the end or at checkpoints, runs each review as a FIND step plus a FIX step with only the review lanes that diff actually earns, optionally runs a test session that boots the stack or runs evals, and hands CI to a detached watcher session that fixes red checks on its own, so no sprint session (and nobody) waits on CI. Also runs in research mode (`mode: research`), where each ticket is a research question answered from cited sources and the sprint ends in one published artifact instead of a PR. Use when the user says "night sprint", "sprint this feature", "build this overnight", "run this while I sleep", "ticket after ticket", or wants a feature taken end to end unattended in a single PR.
 argument-hint: "<feature | spec path | ticket dir | issue URL> [test: none|dev-stack|evals|<command>] [permission: auto|<mode>] [approval: delegated] [mode: research]"
 ---
 
@@ -165,13 +165,14 @@ Decide that deliberately rather than discovering it in the morning.
 | **Review finder** | 1 per review | **never** | run the selected lanes, triage, write the findings manifest, post ONE PR comment, choose the fix route |
 | **Review fixer** | 0 or 1 per finder | yes (fixes only) | work the manifest, reply on external threads, check, push. `FIX-FINAL` runs the test suite, the first time anything does |
 | **Tester** | 0 or 1 | no | exercise the built thing, report PASS/FAIL per step, write `GOLDEN.verdict` |
+| **CI watcher** | 0 or 1, **outside the chain** | yes (CI fixes only) | started by `ci-watch.sh` from the final stage; waits for the required checks at the pushed head, fixes and pushes what is red (three passes at most), takes the PR out of draft on green, writes `ACCEPTANCE.verdict`. **Nothing waits for it** - not the runner, not TEST, not you |
 
 ### Tests run once, at the end
 
 **No session runs tests until `FIX-FINAL`.** Implementers, continuations and checkpoint fixers
 run only the static checks before they commit: `FORMAT_CHECK`, plus a typecheck or compile when
 the repo has one. `FIX-FINAL` runs `VERIFY` over the finished branch, fixes every red test
-whichever ticket caused it, and only then runs `accept.sh`. `FIX-TEST` comes after it and may
+whichever ticket caused it, and only then hands CI to the watcher (`ci-watch.sh`) - without waiting for it. `FIX-TEST` comes after it and may
 re-run `VERIFY`. The kickoff confirms `VERIFY` resolves; it does not run it.
 
 A suite run per ticket is the same suite paid for once per session, and most of a night's
@@ -198,7 +199,8 @@ tests what actually ships.
 | Status | `state/<TAG>.status` = `DONE` / `BLOCKED: <reason>` / `RELAYED: <TAG>c2` / `SKIPPED: <why>`, written **last** |
 | Summary | `state/<TAG>.summary` - ONE line, what it actually did, for the ledger |
 | Findings | `state/<TAG>.findings.md` - the manifest. The fixer's input, and it is LOCAL |
-| Acceptance | `state/ACCEPTANCE.verdict` (CI, from `accept.sh`) and `state/GOLDEN.verdict` (the tester) |
+| Acceptance | `state/ACCEPTANCE.verdict` (CI: `PENDING` from `ci-watch.sh`, then `PASS`/`FAIL`/`UNKNOWN` from the watcher's `accept.sh`) and `state/GOLDEN.verdict` (the tester) |
+| CI watcher | `state/ci-watch/` (`session`, `status`, `summary`, `prompt.txt`) and its own worktree `<WORKTREE>-ci`. Deliberately NOT `state/<TAG>.*` or `claim-*`: `watch.sh` globs those, and the runner must never revive, count or wait for the watcher |
 | Manual steps | `state/<TAG>.manual` - appended the moment a session hits something only a human can do |
 | Setup verdict | `state/SETUP.verdict` = `NEEDED` or `NONE` |
 | Follow-ups | `state/FOLLOWUPS.md` - one line per real-but-out-of-scope thing |
@@ -227,7 +229,9 @@ tests what actually ships.
 | `references/close.sh` | removes a finished session from the agent list (stop, then `claude rm`) once its tag is terminal, so only the conductor is left at the end |
 | `references/classify-error.sh` | what actually ended a session: transient / quota / auth / none |
 | `references/handback.sh` | resume the implementer for a small fix set instead of paying for a fresh window |
-| `references/accept.sh` | are the required CI checks green **at the pushed sha**? |
+| `references/accept.sh` | are the required CI checks green **at the pushed sha**? Run by the CI watcher, in its own worktree |
+| `references/ci-watch.sh` | hand CI to ONE detached watcher session outside the chain, and return at once. A no-op while one is alive; replaces a finished or dead one |
+| `references/ci-watch-prompt.md` | the watcher's prompt: sync to the pushed head, `accept.sh`, read the failing log, fix, push, repeat; ready on green, BLOCKED after three passes |
 | `references/agents.sh` | shared: ask the harness for background sessions, with the `--cwd` fallback |
 | `references/context-used.sh` | the gauge: percent of a window already USED |
 | `references/rationale.md` | **maintainer only, never loaded at runtime**: the incident behind every rule here |
@@ -504,18 +508,35 @@ over a red PR - and every stage was telling the truth about itself.
 | File | Written by | Means |
 |---|---|---|
 | `state/<TAG>.status` | each session | that session finished, was blocked, or handed on |
-| `state/ACCEPTANCE.verdict` | `accept.sh`, run by `FIX-FINAL` | the required CI checks **at the pushed head sha**: `PASS` / `FAIL` / `UNKNOWN` |
+| `state/ACCEPTANCE.verdict` | `ci-watch.sh` (`PENDING`), then `accept.sh` run by the CI watcher | the required CI checks **at the pushed head sha**: `PENDING` / `PASS` / `FAIL` / `UNKNOWN` |
 | `state/GOLDEN.verdict` | the `TEST` session | the golden path actually walked: `PASS` / `FAIL` / `UNKNOWN` |
 
 `DONE` has never meant "the branch is acceptable". **The headline verdict comes from the last
 two**, and a sprint whose stages all said DONE while `ACCEPTANCE.verdict` says FAIL did not
 deliver - the report says so in its first line.
 
-`accept.sh` compares local HEAD to the pushed head first: a green check on a commit nobody pushed
-proves nothing. `FIX-FINAL` gets **one bounded repair pass** on a FAIL, then leaves the PR in
-draft and reports the red lanes honestly. **Local green is not CI green** - a formatter failure
-was twice read as a warning-only lint rule - which is why `FORMAT_CHECK` is a pinned fact, and why
-a session that finds a gate CI runs which `VERIFY` misses should say so.
+### Nobody waits on CI
+
+The sprint does not wait for CI, and neither does the user. The last session that pushes code -
+`FIX-FINAL`, or `REVIEW-FINAL` when it routes SKIP, or `FIX-TEST` after its repair - runs
+`ci-watch.sh` and then advances as usual: to `TEST`, or to the end of the chain. `ci-watch.sh`
+starts ONE detached CI watcher session **outside the chain**, in its own worktree
+(`<WORKTREE>-ci`), and returns at once. The watcher waits for the required checks, reads a failing
+log, fixes, pushes (never with force), and repeats - three repair passes at most - then takes the
+PR out of draft on green, or leaves it in draft with one PR comment naming the red lanes. It writes
+`state/ACCEPTANCE.verdict` and `state/ci-watch/status`.
+
+So **`PENDING` is a normal verdict at report time**, not a failure: the report says CI was handed
+to watcher `<id>` and stops there. It never polls, sleeps or re-arms anything to wait for the
+result. A second `ci-watch.sh` call while a watcher is alive is a no-op (it always re-reads the PR
+head), so a `FIX-TEST` push is checked by the same watcher, or by a fresh one if the first already
+finished. Because the watcher may push to the shared branch while `FIX-TEST` runs, `FIX-TEST` may
+`git pull --rebase` its own unpushed commits - the one exception to "never rebase".
+
+`accept.sh` compares the watcher's HEAD to the pushed head first: a green check on a commit nobody
+pushed proves nothing. **Local green is not CI green** - a formatter failure was twice read as a
+warning-only lint rule - which is why `FORMAT_CHECK` is a pinned fact, and why a session that finds
+a gate CI runs which `VERIFY` misses should say so.
 
 ## The manual steps
 
@@ -608,7 +629,10 @@ The final message must contain, in this order:
 
 1. **The verdict in one line** - what the user actually has this morning, taken from
    `state/ACCEPTANCE.verdict` and `state/GOLDEN.verdict`, **not** from "every stage said DONE".
-2. **The PR** - URL, draft or ready, CI state per failing lane if any.
+   Read them as they stand when you report; `PENDING` means "CI handed to watcher `<id>`" - say
+   that, and do not wait for it to change.
+2. **The PR** - URL, draft or ready, and the CI line: the watcher's session id and
+   `state/ci-watch/status` if it has finished (`claude attach <id>` to follow it).
 3. **Ticket outcomes** - every ticket as landed / blocked / abandoned, with the reason for
    anything not landed. Never omit a dropped ticket.
 4. **The session ledger** - the full table above.
@@ -637,8 +661,8 @@ The final message must contain, in this order:
 
 Open **one draft PR** as soon as `T01` lands - the runner raises `NEEDS-PR` for it. Early CI and
 early bot review give the checkpoint reviewers something real to address. Every later session
-pushes to the same branch, so the PR grows all night. `FIX-FINAL` flips it out of draft once
-`accept.sh` says PASS - never before, and the finder never does it. Never a second PR.
+pushes to the same branch, so the PR grows all night. The CI watcher flips it out of draft once
+`accept.sh` says PASS - never before, and no sprint session does it. Never a second PR.
 
 **Never merge and never deploy** - those are the user's, always. If a required check has no
 ticket to point at, open the PR anyway and report the red check. Never fabricate a ticket id and
@@ -663,7 +687,8 @@ never bypass hooks with `--no-verify`.
 | "I'll just run the tests for this ticket before I commit." | Tests run once, at the end, in `FIX-FINAL`. Before that, static checks only. |
 | "The checks are red but the ticket is basically done." | Green or `BLOCKED: <reason>`. There is no third state. |
 | "Every stage said DONE, so the sprint is delivered." | `DONE` means a session finished. Acceptance is `ACCEPTANCE.verdict` and `GOLDEN.verdict`. 21 green stages once shipped a red PR. |
-| "`VERIFY` passes, so CI will pass." | It did not, twice, on formatting read as a warning-only lint rule. Run `FORMAT_CHECK`, and check the pushed sha with `accept.sh`. |
+| "`VERIFY` passes, so CI will pass." | It did not, twice, on formatting read as a warning-only lint rule. Run `FORMAT_CHECK`; the CI watcher checks the pushed sha with `accept.sh`. |
+| "I'll just wait for CI so the report can say green." | Nobody waits on CI. `ci-watch.sh` hands it to a watcher outside the chain; the report says `PENDING`, names the watcher, and ends. A session that polls checks is spending the night on a job that already has an owner. |
 | "T05 relayed, so T05 is finished - launch T06." | `RELAYED` is not `DONE`. The ticket is still being built under `T05c2`. `advance.sh` knows; nothing else gets to decide. |
 | "I'll launch the next tag myself off this DONE event." | `advance.sh` is the only transition owner. Two things deciding off two files is what once launched a fixer before its finder had decided there was anything to fix. |
 | "I'm at `RELAY_AT_USED` but I'll see this event through first." | Relay now. A conductor that dies mid-night strands every session it was watching. |
@@ -678,7 +703,8 @@ never bypass hooks with `--no-verify`.
 ## Anti-Patterns
 
 - **Bare `claude --bg`** during a sprint - bypasses the claim and can put two agents in one
-  worktree. Always `launch.sh`, always `revive.sh`, always `advance.sh` for the chain.
+  worktree. Always `launch.sh`, always `revive.sh`, always `advance.sh` for the chain, and
+  `ci-watch.sh` for the CI watcher (it runs in its own worktree, outside the chain).
 - **Restarting a ticket that only needed a resume**, or retrying one that needed a human.
 - **Emitting routine events to the conductor** - a `DONE` whose only possible answer is a
   scripted `launch.sh` call is a script's job. If you find yourself adding one, add it to

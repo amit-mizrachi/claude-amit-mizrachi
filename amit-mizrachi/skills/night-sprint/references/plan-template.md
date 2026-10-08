@@ -54,7 +54,7 @@ may assume every ticket before it has landed on the branch.
 | ... | | | | |
 | T<NN> | `<NN>-<slug>.md` | <...> | T<NN-1> | REVIEW-FINAL |
 | REVIEW-FINAL | - | the selected lanes over the whole PR, the ticket-by-ticket acceptance re-read, and the setup sweep. Writes no code | T<NN> | FIX-FINAL |
-| FIX-FINAL | - | works the manifest and every external comment, runs `accept.sh`, and `gh pr ready` only on PASS | REVIEW-FINAL | TEST, or end if no test session |
+| FIX-FINAL | - | works the manifest and every external comment, then hands CI to the detached watcher (`ci-watch.sh`) WITHOUT waiting; the watcher fixes red checks and runs `gh pr ready` on green | REVIEW-FINAL | TEST, or end if no test session |
 | TEST | - | <the chosen test mode>; writes `state/GOLDEN.verdict` | FIX-FINAL | FIX-TEST if an in-scope step failed, else end |
 | FIX-TEST | - | one bounded repair pass over `state/TEST.findings.md`, then re-runs the affected golden-path steps. Only rendered when a test session was chosen | TEST | end |
 
@@ -191,7 +191,7 @@ has never meant the branch is acceptable.
 | File | Written by | Means |
 |---|---|---|
 | `state/<TAG>.status` | each session | that session finished, was blocked, or handed on |
-| `state/ACCEPTANCE.verdict` | `accept.sh`, run by FIX-FINAL | the required CI checks at the PUSHED head sha: `PASS` / `FAIL` / `UNKNOWN` |
+| `state/ACCEPTANCE.verdict` | `ci-watch.sh` (`PENDING`), then `accept.sh` run by the CI watcher | the required CI checks at the PUSHED head sha: `PENDING` / `PASS` / `FAIL` / `UNKNOWN`. Nobody waits for it; `PENDING` at report time is normal |
 | `state/GOLDEN.verdict` | the TEST session | the golden path above, actually walked: `PASS` / `FAIL` / `UNKNOWN` |
 
 The morning report's headline verdict comes from the last two. A sprint whose every stage said

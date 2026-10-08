@@ -313,7 +313,7 @@ check "with facts.env: bootstrap succeeds" "0" "$rc"
 # agents.sh is sourced on the first line of four scripts. A workspace without it has a
 # launcher, a reviver, a runner and a handback that all fail before doing anything.
 for need in agents.sh launch.sh advance.sh watch.sh runner.sh revive.sh classify-error.sh \
-            context-used.sh handback.sh accept.sh render.sh continuation-prompt.md; do
+            context-used.sh handback.sh accept.sh ci-watch.sh ci-watch-prompt.md render.sh continuation-prompt.md; do
   [ -f "$BWS/$need" ] && ok "copied $need" || no "copied $need" "absent from $BWS"
 done
 check "PERMISSION_MODE defaults to auto" "auto" "$(cat "$BWS/PERMISSION_MODE")"
@@ -522,6 +522,10 @@ case "$out" in
 esac
 [ ! -d "$HWS/state/claim-FIX-FINAL" ] && ok "F3 it leaves no claim behind for the fallback" \
   || no "F3 it leaves no claim behind for the fallback" "claim-FIX-FINAL exists, so launch.sh would no-op"
+rm -rf "$HWS/state/claim-FIX-FINAL"
+printf 'work the list, then: bash <WS>/ci-watch.sh <WS>\n' > "$HWS/prompt-FIX-FINAL.txt"
+out="$(PATH="$MBIN:$PATH" bash "$HWS/handback.sh" "$HWS" FIX-FINAL T07 "$HWS/findings.md" 2>&1)"; rc=$?
+check "F3 handback refuses a tag whose prompt hands CI to the watcher" "1" "$rc"
 grep -q 'a FINAL review always launches its rendered fixer' "$REF/review-find-prompt.md" \
   && ok "F3 the finder is told not to hand back on a FINAL review" \
   || no "F3 the finder is told not to hand back on a FINAL review" "no such rule"
@@ -1461,6 +1465,90 @@ check "it re-points a link left by an old plugin version" "$FH/plug/amit-mizrach
 rm "$FH/.local/bin/night-watch"; printf 'mine\n' > "$FH/.local/bin/night-watch"; run_hook
 check "it leaves a real file of the same name alone" "mine" "$(command cat "$FH/.local/bin/night-watch")"
 rm -rf "$FH"
+
+# --- CI is handed off, never waited on. ci-watch.sh starts ONE watcher outside the chain.
+echo
+echo "== ci-watch.sh hands CI to a watcher and returns =="
+CW="$(mktemp -d)"
+CWB="$CW/bin"; mkdir -p "$CWB" "$CW/ws/state"
+cp "$HERE/mock-claude.sh" "$CWB/claude"; chmod +x "$CWB/claude"
+cat > "$CWB/gh" <<'GH'
+#!/usr/bin/env bash
+# mock gh: `pr view [N] --json number|headRefOid -q ...`
+case "$*" in
+  *number*)     cat "$MOCK_STATE/gh-pr" 2>/dev/null ;;
+  *headRefOid*) printf 'abc1234\n' ;;
+esac
+GH
+chmod +x "$CWB/gh"
+for f in agents.sh ci-watch.sh ci-watch-prompt.md; do cp "$REF/$f" "$CW/ws/$f"; done
+# A real (local) remote, so the watcher's worktree can be made from origin/<branch>.
+git init -q --bare "$CW/remote.git"
+git init -q -b feat/x "$CW/wt"
+git -C "$CW/wt" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+git -C "$CW/wt" remote add origin "$CW/remote.git"
+git -C "$CW/wt" push -q origin feat/x
+printf '%s\n' "$CW/wt" > "$CW/ws/WORKTREE"
+printf 'feat/x\n' > "$CW/ws/BRANCH"
+printf 'cslug\n'  > "$CW/ws/SLUG"
+printf 'auto\n'   > "$CW/ws/PERMISSION_MODE"
+export MOCK_STATE="$CW/mock"; mkdir -p "$MOCK_STATE"; printf '[]' > "$MOCK_STATE/agents.json"
+cw() { PATH="$CWB:$PATH" bash "$CW/ws/ci-watch.sh" "$CW/ws" >/dev/null 2>&1; echo $?; }
+launches() { grep -c 'ns-cslug-ci-watch' "$MOCK_STATE/launches" 2>/dev/null || echo 0; }
+
+check "no PR yet: exit 2" "2" "$(cw)"
+check "no PR yet: nothing launched" "0" "$(launches)"
+
+printf '41\n' > "$MOCK_STATE/gh-pr"
+check "with a PR: exit 0" "0" "$(cw)"
+check "one watcher launched" "1" "$(launches)"
+case "$(cat "$CW/ws/state/ACCEPTANCE.verdict")" in
+  PENDING\ abc1234*) ok "ACCEPTANCE.verdict reads PENDING at the pushed head" ;;
+  *) no "ACCEPTANCE.verdict reads PENDING at the pushed head" "got: $(cat "$CW/ws/state/ACCEPTANCE.verdict")" ;;
+esac
+[ -d "$CW/wt-ci" ] && ok "the watcher gets its own worktree" || no "the watcher gets its own worktree" "no $CW/wt-ci"
+case "$(awk '{print $4}' "$MOCK_STATE/launches")" in
+  *wt-ci) ok "it runs in that worktree, not the sprint's" ;;
+  *) no "it runs in that worktree, not the sprint's" "ran in $(awk '{print $4}' "$MOCK_STATE/launches")" ;;
+esac
+if ls "$CW/ws/state/"*.session "$CW/ws/state/"*.status "$CW/ws/state/"claim-* >/dev/null 2>&1; then
+  no "nothing lands where watch.sh globs (state/*.session, *.status, claim-*)" "$(ls "$CW/ws/state")"
+else
+  ok "nothing lands where watch.sh globs (state/*.session, *.status, claim-*)"
+fi
+grep -q '<PR>\|<WS>\|<CI_WORKTREE>\|<BRANCH>' "$MOCK_STATE/last-prompt" \
+  && no "the watcher prompt is fully filled" "an unfilled slot remains" \
+  || ok "the watcher prompt is fully filled"
+
+# Alive: the harness lists it with a pid and not done -> a second call is a no-op.
+python3 - "$MOCK_STATE/agents.json" <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))
+for r in rows: r["pid"] = 4242
+json.dump(rows, open(sys.argv[1], "w"))
+PY
+check "second call while alive: exit 0" "0" "$(cw)"
+check "second call while alive: still one watcher" "1" "$(launches)"
+
+# Finished: a later push (FIX-TEST) gets a fresh watcher, and the old record is kept.
+echo DONE > "$CW/ws/state/ci-watch/status"
+check "after the watcher finished: exit 0" "0" "$(cw)"
+check "after the watcher finished: a fresh watcher" "2" "$(launches)"
+ls "$CW/ws/state/ci-watch/status."* >/dev/null 2>&1 && ok "the finished watcher's status is archived" \
+  || no "the finished watcher's status is archived" "$(ls "$CW/ws/state/ci-watch")"
+rm -rf "$CW"
+
+echo
+echo "== no sprint session waits on CI =="
+grep -q 'bash <WS>/ci-watch.sh <WS>' "$REF/review-fix-prompt.md" \
+  && ok "FIX-FINAL hands CI to the watcher" || no "FIX-FINAL hands CI to the watcher" "no ci-watch.sh call"
+grep -q '^    bash <WS>/accept.sh' "$REF/review-fix-prompt.md" \
+  && no "FIX-FINAL no longer blocks on accept.sh" "it still runs accept.sh" \
+  || ok "FIX-FINAL no longer blocks on accept.sh"
+grep -q 'ci-watch.sh' "$REF/review-find-prompt.md" \
+  && ok "a FINAL review that routes SKIP hands CI on" || no "a FINAL review that routes SKIP hands CI on" "no ci-watch.sh"
+grep -q 'accept\.sh' "$REF/review-find-prompt.md" \
+  && no "the finder never runs accept.sh" "it still does" || ok "the finder never runs accept.sh"
 
 echo
 echo "== $pass passed, $fail failed =="
