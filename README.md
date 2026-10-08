@@ -340,11 +340,17 @@ with its undo pointer (`references/apply.md`). Skill bodies it creates and instr
 changes are copied to `corpus/_benny-sources/` for review. The first applied change taught
 Benny the reply shape (a Confirmed, Likely or Not sure label in line 1, setting side effects,
 a closing "Want me to draft a reply to the customer?"), a tag to Amit when he is not sure or a
-needed source is missing, and the `customer-reply-draft` skill.
+needed source is missing, and the `customer-reply-draft` skill. The second taught him "who
+sees which rows": a reference in `vibe-view-debug` and `dod-verdict` that reads "0 rows and no
+error" as row scoping, with the workflows rule taken from io-server at a pinned sha (Super
+Admin, "Manage employees' workflows" with its side effect, or "Subscribers" for view-only), and
+turned on `thread_context` so Benny reads the Slack thread he is mentioned in.
 
 Known limit: on the chat door Benny runs with most of his telemetry tools dormant (on
 2026-10-08: 20 tools offered, 37 dormant, no Coralogix or Logfire), so a replay can fail an item
-he would pass in Slack. Every replay record and verdict line says what was dormant.
+he would pass in Slack. Every replay record and verdict line says what was dormant. And
+`thread_context` reads the whole thread only on a mention: on a plain follow-up reply Benny
+reads the thread's first message, not another bot's reply posted after his last turn.
 
 ### `night-watch` (a command, not a skill)
 
