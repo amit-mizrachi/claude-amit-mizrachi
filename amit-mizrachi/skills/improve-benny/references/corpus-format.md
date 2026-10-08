@@ -11,6 +11,10 @@ this format; `verify.py`-style gates run it.
 `synth-<symptom slug>`. **Never a person name** - not the customer user, not the CSM, not the
 sharer. Ids only: account, user, view-def, session, ticket ids.
 
+**The corpus lives in a public repo.** Keep only what the case needs: no customer-authored text
+(view titles, file names, workflow or field names), no ids of people outside the case, no
+pronouns for a user id ("the user" or "they").
+
 Folders that start with `_` are not cases (`_benny-sources/` holds copies of the live Benny
 skill bodies and references this skill wrote, for review).
 

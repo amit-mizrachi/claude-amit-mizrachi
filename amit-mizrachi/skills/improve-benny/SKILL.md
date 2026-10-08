@@ -102,7 +102,9 @@ the pre-SQL items: the honest label and the escalation tag naming the missing so
 
 Write `corpus/<case id>/` with the four files in `references/corpus-format.md`
 (`verdicts.jsonl` empty for a new case). Grep the folder for every name in the thread before
-you finish; none may remain. Run `bash <skill dir>/tests/check.sh`.
+you finish; none may remain. The corpus is in a public repo, so also: no customer-authored text
+(view titles, file names, workflow or field names), no ids of people outside the case, no
+pronouns for a user id. Run `bash <skill dir>/tests/check.sh`.
 
 ### 7. Report
 

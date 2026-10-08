@@ -9,7 +9,7 @@ bar: pre-sql
 ---
 
 ## Replay message
-account id 1530 - user 20020 does not see the data in a shared vibe view (view-def 1786, "Salary adjustment workflows", shared by user 16441). Can you explain why?
+account id 1530 - user 20020 does not see the data in a shared vibe view (view-def 1786, a workflows view, shared by user 16441). Can you explain why?
 
 ## What Benny did
 First answer (trace `01a1167b9e353ffd67ab2d06a7d9cb7a`, 2026-10-07T13:09Z, 8 of 16 steps):
@@ -26,6 +26,6 @@ after the CSM pasted it, his customer draft adopted that bot's fix ("add as a pa
 ## What the humans said was wrong
 - The CSM: Benny "does not answer the question in the proper way".
 - The engineer who closed the thread: correct behaviour; user 20020 has no permission to see these
-  workflows; once she has it, she will see them.
+  workflows; once the user has it, they will see them.
 - Another bot's answer (participation only; "changing the role changes nothing") was wrong and
   reached the customer draft.
