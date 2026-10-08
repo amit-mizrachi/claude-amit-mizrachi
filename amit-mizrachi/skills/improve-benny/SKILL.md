@@ -1,7 +1,7 @@
 ---
 name: improve-benny
-description: Turns one bad answer from Benny (the Machina CS triage agent in Slack) into a lasting fix. From a Slack thread link or a pasted case it builds a verified gold answer with an Opus investigator subagent, finds why Benny could not give it (access, credential, config, skill knowledge, reply style, judgement, budget), saves the case to a regression corpus of ids-only cases, and replays that corpus to live Benny with an Opus judge grading each reply per rubric item. Use when the user says "improve benny", "/improve-benny", "benny answered wrong", "benny did not help here", "teach benny", "why couldn't benny answer this", "replay the benny corpus", "grade benny", "did benny get better", or pastes a CS thread where Benny's answer was wrong, hedged or incomplete.
-argument-hint: "<slack-thread-link | pasted case> [--no-apply] [--corpus-only] [--run-dir <path>]"
+description: Turns one bad answer from Benny (the Machina CS triage agent in Slack) into a lasting fix. From a Slack thread link or a pasted case it builds a verified gold answer with an Opus investigator subagent, finds why Benny could not give it (access, credential, config, skill knowledge, reply style, judgement, budget), saves the case to a regression corpus of ids-only cases, applies the fixes to live Benny (prior copy, archive check, undo ledger), and replays that corpus to live Benny with an Opus judge grading each reply per rubric item. Use when the user says "improve benny", "/improve-benny", "benny answered wrong", "benny did not help here", "teach benny", "why couldn't benny answer this", "replay the benny corpus", "grade benny", "did benny get better", or pastes a CS thread where Benny's answer was wrong, hedged or incomplete.
+argument-hint: "<slack-thread-link | pasted case> [--no-apply] [--corpus-only] [--run-dir <path>] [--ledger <path>]"
 ---
 
 # improve-benny
@@ -22,6 +22,8 @@ roles**: the gold-answer investigator and the judge (two per replay), all on Opu
 - **Machina: reads only, unless the apply step runs.** Every Machina call goes into the run log
   as `read`, `turn` (a `send_chat_turn`: Benny answers, nothing in his config changes) or
   `write`. `--no-apply` and `--corpus-only` must end with zero writes, and the run log proves it.
+- **Every write is read first, saved, and in the ledger** (`references/apply.md`). No prior copy,
+  no write.
 - **A replay never joins a human's conversation.** Call `send_chat_turn` WITHOUT `session`: the
   server mints a fresh `cnv_` id per call (it refuses a made-up id anyway). Never `try_agent_turn`
   (60 s cap, too short for Benny) and never a Slack door.
@@ -39,7 +41,7 @@ roles**: the gold-answer investigator and the judge (two per replay), all on Opu
 | Invocation | Does |
 |---|---|
 | `<thread link or pasted case> --no-apply` | steps 1-6 and the report: gold answer, gap report, corpus case. Zero Machina writes |
-| `<thread link or pasted case>` | the same, then replay and grade that one case (R1-R4). Apply is **not in this version**: say so |
+| `<thread link or pasted case>` | the same, then apply the fixes live (A1-A3), then replay and grade that one case (R1-R4) |
 | `--corpus-only` | step 0, then R1-R4 for every corpus case: a graded table, one verdict line per case. Zero Machina writes |
 
 A thread link is `https://<workspace>.slack.com/archives/<channel>/p<ts without the dot>`;
@@ -106,7 +108,22 @@ you finish; none may remain. Run `bash <skill dir>/tests/check.sh`.
 
 Tell the user, in this order: the gold verdict and label (and any disagreement with the
 brief), the gaps by class with the ones that need a human, the corpus path, and the Machina
-calls of the run as `<n> reads, <n> turns, <n> writes`. Without `--no-apply`, go on to R1.
+calls of the run as `<n> reads, <n> turns, <n> writes`. Without `--no-apply`, go on to A1.
+
+## Apply
+
+Follow `references/apply.md`. In short:
+
+- **A1. Prior copies.** Read every target (spec field, skill body) and save it under
+  `<RUN>/benny-live/`. Keep every live rule you do not mean to change.
+- **A2. Write** through the Machina MCP only: new skills first (`write_skill_body` `create` with
+  `attach_to`), then bodies (`update`), then spec fields (`write_agent_spec` `set-field`).
+- **A3. Check and ledger.** After a spec write or attach, `list_spec_archives` must show a new
+  key. Log each write in the run log and the ledger (`<RUN>/live-writes.md` or `--ledger`), with
+  its prior copy or archive key. Copy new skill bodies and changed instructions to
+  `corpus/_benny-sources/`.
+
+Then replay on a fresh session (R1).
 
 ## Replay and grade
 
@@ -175,6 +192,8 @@ agreement, the tools that errored or were dormant; then the run's Machina calls 
 | "The other bot already found it, I'll use its answer as gold" | The investigator tests it. Its claims go in section 6 |
 | "I'll reply in the thread so the CSM sees the fix" | Never post in Slack |
 | "One quick spec fix while I'm reading it" | Not in `--no-apply`. Write it as a proposed fix |
+| "I'll skip the prior copy, the spec is archived anyway" | Skill bodies need the copy, and the ledger needs a pointer for every write |
+| "The replay still shows the old reply, I'll write again" | The spec is cached up to 60 s and a live session keeps its spec. Replay on a fresh session |
 | "The customer's first name makes the case clearer" | Ids only. The corpus is permanent |
 | "`SELECT *` from Users is faster" | List the columns. Never a credential column |
 | "This pointer is close enough" | It resolves or the fact leaves the table |

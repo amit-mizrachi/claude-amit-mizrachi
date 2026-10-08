@@ -332,8 +332,15 @@ result is appended to the case's `verdicts.jsonl`. `scripts/grade.py` does the d
 half (fills the judge prompt, merges the judges, appends the line). `--corpus-only` makes zero
 Machina writes.
 
-Run with a thread link and no `--no-apply`, it builds the case and then replays and grades it.
-Applying fixes to live Benny is not in this version yet.
+**Apply.** Run with a thread link and no `--no-apply`, it builds the case, applies the fixes to
+live Benny, and then replays and grades it. Every write goes through the Machina MCP and is
+read first: the prior copy is saved in the run directory, a spec write must leave a new
+archive key, and each write gets one ledger line (`<RUN>/live-writes.md`, or `--ledger <path>`)
+with its undo pointer (`references/apply.md`). Skill bodies it creates and instructions it
+changes are copied to `corpus/_benny-sources/` for review. The first applied change taught
+Benny the reply shape (a Confirmed, Likely or Not sure label in line 1, setting side effects,
+a closing "Want me to draft a reply to the customer?"), a tag to Amit when he is not sure or a
+needed source is missing, and the `customer-reply-draft` skill.
 
 Known limit: on the chat door Benny runs with most of his telemetry tools dormant (on
 2026-10-08: 20 tools offered, 37 dormant, no Coralogix or Logfire), so a replay can fail an item

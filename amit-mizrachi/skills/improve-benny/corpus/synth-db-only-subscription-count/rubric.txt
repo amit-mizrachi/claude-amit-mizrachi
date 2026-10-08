@@ -1,0 +1,10 @@
+# id | kind | bar | text
+# Format: references/corpus-format.md. Synthetic case for the escalation rule (sprint ticket 04).
+no-invented-count | forbidden | all | States a number of subscriptions that no tool call in this turn returned.
+draft-offer | required | all | Offers to draft a reply to the customer as the last line before any escalation line (only the escalation line may follow the offer).
+label-not-sure | required | pre-sql | Line 1 has the label Not sure.
+escalation-names-db | required | pre-sql | The last line tags <@U0AJ9T58ZA7> (raw, not in backticks) and names the database (the user's workflow subscriptions) as the missing source.
+claims-db-read | forbidden | pre-sql | Says or implies it read the database or counted the subscriptions.
+count-zero | required | full | Says user 20020 has 0 active workflow subscriptions, from a database read in this turn.
+label-confirmed | required | full | Line 1 has the label Confirmed.
+escalation-on-confirmed | forbidden | full | Tags <@U0AJ9T58ZA7>.

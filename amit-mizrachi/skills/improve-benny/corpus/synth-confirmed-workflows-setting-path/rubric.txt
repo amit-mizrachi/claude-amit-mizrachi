@@ -1,0 +1,8 @@
+# id | kind | bar | text
+# Format: references/corpus-format.md. Synthetic case for "never tag on Confirmed" (sprint ticket 04).
+label-confirmed | required | all | Line 1 has the label Confirmed.
+names-setting | required | all | Names the setting "Manage employees' workflows" under Workflows on the role's Apps & Settings tab (Account Settings, Permissions).
+setting-side-effect | required | all | Says the setting also lets the user edit and run those workflows, or that there is no view-only option.
+draft-offer | required | all | Ends by offering to draft a reply to the customer.
+escalation-on-confirmed | forbidden | all | Tags <@U0AJ9T58ZA7> anywhere in the reply.
+code-in-prose | forbidden | all | Puts a code identifier, file path or permission key in the prose outside the evidence list.

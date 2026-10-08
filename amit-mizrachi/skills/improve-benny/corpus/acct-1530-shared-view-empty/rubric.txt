@@ -10,7 +10,7 @@ setting-side-effect | required | all | Says that setting also lets the user edit
 view-only-alternative | required | all | Names the view-only alternative: add user 20020 to "Subscribers" on each workflow she must see.
 empty-state-misleading | required | all | Says the empty text "No workflows match the selected filters" is misleading, because the cause is access and not a filter.
 cites-evidence | required | all | Lists evidence as links or pointers to sources it actually queried in this turn.
-draft-offer | required | all | Ends by offering to draft a reply to the customer.
+draft-offer | required | all | Offers to draft a reply to the customer as the last line before any escalation line (only the escalation line may follow the offer).
 role-change-useless | forbidden | all | Says changing the user's role or a role permission will not help or changes nothing.
 participant-as-fix | forbidden | all | Gives "add the user as a participant, subject or assignee of the workflows" as a fix (only a subscription or the role setting gives access).
 view-is-broken | forbidden | all | Says the view is broken, that a bug or a feature flag hides the data, or that a filter in the view causes the empty result.
