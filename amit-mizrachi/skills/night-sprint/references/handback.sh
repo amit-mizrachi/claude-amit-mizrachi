@@ -110,10 +110,10 @@ RULES:
 THEN, in this order:
 1. $FORMAT_CHECK
    plus the typecheck or compile step for the code you touched, if the repo has one. DO NOT
-   RUN TESTS - they run once, at the end, in FIX-FINAL. Green before you commit. Never
+   RUN TESTS - the full suite never runs locally; PR CI runs it. Green before you commit. Never
    --no-verify. If one fix cannot go green, revert THAT fix, record it as rejected with the
    failure text, and keep the rest. If the repo's AGENTS.md, CLAUDE.md or docs say to run the
-   tests, a verify script or a CI-parity script before every commit, skip that until FIX-FINAL.
+   tests, a verify script or a CI-parity script before every commit, skip that entirely.
    A git hook that runs tests by itself still runs.
 2. Re-read the specific lines you changed against the findings and the ticket's acceptance
    criteria. \"I made an edit\" is not \"the finding is resolved\".

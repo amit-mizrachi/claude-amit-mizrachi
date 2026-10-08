@@ -432,6 +432,24 @@ session fixing it did not write it. `FIX-FINAL` relays like any other session, s
 costs more sessions, not a lost night. `handback.sh` only ever serves checkpoint fixes, so its
 prompt now carries `FORMAT_CHECK`, which `bootstrap.sh` derives for it.
 
+## The full suite never runs locally (2026-10-08)
+
+> Supersedes "Tests run once, at the end" above for `FIX-FINAL`.
+
+After CI was handed to a detached watcher, `FIX-FINAL` still ran `VERIFY` in full before it
+pushed - a local suite run that held the sprint for the same answer CI gives on the pushed commit.
+The user's rule: nobody runs tests locally except a few targeted ones; open the PR, finish the
+sprint, and fix red tests asynchronously.
+
+So no session runs `VERIFY` at all. `FIX-FINAL` and `FIX-TEST` may run a handful of test files that
+cover their own fixes; every other session runs static checks only. The suite runs on the PR, and
+the CI watcher (`ci-watch.sh`) owns every red test, whichever ticket caused it, fixing with the
+failing files by name. `VERIFY` stays a pinned fact - it says what CI runs - but the kickoff no
+longer runs it even in a dry-run mode.
+
+The trade is the one the earlier entry made, moved one step later: a test a ticket broke is found
+by CI, after the sprint, and fixed by a session that did not write it.
+
 ## Finished sessions are closed (2026-10-01)
 
 > Superseded the same day by "Finished sessions are removed, not only stopped" below: the

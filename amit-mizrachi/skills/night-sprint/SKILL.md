@@ -88,11 +88,10 @@ Decide that deliberately rather than discovering it in the morning.
        VERIFY, FORMAT_CHECK, CONVENTIONS, TOTAL,
        CONTEXT_WINDOW, WARN_AT_USED, RELAY_AT_USED, CEILING_USED
 
-   **Confirm `VERIFY` resolves before you launch anything** - the target exists and the runner
-   starts (a list, collect-only or dry-run mode) - **but do not run the suite**: tests run once,
-   at the end, in `FIX-FINAL`. A wrong command still poisons the one run that counts. **`FORMAT_CHECK` is the formatter or lint gate CI runs that `VERIFY`
-   does not**; find it now, because local green that is not CI green is how a sprint reports 21
-   finished stages over a red PR.
+   **`VERIFY` is what PR CI runs, recorded for the watcher - never run it locally**, not even to
+   check it resolves: the full suite runs only on the PR. **`FORMAT_CHECK` is the formatter or
+   lint gate CI runs that the static checks would otherwise miss**; find it now, because local
+   green that is not CI green is how a sprint reports 21 finished stages over a red PR.
 
    **`CONTEXT_WINDOW`** is `200000` normally and `1000000` on a 1M model. It cannot be inferred
    later - a 1M model records the same name in the transcript as the 200k one - and getting it
@@ -163,21 +162,22 @@ Decide that deliberately rather than discovering it in the morning.
 | **Conductor** (you) | 1 at a time, hands itself on | never | set up, arm the runner, handle escalations, report. **Never interrupts a working session** |
 | **Implementer** | 1+ per ticket, **serial** | yes | build ONE ticket, static checks green (no tests), commit, hand off - and watch its own window |
 | **Review finder** | 1 per review | **never** | run the selected lanes, triage, write the findings manifest, post ONE PR comment, choose the fix route |
-| **Review fixer** | 0 or 1 per finder | yes (fixes only) | work the manifest, reply on external threads, check, push. `FIX-FINAL` runs the test suite, the first time anything does |
+| **Review fixer** | 0 or 1 per finder | yes (fixes only) | work the manifest, reply on external threads, check, push. Static checks; `FIX-FINAL` and `FIX-TEST` may add a few targeted tests, never the suite |
 | **Tester** | 0 or 1 | no | exercise the built thing, report PASS/FAIL per step, write `GOLDEN.verdict` |
 | **CI watcher** | 0 or 1, **outside the chain** | yes (CI fixes only) | started by `ci-watch.sh` from the final stage; waits for the required checks at the pushed head, fixes and pushes what is red (three passes at most), takes the PR out of draft on green, writes `ACCEPTANCE.verdict`. **Nothing waits for it** - not the runner, not TEST, not you |
 
-### Tests run once, at the end
+### The full suite never runs locally
 
-**No session runs tests until `FIX-FINAL`.** Implementers, continuations and checkpoint fixers
-run only the static checks before they commit: `FORMAT_CHECK`, plus a typecheck or compile when
-the repo has one. `FIX-FINAL` runs `VERIFY` over the finished branch, fixes every red test
-whichever ticket caused it, and only then hands CI to the watcher (`ci-watch.sh`) - without waiting for it. `FIX-TEST` comes after it and may
-re-run `VERIFY`. The kickoff confirms `VERIFY` resolves; it does not run it.
+**No session runs the test suite - not per ticket, not at the end.** Implementers,
+continuations, finders and checkpoint fixers run only the static checks before they commit:
+`FORMAT_CHECK`, plus a typecheck or compile when the repo has one. `FIX-FINAL` and `FIX-TEST`
+may add **a few targeted test files** for the code their own fixes changed, and nothing more.
+The suite runs on the PR, in CI. `FIX-FINAL` pushes, hands CI to the watcher (`ci-watch.sh`)
+without waiting, and the sprint goes on or ends; the watcher fixes whatever CI finds red,
+whichever ticket caused it, using the failing test files by name.
 
-A suite run per ticket is the same suite paid for once per session, and most of a night's
-test output is green noise in a window that has better uses. One run over the whole branch
-tests what actually ships.
+A suite run per ticket is the same suite paid for once per session, and a local run at the end
+holds the sprint (and the user) for a run CI does anyway, on the commit that actually ships.
 
 ## Coordination
 
@@ -684,7 +684,8 @@ never bypass hooks with `--no-verify`.
 | "T05 died on an API error, I'll relaunch the ticket." | Resume it - `revive.sh` does. The conversation is on disk; a fresh session re-reads the codebase and repeats every decision the dead one made. |
 | "I'll resume it by hand, it's one `claude --bg --resume`." | Resume mints a **new session id** and drops the name. By hand, `state/<tag>.session` points at a corpse while a real session runs unwatched. |
 | "My phase is done - I'll launch the next conductor with `claude --bg` and stop." | Nothing watches it then. One died 2.5 minutes in and the night sat dead for six hours. Write `DONE` to your phase status; the phase runner launches and watches the next one. |
-| "I'll just run the tests for this ticket before I commit." | Tests run once, at the end, in `FIX-FINAL`. Before that, static checks only. |
+| "I'll just run the tests for this ticket before I commit." | Static checks only. The suite runs on the PR in CI, never locally; `FIX-FINAL` and `FIX-TEST` may run a few targeted files, and the CI watcher fixes what is red. |
+| "I'll run the whole suite once at the end, to be safe." | That is CI's job, on the pushed commit. A local full run holds the sprint for an answer CI gives anyway, and the watcher already owns red tests. |
 | "The checks are red but the ticket is basically done." | Green or `BLOCKED: <reason>`. There is no third state. |
 | "Every stage said DONE, so the sprint is delivered." | `DONE` means a session finished. Acceptance is `ACCEPTANCE.verdict` and `GOLDEN.verdict`. 21 green stages once shipped a red PR. |
 | "`VERIFY` passes, so CI will pass." | It did not, twice, on formatting read as a warning-only lint rule. Run `FORMAT_CHECK`; the CI watcher checks the pushed sha with `accept.sh`. |

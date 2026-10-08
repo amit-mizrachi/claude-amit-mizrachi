@@ -5,7 +5,7 @@ AUTONOMOUS NIGHT RUN. <USER> is ASLEEP and will NOT answer. Never ask a question
 Repo: <REPO_PATH> (<REPO_SLUG>). Toolchain: <TOOLCHAIN>.
 Workspace: <WS>. You are tag <TAG>. The fix tag is <FIX_TAG>; the session that wrote this code is <IMPL_TAG>.
 
-DO NOT RUN TESTS. TESTS RUN ONCE, AT THE END, IN FIX-FINAL - and a finder never runs them, at any checkpoint. Find by reading the diff.
+DO NOT RUN TESTS. THE FULL SUITE NEVER RUNS LOCALLY IN THIS SPRINT - PR CI RUNS IT, AND THE CI WATCHER FIXES WHAT IS RED. A finder never runs any test, at any checkpoint. Find by reading the diff.
 
 YOU FIND. YOU DO NOT FIX - not one file, not the verify command, not a commit, even when a fix looks like a one-liner. The fixing is a separate step because a session that consolidates reviews AND edits code spends its window twice and dies mid-triage, losing the triage.
 

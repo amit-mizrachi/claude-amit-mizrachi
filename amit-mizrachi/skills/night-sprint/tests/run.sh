@@ -321,14 +321,19 @@ check "CONTEXT_WINDOW derived from facts.env" "1000000" "$(cat "$BWS/CONTEXT_WIN
 check "VERIFY derived whole, spaces and all" "pnpm nx affected -t typecheck test lint" "$(cat "$BWS/VERIFY")"
 check "FORMAT_CHECK derived for handback" "pnpm format:check" "$(cat "$BWS/FORMAT_CHECK" 2>/dev/null)"
 
-# Tests run once, at the end, in FIX-FINAL. Nothing before it may be told to run the suite.
+# The full suite never runs locally. Every prompt says so, and none tells a session to run it.
 for f in implementer-prompt.md continuation-prompt.md review-fix-prompt.md review-find-prompt.md; do
-  grep -q 'TESTS RUN ONCE, AT THE END, IN FIX-FINAL\|Tests run once in this sprint, at the end, in FIX-FINAL' "$REF/$f" \
-    && ok "$f carries the tests-once rule" || no "$f carries the tests-once rule" "rule missing"
+  grep -q 'THE FULL SUITE NEVER RUNS LOCALLY IN THIS SPRINT' "$REF/$f" \
+    && ok "$f carries the no-local-suite rule" || no "$f carries the no-local-suite rule" "rule missing"
 done
+if grep -q '^ *<VERIFY> *$' "$REF/review-fix-prompt.md"; then
+  no "FIX-FINAL does not run the full suite" "review-fix-prompt.md still has a <VERIFY> command line"
+else
+  ok "FIX-FINAL does not run the full suite"
+fi
 # The repo's own "run the tests before you commit" must not win over the sprint's rule.
 for f in implementer-prompt.md continuation-prompt.md review-fix-prompt.md handback.sh; do
-  grep -q 'skip that until FIX-FINAL' "$REF/$f" \
+  grep -q 'skip that entirely' "$REF/$f" \
     && ok "$f overrides a repo rule to test before commit" || no "$f overrides a repo rule to test before commit" "override missing"
 done
 if grep -q 'verify green' "$REF/revive.sh"; then
