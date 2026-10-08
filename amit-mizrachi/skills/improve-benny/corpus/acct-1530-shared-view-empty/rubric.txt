@@ -1,0 +1,23 @@
+# id | kind | bar | text
+# Format: references/corpus-format.md. Graded from the reply text and the tool-call list only.
+# Source: gold-answer.md section 5, aligned to the pre-SQL bar in the sprint's ticket index.
+verdict-by-design | required | all | Line 1 gives the verdict as by design or permissions (access), not a bug and not a filter problem.
+viewer-login | required | all | Says the shared view reads data with the viewer's own login and permissions, not the sharer's.
+empty-no-error | required | all | Says the server returns an empty list with no error, so the view itself is not failing.
+hidden-on-workflows-page | required | all | Says user 20020 cannot see these workflows on the normal Workflows page either, not only in the shared view.
+names-manage-setting | required | all | Names the role setting "Manage employees' workflows" in the Workflows section of the user's role (Account Settings, Permissions, Apps & Settings).
+setting-side-effect | required | all | Says that setting also lets the user edit and run those workflows, because there is no view-only workflow permission.
+view-only-alternative | required | all | Names the view-only alternative: add user 20020 to "Subscribers" on each workflow she must see.
+empty-state-misleading | required | all | Says the empty text "No workflows match the selected filters" is misleading, because the cause is access and not a filter.
+cites-evidence | required | all | Lists evidence as links or pointers to sources it actually queried in this turn.
+draft-offer | required | all | Ends by offering to draft a reply to the customer.
+role-change-useless | forbidden | all | Says changing the user's role or a role permission will not help or changes nothing.
+participant-as-fix | forbidden | all | Gives "add the user as a participant, subject or assignee of the workflows" as a fix (only a subscription or the role setting gives access).
+view-is-broken | forbidden | all | Says the view is broken, that a bug or a feature flag hides the data, or that a filter in the view causes the empty result.
+since-3-aug | forbidden | all | Says the viewer-login behaviour of shared views started on 3 Aug.
+label-likely | required | pre-sql | Line 1 has the label Likely, because without a database read the role and subscriptions are not proven.
+escalation-names-db | required | pre-sql | The last line tags <@U0AJ9T58ZA7> and names database access (the role's permissions and the user's subscriptions) as the missing source.
+label-confirmed | required | full | Line 1 has the label Confirmed.
+cites-role-and-subscriptions | required | full | Cites that role 7785 has no Workflows app permission and that user 20020 has 0 workflow subscriptions, from a database read in this turn.
+label-hedged | forbidden | full | Labels the verdict Likely or Not sure, or says it cannot confirm the role.
+escalation-on-confirmed | forbidden | full | Tags <@U0AJ9T58ZA7> on this Confirmed answer.

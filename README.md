@@ -1,9 +1,10 @@
 # amit-mizrachi
 
-Seven [Claude Code](https://claude.com/claude-code) skills for running work you are not
+Eight [Claude Code](https://claude.com/claude-code) skills for running work you are not
 sitting and watching - handing a session off, turning a feature into a spec and tickets, taking
 it through the night, researching a product question end to end, taking a feature from idea to
-plan to PR, and keeping a big effort's map legible - plus `codex-bridge`, an MCP server that lets
+plan to PR, keeping a big effort's map legible, and turning a bad answer from an agent into a
+lasting fix - plus `codex-bridge`, an MCP server that lets
 Claude ask OpenAI Codex for a second opinion, `night-watch`, a live terminal board of every
 sprint and marathon in flight, and the macOS hook that stops your machine sleeping through it.
 
@@ -16,7 +17,8 @@ sprint and marathon in flight, and the macOS hook that stops your machine sleepi
 
 Start a new session (or `/clear`). The skills then appear as `amit-mizrachi:next-prompt`,
 `amit-mizrachi:night-sprint`, `amit-mizrachi:product-research`, `amit-mizrachi:to-spec`,
-`amit-mizrachi:to-tickets`, `amit-mizrachi:night-marathon`, and `amit-mizrachi:mywayfinder`.
+`amit-mizrachi:to-tickets`, `amit-mizrachi:night-marathon`, `amit-mizrachi:mywayfinder`,
+and `amit-mizrachi:improve-benny`.
 
 ## What's in it
 
@@ -281,6 +283,42 @@ the ticket array, because counts typed into markup go stale on their own schedul
 > It looks for `wayfinder` in your available skills, then `~/.claude/skills/`, then
 > `~/.agents/skills/`, and stops with an explanation if it finds none rather than improvising
 > a substitute.
+
+### `improve-benny`
+
+Turns one bad answer from **Benny** - the Machina agent (`benny`) CS asks in Slack before a
+ticket reaches Dev of the Day - into a lasting fix. Give it the Slack thread link (or paste the
+case):
+
+```
+/improve-benny https://<workspace>.slack.com/archives/C0BBE07EYUE/p1791378561557049 --no-apply
+```
+
+1. It reads the whole thread: the question, every Benny reply, and what the humans said was
+   wrong.
+2. It reads Benny live through the Machina MCP - spec, effective tools, credentials, skill
+   bodies - and his own turn in Logfire.
+3. An **Opus investigator subagent** builds the **gold answer** from primary sources (code at
+   `origin/main`, the replica database, Coralogix, Logfire). It is written in Benny's reply
+   shape, every fact carries a pointer that resolves (a code line at a sha, an account-scoped
+   query, a log query), and the claims made in the thread are checked, not copied.
+4. A **gap report** says why Benny could not give that answer, each gap classed as `access`,
+   `credential`, `config`, `skill-knowledge`, `reply-style`, `judgement` or `budget`, with the
+   exact surface to fix and whether only a human can do it.
+5. The case is saved to the **regression corpus**, `skills/improve-benny/corpus/<case-id>/`:
+   the case, the gold answer, a machine-readable rubric (required and forbidden claims, per bar)
+   and an append-only verdict history. Case ids are account ids plus a symptom
+   (`acct-1530-shared-view-empty`); the corpus holds **ids only, never a person name**, and
+   `tests/check.sh` enforces the format.
+
+Rules it never bends: it never posts in Slack, and with `--no-apply` it makes **zero Machina
+writes** (its run log lists every Machina call as read or write). Invoking it is your permission
+for its Opus subagents; it uses no others. Run directories (prior copies, logs) live outside the
+repo and are never committed.
+
+This version stops after the corpus case: every run behaves as `--no-apply`. Applying fixes to
+live Benny, replaying the corpus (`--corpus-only`) and grading replays with an Opus judge come
+next.
 
 ### `night-watch` (a command, not a skill)
 
