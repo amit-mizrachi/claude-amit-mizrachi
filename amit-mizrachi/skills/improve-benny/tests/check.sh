@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Static check of the improve-benny corpus: layout, rubric format, verdict history, no emails.
+# Static check of the improve-benny corpus: layout, rubric format, verdict history (shape and
+# pass/item consistency), no emails.
 # Format spec: references/corpus-format.md. Usage: bash tests/check.sh [corpus dir]
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -70,8 +71,15 @@ for case in cases:
         for k in ("utc", "run", "bar", "items", "pass"):
             if k not in v:
                 fails.append("%s/verdicts.jsonl:%d: missing %s" % (case, n, k))
-        if not set(v.get("items", {})) <= ids:
+        items = v.get("items", {})
+        if not set(items) <= ids:
             fails.append("%s/verdicts.jsonl:%d: grades items not in rubric.txt" % (case, n))
+        if set(items.values()) - {"pass", "fail"}:
+            fails.append("%s/verdicts.jsonl:%d: an item grade is not pass or fail" % (case, n))
+        if v.get("pass") is not (bool(items) and all(g == "pass" for g in items.values())):
+            fails.append("%s/verdicts.jsonl:%d: pass must be true exactly when every item passes" % (case, n))
+        if not set(v.get("split", [])) <= set(items):
+            fails.append("%s/verdicts.jsonl:%d: split names items it did not grade" % (case, n))
     for f in FILES:
         for n, line in enumerate(open(os.path.join(d, f), encoding="utf-8"), 1):
             for e in EMAIL.findall(line):

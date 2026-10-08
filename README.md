@@ -316,9 +316,28 @@ writes** (its run log lists every Machina call as read or write). Invoking it is
 for its Opus subagents; it uses no others. Run directories (prior copies, logs) live outside the
 repo and are never committed.
 
-This version stops after the corpus case: every run behaves as `--no-apply`. Applying fixes to
-live Benny, replaying the corpus (`--corpus-only`) and grading replays with an Opus judge come
-next.
+**Replay and grade.** To see how today's Benny does on every saved case:
+
+```
+/improve-benny --corpus-only
+```
+
+For each case it sends the case's replay message to live Benny over the chat transport
+(`send_chat_turn`, never Slack, on a fresh server-minted session, so never a conversation a
+human is in), reads the turn's Logfire trace for the tools he called and which errored, and has
+**two Opus judges** grade the reply against the rubric, pass or fail per item with a one-line
+reason. An item passes only when both judges pass it, and a split is recorded as a rubric item
+to sharpen. A case passes when every required item passes and no forbidden claim appears; the
+result is appended to the case's `verdicts.jsonl`. `scripts/grade.py` does the deterministic
+half (fills the judge prompt, merges the judges, appends the line). `--corpus-only` makes zero
+Machina writes.
+
+Run with a thread link and no `--no-apply`, it builds the case and then replays and grades it.
+Applying fixes to live Benny is not in this version yet.
+
+Known limit: on the chat door Benny runs with most of his telemetry tools dormant (on
+2026-10-08: 20 tools offered, 37 dormant, no Coralogix or Logfire), so a replay can fail an item
+he would pass in Slack. Every replay record and verdict line says what was dormant.
 
 ### `night-watch` (a command, not a skill)
 

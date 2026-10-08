@@ -1,6 +1,6 @@
 ---
 name: improve-benny
-description: Turns one bad answer from Benny (the Machina CS triage agent in Slack) into a lasting fix. From a Slack thread link or a pasted case it builds a verified gold answer with an Opus investigator subagent, finds why Benny could not give it (access, credential, config, skill knowledge, reply style, judgement, budget), and saves the case to a regression corpus of ids-only cases. Use when the user says "improve benny", "/improve-benny", "benny answered wrong", "benny did not help here", "teach benny", "why couldn't benny answer this", or pastes a CS thread where Benny's answer was wrong, hedged or incomplete.
+description: Turns one bad answer from Benny (the Machina CS triage agent in Slack) into a lasting fix. From a Slack thread link or a pasted case it builds a verified gold answer with an Opus investigator subagent, finds why Benny could not give it (access, credential, config, skill knowledge, reply style, judgement, budget), saves the case to a regression corpus of ids-only cases, and replays that corpus to live Benny with an Opus judge grading each reply per rubric item. Use when the user says "improve benny", "/improve-benny", "benny answered wrong", "benny did not help here", "teach benny", "why couldn't benny answer this", "replay the benny corpus", "grade benny", "did benny get better", or pastes a CS thread where Benny's answer was wrong, hedged or incomplete.
 argument-hint: "<slack-thread-link | pasted case> [--no-apply] [--corpus-only] [--run-dir <path>]"
 ---
 
@@ -13,14 +13,18 @@ answers badly, this skill finds the answer he should have given, proves every fa
 each reason he could not reach it, and keeps the case as a permanent regression test.
 
 You run in the user's session. **Invoking this skill is the user's permission for its subagent
-roles**: the gold-answer investigator (and, once built, the judge), both on Opus
+roles**: the gold-answer investigator and the judge (two per replay), all on Opus
 (`model: "opus"`). Use no other subagents.
 
 ## Hard rules
 
 - **Never post in Slack.** Read threads only. No reply, reaction, draft or DM, ever.
 - **Machina: reads only, unless the apply step runs.** Every Machina call goes into the run log
-  as `read` or `write`. `--no-apply` must end with zero writes, and the run log proves it.
+  as `read`, `turn` (a `send_chat_turn`: Benny answers, nothing in his config changes) or
+  `write`. `--no-apply` and `--corpus-only` must end with zero writes, and the run log proves it.
+- **A replay never joins a human's conversation.** Call `send_chat_turn` WITHOUT `session`: the
+  server mints a fresh `cnv_` id per call (it refuses a made-up id anyway). Never `try_agent_turn`
+  (60 s cap, too short for Benny) and never a Slack door.
 - **Ids only in the corpus.** Account, user, view-def, session ids. Never a person name - not
   the customer user, not the CSM, not the sharer. Strip names from quoted text.
 - **The gold answer comes from sources, never from the thread.** Other bots' and humans'
@@ -35,8 +39,8 @@ roles**: the gold-answer investigator (and, once built, the judge), both on Opus
 | Invocation | Does |
 |---|---|
 | `<thread link or pasted case> --no-apply` | steps 1-6 and the report: gold answer, gap report, corpus case. Zero Machina writes |
-| `<thread link or pasted case>` | the same, then apply, replay and grade. **Not in this version**: run as `--no-apply` and say so |
-| `--corpus-only` | replay every corpus case and grade it. **Not in this version**: say so and stop |
+| `<thread link or pasted case>` | the same, then replay and grade that one case (R1-R4). Apply is **not in this version**: say so |
+| `--corpus-only` | step 0, then R1-R4 for every corpus case: a graded table, one verdict line per case. Zero Machina writes |
 
 A thread link is `https://<workspace>.slack.com/archives/<channel>/p<ts without the dot>`;
 the parent ts is `<first 10 digits>.<rest>`. A pasted case is any text with the question,
@@ -49,7 +53,7 @@ Benny's answer and what was wrong; ask for the account id if it is missing.
 Use `--run-dir` if given, else `~/improve-benny/runs/<utc compact>-<case id>/` (not under
 `~/.claude`: Claude Code guards writes there). Never commit a run directory. Start
 `<RUN>/run-log.md` with the mode, then append one line per Machina call:
-`<utc> | <tool> | <target> | read|write | <one-line result>`.
+`<utc> | <tool> | <target> | read|turn|write | <one-line result>`.
 
 ### 1. Read the case
 
@@ -102,7 +106,67 @@ you finish; none may remain. Run `bash <skill dir>/tests/check.sh`.
 
 Tell the user, in this order: the gold verdict and label (and any disagreement with the
 brief), the gaps by class with the ones that need a human, the corpus path, and the Machina
-calls of the run as `<n> reads, <n> writes`.
+calls of the run as `<n> reads, <n> turns, <n> writes`. Without `--no-apply`, go on to R1.
+
+## Replay and grade
+
+### R1. Preflight
+
+`check_agent_channels benny` must say `chatTestable: true`; if not, stop and report it.
+`list_spec_archives benny`: the newest key is the `spec_archive` of every replay in this run (the
+live spec is the one written after it).
+
+### R2. Replay each case
+
+Cases are the folders of `corpus/` that do not start with `_`. For each, one call:
+`send_chat_turn` with `agent: "benny"`, `message` = the case's `## Replay message` section
+verbatim, no `session`, `timeout_seconds: 300`. Log it as a `turn`.
+
+| Outcome | Do |
+|---|---|
+| `replied` | go on |
+| `awaiting-human` | answer it once with `decision: "deny"`, `note: "replay, no human here"` (same `session`), and grade the reply that follows |
+| `timeout`, `withheld`, an error | re-send once; still no reply: the case is `not graded: <outcome>` in the report, and no verdict line |
+
+### R3. The replay record
+
+The turn result names the tools but often says `no-result` for every outcome. Read the truth from
+Logfire (project `shapes-internal`), with the turn's `sessionId` as the conversation id:
+
+```sql
+-- the turn: trace, spec version, tools offered vs dormant (window: the minute of the replay)
+SELECT trace_id, attributes->>'shapes.agent.spec_version', attributes->>'agent.tools.available',
+       attributes->>'agent.tools.gap_count', attributes->>'agent.turn.step_cap_hit'
+FROM records WHERE span_name = 'invoke_agent benny'
+  AND attributes->>'gen_ai.conversation.id' = '<sessionId>'
+-- each tool: name, argument and result head
+SELECT span_name, otel_status_code, is_exception, left(attributes->>'gen_ai.tool.call.arguments', 200),
+       left(attributes->>'gen_ai.tool.call.result', 300)
+FROM records WHERE trace_id = '<trace>' AND span_name LIKE 'execute_tool%' ORDER BY start_timestamp
+```
+
+A tool's outcome is `error` when its status is `ERROR`, it is an exception, or its result head
+is a failure ("Logfire authentication failed", a 401/403, "not found", a refusal); keep that first
+line as `error`. Otherwise `ok`. Write `<RUN>/<case id>/replay.json` (format in
+`references/corpus-format.md`). When `agent.tools.gap_count` is not 0, say in the record's `note`
+which registered tools were dormant: a reply that lacks a source Benny could not reach in this
+door is a replay-fidelity gap, not a skill gap.
+
+### R4. Judge, twice, and record
+
+1. `python3 <skill dir>/scripts/grade.py prompt <case dir> <RUN>/<case id>/replay.json > <RUN>/<case id>/judge-input.md`
+2. In ONE message, two Agent calls (`model: "opus"`), each: "Read `<RUN>/<case id>/judge-input.md`
+   and do exactly what it says. Read no other file and call no other tool. Your final message is
+   the single JSON object it asks for." Save the answers as `judge-1.json` and `judge-2.json`. A
+   judge that answers anything but that JSON is re-run once.
+3. `python3 <skill dir>/scripts/grade.py record <case dir> <RUN>/<case id>/replay.json <RUN>/<case id>/judge-1.json <RUN>/<case id>/judge-2.json --run <run dir name>`
+   prints the graded table and appends the verdict line. An item passes only when both judges
+   pass it; a `split` item is a rubric item to sharpen, never a coin to flip again.
+4. `bash <skill dir>/tests/check.sh`.
+
+Report per case: PASS or FAIL at its bar, the failed items with their one-line reasons, judge
+agreement, the tools that errored or were dormant; then the run's Machina calls as
+`<n> reads, <n> turns, <n> writes`.
 
 ## Red flags - stop
 
@@ -114,3 +178,6 @@ calls of the run as `<n> reads, <n> writes`.
 | "The customer's first name makes the case clearer" | Ids only. The corpus is permanent |
 | "`SELECT *` from Users is faster" | List the columns. Never a credential column |
 | "This pointer is close enough" | It resolves or the fact leaves the table |
+| "I'll reuse the thread's session so Benny has the context" | Fresh session per replay. The case's replay message carries the context |
+| "The judges split; one more run will settle it" | Record it as `fail` + `split`, and sharpen the item text |
+| "This case fails because the rubric is too strict, I'll drop the item" | The rubric changes only with new evidence. Never to make a case pass |
