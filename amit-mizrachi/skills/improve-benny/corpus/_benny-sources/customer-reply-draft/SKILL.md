@@ -59,7 +59,7 @@ setting and the Subscribers option as next steps.
 > We checked the shared view. The view works. It appears that the user does not have access to these workflows, so the view shows an empty list.
 > This is because a shared view shows each person only the data they are allowed to see.
 > What you can do:
-> 1. To let the user see all these workflows, an admin goes to Account Settings > Permissions, opens the user's role, and turns on "Manage employees' workflows" under Workflows. This also lets the user edit and run those workflows.
+> 1. To let the user see all these workflows, an admin goes to Account Settings > Permissions, opens the user's role, goes to the Apps & Settings tab, opens Workflows and turns on "Manage employees' workflows". This also lets the user edit and run those workflows.
 > 2. To give view access only, add the user to "Subscribers" on each workflow they must see.
 > Let us know if you want help with either option.
 

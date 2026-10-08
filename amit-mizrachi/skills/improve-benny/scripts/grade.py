@@ -48,6 +48,19 @@ def section(text, heading, stop):
     return m.group(1).strip() if m else ""
 
 
+EVIDENCE = re.compile(r"^\W*evidence\b", re.I)
+OFFER = re.compile(r"want me to draft a reply", re.I)
+
+def reply_words(reply):
+    """Words from line 1 up to the Evidence heading, else up to the draft offer (the 150-word limit)."""
+    lines = reply.strip().splitlines()
+    for stop in (EVIDENCE, OFFER):
+        cut = next((n for n, l in enumerate(lines) if stop.search(l)), None)
+        if cut is not None:
+            lines = lines[:cut]
+            break
+    return sum(1 for w in " ".join(lines).split() if re.search(r"\w", w))
+
 def load_json(path):
     try:
         return json.loads(read(path))
@@ -125,13 +138,15 @@ def cmd_record(case_dir, replay_path, j1, j2, run, dry):
         "pass": passed,
         "judges": 2,
         "agreement": "%d/%d" % (len(ids) - len(split), len(ids)),
+        "reply_words": reply_words(replay["reply"]),
         "split": split,
         "fails": fails,
         "note": replay.get("note", ""),
     }
     w = max(len(i) for i in ids)
-    print("%s - %s (bar %s), judges agree %s" % (
-        os.path.basename(os.path.normpath(case_dir)), "PASS" if passed else "FAIL", line["bar"], line["agreement"]))
+    print("%s - %s (bar %s), judges agree %s, reply words %d (limit 150)" % (
+        os.path.basename(os.path.normpath(case_dir)), "PASS" if passed else "FAIL", line["bar"], line["agreement"],
+        line["reply_words"]))
     for iid, kind, _ in items:
         mark = "split " if iid in split else ""
         print("  %-*s  %-9s %s%s  %s" % (w, iid, kind, mark, merged[iid], fails.get(iid, "")))

@@ -94,7 +94,7 @@ appears.
 One JSON object per line, appended by `scripts/grade.py record` (step R4), oldest first:
 
 ```
-{"utc": "...", "run": "<run dir name>", "bar": "pre-sql", "benny_session": "cnv_...", "spec_archive": "benny/spec@<ts>", "spec_version": "sv1-...", "tools": ["search_code ok", "logfire_query error"], "items": {"verdict-by-design": "pass", "role-change-useless": "pass"}, "pass": false, "judges": 2, "agreement": "16/16", "split": [], "fails": {"draft-offer": "<judge's one-line reason>"}, "note": "<one line>"}
+{"utc": "...", "run": "<run dir name>", "bar": "pre-sql", "benny_session": "cnv_...", "spec_archive": "benny/spec@<ts>", "spec_version": "sv1-...", "tools": ["search_code ok", "logfire_query error"], "items": {"verdict-by-design": "pass", "role-change-useless": "pass"}, "pass": false, "judges": 2, "agreement": "16/16", "reply_words": 132, "split": [], "fails": {"draft-offer": "<judge's one-line reason>"}, "note": "<one line>"}
 ```
 
 - `items` holds every rubric item in force at `bar`, each `pass` or `fail`. For a `required` item,
@@ -105,6 +105,9 @@ One JSON object per line, appended by `scripts/grade.py record` (step R4), oldes
 - `spec_archive` is the newest `list_spec_archives` key at replay time (the live spec is the
   one written after it); `spec_version` is `shapes.agent.spec_version` from the turn's trace.
 - `tools`: `<name> <ok|error|no-result>` per call, in call order.
+- `reply_words`: the words of the reply from line 1 up to the Evidence heading (up to the draft
+  offer when there is no evidence list), counted by `grade.py`. Benny's limit is under 150; no
+  rubric item grades it, so read it from this field.
 
 `utc`, `run`, `bar`, `items` and `pass` are required (`tests/check.sh`); T02-era lines may lack
 the rest. A new case starts with an empty file. Never rewrite a line; a regrade appends a new one.
