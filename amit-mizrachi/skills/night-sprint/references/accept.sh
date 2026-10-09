@@ -48,7 +48,10 @@ cd "$WT" || { verdict "UNKNOWN - no-worktree $WT"; exit 2; }
 LOCAL="$(git rev-parse HEAD 2>/dev/null || echo)"
 [ -n "$LOCAL" ] || { verdict "UNKNOWN - cannot read HEAD"; exit 2; }
 
-PR="$(gh pr view --json number -q .number 2>/dev/null || echo)"
+# Ask by branch name, not by the checkout: the CI watcher's worktree is a detached HEAD, and a bare
+# `gh pr view` there finds no branch, so no PR, and the watcher stalls on UNKNOWN.
+BRANCH="$(tr -d '[:space:]' < "$WS/BRANCH" 2>/dev/null || echo)"
+PR="$(gh pr view ${BRANCH:+"$BRANCH"} --json number -q .number 2>/dev/null || echo)"
 [ -n "$PR" ] || { verdict "UNKNOWN $LOCAL no PR on this branch yet"; exit 2; }
 
 # THE AUTHORITY IS THE PR'S HEAD, NOT A LOCAL REF.

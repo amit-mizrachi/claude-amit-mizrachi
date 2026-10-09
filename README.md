@@ -120,7 +120,8 @@ The parts that make it survive an unattended night:
   writes `state/GOLDEN.verdict` separately. The morning report's headline comes from those two files.
 - **Nobody waits on CI.** The last session that pushes code hands CI to ONE detached watcher session
   (`ci-watch.sh`) and advances at once. The watcher runs outside the chain, in its own worktree: it
-  waits for the required checks, fixes and pushes what is red (three passes at most), and takes the
+  waits for the required checks, fixes and pushes what is red - failures inherited from the base
+  branch included (three passes at most) - and takes the
   PR out of draft on green. The report says `PENDING` and names the watcher when CI has not finished.
 - **Finished sessions are removed.** Once a tag is terminal and the chain has moved past it, the
   runner stops its session and takes it off the agent list with `claude rm`. The shared worktree

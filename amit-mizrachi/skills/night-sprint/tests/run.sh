@@ -1556,5 +1556,18 @@ grep -q 'accept\.sh' "$REF/review-find-prompt.md" \
   && no "the finder never runs accept.sh" "it still does" || ok "the finder never runs accept.sh"
 
 echo
+echo "== the CI watcher fixes red checks, inherited ones too =="
+grep -q 'red on the base branch too - gets ONE' "$REF/ci-watch-prompt.md" \
+  && no "a base-branch failure is not a rerun-and-stop" "the old escape hatch is back" \
+  || ok "a base-branch failure is not a rerun-and-stop"
+grep -q 'That includes a check that is red on the base branch too' "$REF/ci-watch-prompt.md" \
+  && ok "a base-branch failure goes to the fix step" || no "a base-branch failure goes to the fix step" "no such rule"
+grep -q 'BLOCKED is for exactly two cases' "$REF/ci-watch-prompt.md" \
+  && ok "BLOCKED is narrowed to two cases" || no "BLOCKED is narrowed to two cases" "no such rule"
+grep -qF 'gh pr view ${BRANCH:+"$BRANCH"}' "$REF/accept.sh" \
+  && ok "accept.sh finds the PR by branch, so a detached watcher worktree works" \
+  || no "accept.sh finds the PR by branch, so a detached watcher worktree works" "bare gh pr view"
+
+echo
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

@@ -164,7 +164,7 @@ Decide that deliberately rather than discovering it in the morning.
 | **Review finder** | 1 per review | **never** | run the selected lanes, triage, write the findings manifest, post ONE PR comment, choose the fix route |
 | **Review fixer** | 0 or 1 per finder | yes (fixes only) | work the manifest, reply on external threads, check, push. Static checks; `FIX-FINAL` and `FIX-TEST` may add a few targeted tests, never the suite |
 | **Tester** | 0 or 1 | no | exercise the built thing, report PASS/FAIL per step, write `GOLDEN.verdict` |
-| **CI watcher** | 0 or 1, **outside the chain** | yes (CI fixes only) | started by `ci-watch.sh` from the final stage; waits for the required checks at the pushed head, fixes and pushes what is red (three passes at most), takes the PR out of draft on green, writes `ACCEPTANCE.verdict`. **Nothing waits for it** - not the runner, not TEST, not you |
+| **CI watcher** | 0 or 1, **outside the chain** | yes (CI fixes only) | started by `ci-watch.sh` from the final stage; waits for the required checks at the pushed head, fixes and pushes what is red, inherited base-branch failures included (three passes at most), takes the PR out of draft on green, writes `ACCEPTANCE.verdict`. **Nothing waits for it** - not the runner, not TEST, not you |
 
 ### The full suite never runs locally
 
