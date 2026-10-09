@@ -630,6 +630,24 @@ tag whose rendered prompt mentions `ci-watch.sh`, for the same reason it refused
 answer, and the watcher's own PR comment and `state/ci-watch/status` carry the result. The PR leaves
 draft only when the watcher sees green, which may be after the report.
 
+## The CI watcher watched instead of fixing (2026-10-09, living-cortex)
+
+PR #568 went red on `static` and `test-apps`. The watcher read the logs, found the real cause - main
+had been red since #569 (an empty bundled `stage-policy.json`) - ran one rerun, and wrote `BLOCKED:
+red lanes inherited from main, not this branch` with 0 fixes pushed. It was obeying its prompt: "a
+check that is red on the base branch too" was filed with flakes and outages as "not this branch's",
+worth ONE rerun, and nothing said what to do when the rerun came back red. The user's call: the
+watcher fixes CI, it does not just report it. A PR that cannot merge is just as red whoever broke it.
+
+**What changed.** The rerun is now only for flaky or infra failures, and a rerun that comes back red
+goes to the fix step. A failure inherited from the base branch is fixed on this branch like any other,
+with the breaking base commit named in the commit and the summary. BLOCKED is allowed in two cases
+only: the same lane still red after three pushed fixes, or a cause no commit can fix (a CI secret, a
+bot permission, an outage that outlasts a rerun), and then it says what a human must do.
+
+**Also.** `accept.sh` found the PR with a bare `gh pr view`, which resolves nothing on the watcher's
+detached HEAD; the watcher had to check out a local branch by hand. It now asks by `<WS>/BRANCH`.
+
 ## A deleted cwd put three sessions on one tag (2026-10-04, machina-stage-c-production)
 
 The conductor ran `cd inputs/stage-c-spec/issues` at 07:11Z and started the runner from that shell
