@@ -53,6 +53,8 @@ Read <NS_DIR>/SKILL.md, then <NS_DIR>/references/research-mode.md. Kickoff steps
 
   bash <WS>/render.sh <WS> <NM_DIR>/references/plan-synth-prompt.md <WS>/prompt-SYNTH.txt <WS>/vars-SYNTH.env
 
+The run's facts.env already says `BLITZ=<BLITZ>`. With `1`, wire the research tickets as research-mode.md's blitz paragraph says (queued, isolated, `.after` only where a question needs another's answer) and start them with `schedule.sh`.
+
 Each ticket's GOTCHAS line starts with: "Read code ONLY in <REPO_SNAPSHOT>, never in <REPO_PATH>; never edit it. Cite code as repo:<path>:<line> @<short sha>."
 
 ## STEP 4 - THE MONITOR LOOP

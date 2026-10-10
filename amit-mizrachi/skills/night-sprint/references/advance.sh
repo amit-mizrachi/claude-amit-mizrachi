@@ -53,6 +53,12 @@ case "$status" in
     # half of the previous one, with both sessions committing to the same branch.
     next="${status#RELAYED}"; next="${next#:}"; next="$(printf '%s' "$next" | tr -d '[:space:]')"
     reason="relay"
+    # A continuation finishes the SAME ticket, so it works in the same tree. A blitz ticket's
+    # tree is its own (state/<TAG>.cwd); without this copy T03c2 would start in the shared
+    # worktree, on the sprint branch, with none of T03's uncommitted reasoning on disk.
+    if [ -n "$next" ] && [ -f "$STATE/$TAG.cwd" ] && [ ! -f "$STATE/$next.cwd" ]; then
+      cp "$STATE/$TAG.cwd" "$STATE/$next.cwd"
+    fi
     ;;
   DONE*|SKIPPED*)
     next=""

@@ -311,15 +311,15 @@ ENV
 out="$(bash "$REF/bootstrap.sh" "$BWS" "$REF" 2>&1)"; rc=$?
 check "with facts.env: bootstrap succeeds" "0" "$rc"
 # agents.sh is sourced on the first line of four scripts. A workspace without it has a
-# launcher, a reviver, a runner and a handback that all fail before doing anything.
+# launcher, a reviver, a runner and a closer that all fail before doing anything.
 for need in agents.sh launch.sh advance.sh watch.sh runner.sh revive.sh classify-error.sh \
-            context-used.sh handback.sh accept.sh ci-watch.sh ci-watch-prompt.md render.sh continuation-prompt.md; do
+            context-used.sh schedule.sh land.sh accept.sh ci-watch.sh ci-watch-prompt.md render.sh continuation-prompt.md; do
   [ -f "$BWS/$need" ] && ok "copied $need" || no "copied $need" "absent from $BWS"
 done
 check "PERMISSION_MODE defaults to auto" "auto" "$(cat "$BWS/PERMISSION_MODE")"
 check "CONTEXT_WINDOW derived from facts.env" "1000000" "$(cat "$BWS/CONTEXT_WINDOW")"
 check "VERIFY derived whole, spaces and all" "pnpm nx affected -t typecheck test lint" "$(cat "$BWS/VERIFY")"
-check "FORMAT_CHECK derived for handback" "pnpm format:check" "$(cat "$BWS/FORMAT_CHECK" 2>/dev/null)"
+check "FORMAT_CHECK derived" "pnpm format:check" "$(cat "$BWS/FORMAT_CHECK" 2>/dev/null)"
 
 # The full suite never runs locally. Every prompt says so, and none tells a session to run it.
 for f in implementer-prompt.md continuation-prompt.md review-fix-prompt.md review-find-prompt.md; do
@@ -332,7 +332,7 @@ else
   ok "FIX-FINAL does not run the full suite"
 fi
 # The repo's own "run the tests before you commit" must not win over the sprint's rule.
-for f in implementer-prompt.md continuation-prompt.md review-fix-prompt.md handback.sh; do
+for f in implementer-prompt.md continuation-prompt.md review-fix-prompt.md; do
   grep -q 'skip that entirely' "$REF/$f" \
     && ok "$f overrides a repo rule to test before commit" || no "$f overrides a repo rule to test before commit" "override missing"
 done
@@ -340,11 +340,6 @@ if grep -q 'verify green' "$REF/revive.sh"; then
   no "revive does not tell a resumed session to run the suite" "revive.sh still says verify green"
 else
   ok "revive does not tell a resumed session to run the suite"
-fi
-if grep -q '\$VERIFY' "$REF/handback.sh"; then
-  no "handback (checkpoint fixes only) does not run the test suite" "handback.sh still uses \$VERIFY"
-else
-  ok "handback (checkpoint fixes only) does not run the test suite"
 fi
 [ -x "$BWS/launch.sh" ] && ok "scripts are executable" || no "scripts are executable" "launch.sh not +x"
 
@@ -371,7 +366,7 @@ leak="$(grep -l '<PR>' "$REF"/*prompt*.md 2>/dev/null | tr '\n' ' ')"
 # render.sh exits 2 on it. The prompts discover the number themselves instead.
 if [ -z "$leak" ]; then ok "F2 no template carries an unfillable <PR> slot"
 else no "F2 no template carries an unfillable <PR> slot" "still in: $leak"; fi
-grep -q 'gh pr view --json number' "$REF/review-find-prompt.md" \
+grep -q 'gh pr view <BRANCH> --json number' "$REF/review-find-prompt.md" \
   && ok "F2 the finder discovers the PR number at runtime" \
   || no "F2 the finder discovers the PR number at runtime" "no discovery line"
 
@@ -511,29 +506,15 @@ else
 fi
 rm -rf "$PROJ"
 
-# --- F3: handback must not drop a rendered prompt's acceptance obligations.
-HWS="$MWS/hb"; mkdir -p "$HWS/state"
-for f in agents.sh handback.sh context-used.sh; do cp "$REF/$f" "$HWS/"; done
-printf '%s\n' "$MWS/wt" > "$HWS/WORKTREE"
-printf 'mslug\n' > "$HWS/SLUG"
-printf 'auto\n' > "$HWS/PERMISSION_MODE"
-printf 'F1 something\n' > "$HWS/findings.md"
-printf 'work the list, then: bash <WS>/accept.sh <WS>\n' > "$HWS/prompt-FIX-FINAL.txt"
-out="$(PATH="$MBIN:$PATH" bash "$HWS/handback.sh" "$HWS" FIX-FINAL T07 "$HWS/findings.md" 2>&1)"; rc=$?
-check "F3 handback refuses a tag whose prompt has an acceptance gate" "1" "$rc"
-case "$out" in
-  *"acceptance gate"*) ok "F3 it says why, so the caller launches the rendered fixer" ;;
-  *) no "F3 it says why, so the caller launches the rendered fixer" "got: $out" ;;
-esac
-[ ! -d "$HWS/state/claim-FIX-FINAL" ] && ok "F3 it leaves no claim behind for the fallback" \
-  || no "F3 it leaves no claim behind for the fallback" "claim-FIX-FINAL exists, so launch.sh would no-op"
-rm -rf "$HWS/state/claim-FIX-FINAL"
-printf 'work the list, then: bash <WS>/ci-watch.sh <WS>\n' > "$HWS/prompt-FIX-FINAL.txt"
-out="$(PATH="$MBIN:$PATH" bash "$HWS/handback.sh" "$HWS" FIX-FINAL T07 "$HWS/findings.md" 2>&1)"; rc=$?
-check "F3 handback refuses a tag whose prompt hands CI to the watcher" "1" "$rc"
-grep -q 'a FINAL review always launches its rendered fixer' "$REF/review-find-prompt.md" \
-  && ok "F3 the finder is told not to hand back on a FINAL review" \
-  || no "F3 the finder is told not to hand back on a FINAL review" "no such rule"
+# --- F3 (async reviews): a checkpoint finder launches nothing, and FIX-FINAL is always a fresh
+# session, because its rendered prompt carries the acceptance gate a resumed session would drop.
+grep -q 'A CHECKPOINT review (REVIEW-C<n>) launches nothing' "$REF/review-find-prompt.md" \
+  && ok "F3 a checkpoint finder launches no fixer" || no "F3 a checkpoint finder launches no fixer" "no such rule"
+grep -q 'always a fresh fixer, because its rendered prompt carries the acceptance gate' "$REF/review-find-prompt.md" \
+  && ok "F3 REVIEW-FINAL always launches its rendered fixer" \
+  || no "F3 REVIEW-FINAL always launches its rendered fixer" "no such rule"
+[ ! -e "$REF/handback.sh" ] && ok "F3 handback.sh is gone with the checkpoint fixers" \
+  || no "F3 handback.sh is gone with the checkpoint fixers" "still shipped"
 
 # --- Finished sessions are removed from the agent list, and only once their last turn has ended.
 CWS="$MWS/cl"; mkdir -p "$CWS/state"
@@ -800,6 +781,9 @@ BASE=main
 REPO_SNAPSHOT=$QWS/repo
 REPO_SHA=8a2256f
 BUILD_TEST=none
+SPEED=serial
+BLITZ=0
+MAX_PARALLEL=3
 DEPTH=5
 NS_DIR=$HERE/..
 NM_DIR=$HERE/../../night-marathon

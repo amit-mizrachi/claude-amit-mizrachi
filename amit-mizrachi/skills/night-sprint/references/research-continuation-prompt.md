@@ -7,9 +7,16 @@ You are tag <CONT_TAG>. You are NOT starting a new ticket. Ticket <NN> is alread
 Research: <RESEARCH_TITLE>
 Workspace: <WS>. Predecessor: <PREV_TAG>.
 
+{{^BLITZ}}
 WORK HERE - DO NOT CREATE A WORKTREE OR BRANCH:
   cd <WORKTREE>
 Local repo, branch <BRANCH>, no remote. You are the ONLY session touching it right now.
+{{/BLITZ}}
+{{#BLITZ}}
+WORK HERE - THE TICKET'S OWN WORKTREE. THIS IS A BLITZ RUN:
+  cd "$(cat <WS>/state/<CONT_TAG>.cwd)"
+Questions are researched side by side here. You are in a worktree of your own on branch <BRANCH>--<the ticket's first tag>, cut from <BRANCH> when the ticket started; other tickets are writing their own findings in other worktrees right now. Never touch another worktree, never commit to <BRANCH> yourself, never push, never rebase, never create a branch. Run `<VERIFY>` from inside this worktree: it checks this tree. Your findings reach <BRANCH> only through `<WS>/land.sh`, when you are done.
+{{/BLITZ}}
 
 THE RULES OF <WS>/prompt-T<NN>.txt STILL BIND YOU - read its "Sources you may use" section and the findings format before you do anything else. Above all: connectors are READ ONLY. Never send, post, draft, edit or comment on anything.
 
@@ -38,13 +45,21 @@ NOT answered yet - this is your work:
 
 ## Your contract
 
-1. START BY RE-ESTABLISHING GROUND TRUTH: `cd <WORKTREE> && git log --oneline -10` and read the findings file. Everything committed is kept.
+1. START BY RE-ESTABLISHING GROUND TRUTH: `git log --oneline -10` in the worktree named above, and read the findings file. Everything committed is kept.
 2. Finish ticket <NN> and nothing else.
 3. VERIFY: `<VERIFY>` must PASS before you commit.
 4. WHEN YOU ARE DONE - in this order:
    1. Commit with `SIGNAL: <CONT_TAG>-DONE` in the body (or `SIGNAL: <CONT_TAG>-BLOCKED: <reason>`). Do not push.
+{{#BLITZ}}
+   Then LAND IT: `bash <WS>/land.sh <WS> <CONT_TAG> merge` (BUSY, exit 75: run it again; CONFLICT, exit 3: keep both sides, `git add`, `git commit --no-edit`), run `<VERIFY>` again in this worktree, then `bash <WS>/land.sh <WS> <CONT_TAG> publish` (LANDED). Tickets write different files, so a conflict is rare; a VERIFY failure after the merge is yours to fix before publish.
+{{/BLITZ}}
    2. `echo "<the answer, in one line>" > <WS>/state/<CONT_TAG>.summary`
+{{^BLITZ}}
    3. `echo "<NEXT_TAG>" > <WS>/state/<CONT_TAG>.next` - what ticket <NN> was always going to hand off to.
+{{/BLITZ}}
+{{#BLITZ}}
+   3. Leave `.next` alone: the scheduler starts what comes next.
+{{/BLITZ}}
    4. `echo "DONE" > <WS>/state/<CONT_TAG>.status` (or `BLOCKED: <reason>`). LAST.
    5. `bash <WS>/advance.sh <WS> <CONT_TAG>`
 

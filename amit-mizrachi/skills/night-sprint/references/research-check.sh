@@ -27,6 +27,10 @@ FINAL=0
 
 WT="$(tr -d '[:space:]' < "$WS/WORKTREE" 2>/dev/null)"
 [ -n "$WT" ] && [ -d "$WT" ] || { echo "FAIL no worktree recorded in $WS/WORKTREE"; exit 1; }
+# A blitz ticket runs in its own tree, <WORKTREE>-<TAG>, and checks its findings there before it
+# lands them. Run from inside one, the check reads that tree; run from anywhere else, the shared one.
+TOP="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+case "$TOP" in "$WT"-?*) WT="$TOP" ;; esac
 
 python3 - "$WS" "$WT" "$FINAL" <<'PY'
 import glob, os, re, sys

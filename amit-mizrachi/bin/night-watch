@@ -16,8 +16,9 @@ NIGHT_WATCH_ROOTS (colon-separated) replaces the defaults.
 
 HOW PROGRESS IS COUNTED. A sprint is a chain: `state/<TAG>.next` names each tag's successor, and
 `state/<TAG>.status` is written last by the session that ran the tag. The board walks that chain
-from its head. A relay (`T03` -> `T03c2`) is one more session on the SAME stage, so continuations
-fold into the ticket they continue. A stage is finished when its last tag says DONE, SKIPPED or
+from its head - and from every QUEUED tag (`state/<TAG>.queued`: an async review, or a blitz
+ticket the scheduler starts), each its own head. A relay (`T03` -> `T03c2`) is one more session
+on the SAME stage, so continuations fold into the ticket they continue. A stage is finished when its last tag says DONE, SKIPPED or
 BLOCKED. The ETA is the average duration of the finished stages times the stages left, so it is
 rough on purpose: reviews and quota waits are not the same size as tickets.
 
@@ -190,10 +191,23 @@ def walk_chain(state):
         tag = os.path.basename(p)[:-5]
         if tag and not re.search(r"\s", tag):      # a tag with a space is a broken kickoff, not a tag
             nexts[tag] = (read1(p).split() or [""])[0]
-    if not nexts:
+    # A QUEUED tag (an async checkpoint review, every ticket of a blitz sprint) is started by the
+    # scheduler, not by a predecessor's `.next`, so it is a head of its own.
+    queued = set()
+    for p in glob.glob(os.path.join(state, "*.queued")):
+        tag = os.path.basename(p)[:-len(".queued")]
+        if tag and not re.search(r"\s", tag):
+            queued.add(tag)
+    if not nexts and not queued:
         return []
     targets = set(v for v in nexts.values() if v)
-    heads = sorted((t for t in nexts if t not in targets), key=natural_key) or sorted(nexts, key=natural_key)
+
+    def head_key(tag):    # tickets, then checkpoint reviews, then the rest (REVIEW-FINAL ...)
+        rank = 0 if re.match(r"T\d", tag) else (1 if tag.startswith("REVIEW-C") else 2)
+        return (rank, natural_key(tag))
+
+    every = set(nexts) | queued
+    heads = sorted((t for t in every if t not in targets), key=head_key) or sorted(every, key=head_key)
     if "T01" in heads:
         heads.remove("T01")
         heads.insert(0, "T01")

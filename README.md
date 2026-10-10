@@ -44,6 +44,12 @@ hands off to ticket 02, and so on, with exactly one session touching code at a t
 one worktree, on one branch, landing as **one PR**. No frozen contracts, no disjoint-file
 rules, no merge conflicts, no integration step.
 
+**Blitz mode** (`speed: blitz`, `parallel: <n>`) runs it on the tickets' dependency graph instead:
+every ticket whose blockers have landed starts at once, up to `n` (default 3), each in its own
+worktree on its own branch. A finished ticket lands itself with `land.sh` - merge the sprint
+branch in under a lock, fix the combined tree, fast-forward - so it is still one branch and one
+PR. It buys wall-clock with tokens and quota, so it is never the default.
+
 You are the conductor and you write no product code. You set the sprint up, launch the first
 ticket, arm the runner, and then handle only what a script cannot decide.
 
@@ -101,13 +107,14 @@ The parts that make it survive an unattended night:
   Running all six every time is how seven tickets produced 44 specialist invocations, with review
   plus fixes at 59% of the sprint's tokens. Reviewers are asked for demonstrable regressions and
   unmet acceptance criteria, not elective hygiene.
-- **FIND and FIX stay separate, but the fixer need not be a stranger.** The finder writes a local
-  findings manifest and posts **one** consolidated PR comment, with inline anchors only where the
-  exact line is the point. For a small fix set in files the implementer itself just wrote,
-  `handback.sh` resumes that implementer with the manifest rather than paying for a fresh window
-  to re-read its own code - seven brand-new fixer sessions once cost 103M tokens, a quarter of a
-  sprint. It refuses when that window is too full or the session is gone, and the fallback is a
-  fresh fixer.
+- **Reviews are async, and the night's findings are fixed once.** A checkpoint review reads a
+  frozen snapshot of the branch in its own worktree while the next ticket keeps building, writes
+  a local findings manifest, posts **one** consolidated PR comment, and fixes nothing. Nothing
+  waits for it. `REVIEW-FINAL` re-checks every checkpoint finding against the finished code,
+  carries the ones still true forward, and `FIX-FINAL` fixes all of them in one pass. FIND and
+  FIX stay separate sessions, because one window that does both dies mid-triage. (This replaced
+  a fixer per review and `handback.sh` - seven fixer sessions once cost 103M tokens, a quarter
+  of a sprint.)
 - **Resume before restart.** Most night-time deaths are the API dropping the call, not the
   session's fault - and the conversation survives on disk. So the reviver resumes that
   conversation with a "carry on, do not start over" prompt before it ever rebuilds a ticket

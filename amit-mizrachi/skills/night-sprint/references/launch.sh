@@ -20,6 +20,15 @@
 #   prompt-<TAG>.txt  - the prompt to run
 #   state/<TAG>.cwd   - optional: where THIS tag runs, instead of WORKTREE. A phase chain (see
 #                       phase-chain.sh) runs each phase conductor in its own repo or workspace.
+#   state/<TAG>.isolate  - optional, blitz tickets: give the tag its OWN worktree at
+#                       <WORKTREE>-<TAG> on a new branch <BRANCH>--<TAG>, cut from the sprint
+#                       branch as it stands now (so it holds every blocker that already landed).
+#                       Two agents in one worktree is the DUP incident; concurrency needs trees.
+#   state/<TAG>.snapshot - optional, async review finders: a DETACHED worktree at
+#                       <WORKTREE>-<TAG>, frozen at the sprint branch's tip, so the finder reads
+#                       one fixed commit while the next ticket keeps changing the shared tree.
+#                     Either one is created once, by the claimer, and recorded as state/<TAG>.cwd,
+#                     which a relay copies on (advance.sh) and a revive resumes in (revive.sh).
 # Writes:
 #   state/claim-<TAG>/ - the claim
 #   state/<TAG>.session - the resolved background session id
@@ -67,6 +76,32 @@ if ! mkdir "$STATE/claim-$TAG" 2>/dev/null; then
   echo "launch: $TAG already claimed by another session - nothing to do"
   note "no-op: already claimed"
   exit 0
+fi
+
+# --- a tree of its own, for a blitz ticket or a review snapshot. Only the claimer gets here. ---
+if [ ! -f "$STATE/$TAG.cwd" ] && { [ -f "$STATE/$TAG.isolate" ] || [ -f "$STATE/$TAG.snapshot" ]; }; then
+  BR="$(tr -d '[:space:]' < "$WS/BRANCH")"
+  OWN="$WT-$TAG"
+  if git -C "$OWN" rev-parse --git-dir >/dev/null 2>&1; then
+    out="reused"
+  elif [ -f "$STATE/$TAG.isolate" ]; then
+    if git -C "$WT" rev-parse -q --verify "refs/heads/$BR--$TAG" >/dev/null; then
+      out="$(git -C "$WT" worktree add -q "$OWN" "$BR--$TAG" 2>&1)"
+    else
+      out="$(git -C "$WT" worktree add -q -b "$BR--$TAG" "$OWN" "$BR" 2>&1)"
+    fi
+  else
+    out="$(git -C "$WT" worktree add -q --detach "$OWN" "$BR" 2>&1)"
+  fi
+  if ! git -C "$OWN" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "launch: could not create $TAG's own worktree at $OWN: $out" >&2
+    echo "BLOCKED: could not create its worktree at $OWN" > "$STATE/$TAG.status"
+    note "FAILED worktree $OWN: $out"
+    exit 1
+  fi
+  printf '%s\n' "$OWN" > "$STATE/$TAG.cwd"
+  note "worktree $OWN ($out)"
+  WT="$OWN"
 fi
 
 # Record the branch tip as this tag starts. The watcher diffs against it to tell whether the

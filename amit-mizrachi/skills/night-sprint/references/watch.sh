@@ -282,6 +282,15 @@ while true; do
   sweep=$((sweep + 1))
   [ "$ACT" -eq 1 ] && check_pause
 
+  # QUEUED TAGS - async checkpoint reviews, and every ticket in blitz mode - are not on the
+  # `.next` chain, so no finishing session starts them. The scheduler does, here, once a sweep:
+  # it starts whatever has settled dependencies and a free slot, and skips what a blocked
+  # dependency has made impossible. It refuses by itself while the sprint is paused.
+  if [ "$ACT" -eq 1 ] && [ -f "$WS/schedule.sh" ]; then
+    sched="$(bash "$WS/schedule.sh" "$WS" 2>&1)" || log "schedule FAILED: $sched"
+    [ -n "$sched" ] && log "schedule: $(printf '%s' "$sched" | tr '\n' ';')"
+  fi
+
   # An auth hold is the one pause nothing automatic can lift. Do not spend a revive, an advance
   # or a `claude agents` call against it every two minutes - say so once and idle until a human
   # logs in and runs `revive.sh <WS> <TAG> auth-retry`.
@@ -527,6 +536,12 @@ for cd in glob.glob(os.path.join(st, "claim-*")):
     tag = os.path.basename(cd)[len("claim-"):]
     if status(tag) is None:
         out.add(tag)
+# A queued tag with no status is work the scheduler still owes. If nothing is running and it is
+# still here five sweeps later, its dependencies can never settle - that is STRANDED, not done.
+for qp in glob.glob(os.path.join(st, "*.queued")):
+    tag = os.path.basename(qp)[:-len(".queued")]
+    if status(tag) is None:
+        out.add(tag)
 print(" ".join(sorted(out)))
 PYOUT
 )"
@@ -534,7 +549,7 @@ PYOUT
     log "not quiet: outstanding without a live .session: $pending"
     stranded=$((${stranded:-0} + 1))
     # Several sweeps with a wired successor and no session means nothing is going to start it.
-    [ "$stranded" -ge 5 ] && emit_once "stranded:$pending" "STRANDED $pending - wired or claimed, no session and no status; launch or unclaim it"
+    [ "$stranded" -ge 5 ] && emit_once "stranded:$pending" "STRANDED $pending - wired, claimed or queued, no session and no status; launch, unclaim or unqueue it"
   else
     stranded=0
   fi

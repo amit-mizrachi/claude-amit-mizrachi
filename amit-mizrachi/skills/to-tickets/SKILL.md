@@ -1,6 +1,6 @@
 ---
 name: to-tickets
-description: Break a plan, spec, or the current conversation into a set of tracer-bullet tickets, each declaring its blocking edges, published to the configured tracker (edges as text in one file per ticket locally, or native blocking links on a real tracker). Use when a user or an agent needs a feature, spec or plan split into independently landable tickets in dependency order, for example before a night-sprint.
+description: Break a plan, spec, or the current conversation into a set of tracer-bullet tickets, each declaring its blocking edges so the set forms a dependency graph that can run in parallel waves, published to the configured tracker (edges as text in one file per ticket locally, or native blocking links on a real tracker). Use when a user or an agent needs a feature, spec or plan split into independently landable tickets in dependency order, for example before a night-sprint.
 ---
 
 # To Tickets
@@ -38,6 +38,13 @@ Break the work into **tracer bullet** tickets.
 
 Give each ticket its **blocking edges**: the other tickets that must complete before it can start. A ticket with no blockers can start immediately.
 
+**The edges are a schedule, not a reading order.** A runner such as night-sprint's blitz mode starts every ticket whose blockers are done at the same time, so the graph decides how much runs in parallel:
+
+- **An edge means "cannot be built until that one has landed"**: it needs that ticket's schema, API, type or file to exist. "Comes later in the story" is not an edge. An edge that only follows the numbering makes a ticket wait for nothing.
+- **Cut for width.** Prefer slices that each depend on one shared foundation over a long chain where each needs the one before. A prefactor or a contract (schema, interface, types) that many tickets build on is its own early ticket, and the rest fan out from it.
+- **Heavy overlap is an edge too.** Two tickets that would both rewrite the same file or function cannot be merged cleanly when built side by side. Make one block the other, or move the shared change into its own earlier ticket.
+- **No cycles.** If A needs B and B needs A, they are one ticket, or a third ticket holds what both need.
+
 **Wide refactors are the exception to vertical slicing.** A **wide refactor** is one mechanical change (rename a column, retype a shared symbol) whose **blast radius** fans across the whole codebase, so a single edit breaks thousands of call sites at once and no vertical slice can land green. Don't force it into a tracer bullet; sequence it as **expand-contract**. First expand: add the new form beside the old so nothing breaks. Then migrate the call sites over in batches sized by blast radius (per package, per directory), each batch its own ticket blocked by the expand, keeping CI green batch to batch because the old form still exists. Finally contract: delete the old form once no caller remains, in a ticket blocked by every migrate batch. When even the batches can't stay green alone, keep the sequence but let them share an integration branch that all block a final integrate-and-verify ticket; green is promised only there.
 
 ### 4. Quiz the user
@@ -48,10 +55,12 @@ Present the proposed breakdown as a numbered list. For each ticket, show:
 - **Blocked by**: which other tickets (if any) must complete first
 - **What it delivers**: the end-to-end behaviour this ticket makes work
 
+Then show the **waves**: the tickets that can run together, computed from the edges. Wave 1 is every ticket with no blockers; wave N is every ticket whose blockers are all in earlier waves. For example `Wave 1: 01, 02, 05 - Wave 2: 03, 04 - Wave 3: 06`. A breakdown whose waves hold one ticket each is a chain; say so, and say why it has to be one.
+
 Ask the user:
 
 - Does the granularity feel right? (too coarse / too fine)
-- Are the blocking edges correct: does each ticket only depend on tickets that genuinely gate it?
+- Are the blocking edges correct: does each ticket only depend on tickets that genuinely gate it, so the waves are as wide as the work allows?
 - Should any tickets be merged or split further?
 
 Iterate until the user approves the breakdown. Skip this step when no human can answer (see above).
@@ -63,7 +72,7 @@ Publish the approved tickets. **How** depends on the tracker `/setup-matt-pocock
 - **Local files** → write one file per ticket under `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01` in dependency order (blockers first). Each file's "Blocked by" lists the numbers/titles it depends on. Use the per-ticket file template below: one ticket per file, never a single combined file.
 - **A real issue tracker (GitHub, Linear, …)** → publish one issue per ticket in dependency order (blockers first) so each ticket's blocking edges can reference real identifiers. Use the platform's native blocking / sub-issue relationship where it has one; otherwise set each ticket's "Blocked by" to the blocking issues. Apply the `ready-for-agent` triage label unless instructed otherwise; the tickets are agent-grabbable by construction.
 
-Work the **frontier**: any ticket whose blockers are all done. For a purely linear chain that means top to bottom.
+Work the **frontier**: any ticket whose blockers are all done. For a purely linear chain that means top to bottom. Return the waves with the published tickets, so the caller can see at a glance how much can run at once.
 
 Do NOT close or modify any parent issue.
 
@@ -73,7 +82,7 @@ Do NOT close or modify any parent issue.
 
 **What to build:** the end-to-end behaviour this ticket makes work, from the user's perspective, not a layer-by-layer implementation list.
 
-**Blocked by:** the numbers/titles of the tickets that gate this one, or "None (can start immediately)".
+**Blocked by:** the two-digit numbers of the tickets that gate this one, comma separated and nothing else on the line (`**Blocked by:** 01, 03`), or `None (can start immediately)`. A runner turns this line into the dependency graph, so keep it to numbers.
 
 **Status:** ready-for-agent
 

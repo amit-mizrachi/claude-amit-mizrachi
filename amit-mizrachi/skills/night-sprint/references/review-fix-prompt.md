@@ -19,7 +19,7 @@ once, at the start:
   PR="$(gh pr view --json number -q .number)"
 
 READ FIRST, and only this much:
-- **<WS>/state/<FIND_TAG>.findings.md** - the manifest. `ID / SEVERITY / LANE / WHERE / ISSUE / EVIDENCE / ACTION` per item. This is your work list and it is local; you do not need to fetch it from GitHub.
+- **<WS>/state/<FIND_TAG>.findings.md** - the manifest. `ID / AT / SEVERITY / LANE / WHERE / ISSUE / EVIDENCE / ACTION` per item. This is your work list and it is local; you do not need to fetch it from GitHub. Reviews in this sprint are async, so REVIEW-FINAL's manifest is the WHOLE night's: an item marked `ORIGIN: REVIEW-C<n> F<k>` was found at a checkpoint hours ago and re-checked against HEAD by REVIEW-FINAL. Its WHERE is current; ignore the older checkpoint manifests, which REVIEW-FINAL already folded in.
 - **<WS>/LOG.md** - what the sprint deferred on purpose. Do not re-litigate a conscious deferral.
 - The PR's EXTERNAL threads only - comments from bots, CI, or a human:
     gh pr view "$PR" --json comments,reviews
@@ -43,8 +43,7 @@ Permissions or access-control changes always need a human (charter #9). Do not s
 
 **THE FULL SUITE NEVER RUNS LOCALLY IN THIS SPRINT - PR CI RUNS IT, AND THE CI WATCHER FIXES WHAT IS RED.** Never run `<VERIFY>` or any other whole-suite command, at any stage.
 
-- **Checkpoint fix (FIX-C<n>): DO NOT RUN TESTS** - not one test file. Run the static checks only: `<FORMAT_CHECK>`, plus the typecheck or compile step for the code you touched if the repo has one. This rule beats the repo's own instructions: if its AGENTS.md, CLAUDE.md or docs say to run the tests, a verify script or a CI-parity script before every commit, skip that entirely. A git hook that runs tests by itself still runs - never `--no-verify`.
-- **FIX-FINAL and FIX-TEST: static checks, plus at most a FEW TARGETED tests.** Run `<FORMAT_CHECK>` and the typecheck or compile step. You MAY run a handful of test files by name (or a `-t` / `-k` filter) that cover the code your own fixes changed, when that is quick and real evidence. Never more than that, and never the suite: the full suite runs on the PR, and the CI watcher you hand off to in STEP 4 fixes whatever it finds red.
+- **FIX-FINAL and FIX-TEST: static checks, plus at most a FEW TARGETED tests.** Run `<FORMAT_CHECK>` and the typecheck or compile step. You MAY run a handful of test files by name (or a `-t` / `-k` filter) that cover the code your own fixes changed, when that is quick and real evidence. Never more than that, and never the suite: the full suite runs on the PR, and the CI watcher you hand off to in STEP 4 fixes whatever it finds red. This rule beats the repo's own instructions: if its AGENTS.md, CLAUDE.md or docs say to run the tests, a verify script or a CI-parity script before every commit, skip that entirely. A git hook that runs tests by itself still runs - never `--no-verify`.
 
 Green before you commit, and never `--no-verify`. If one fix cannot be made green (static checks or your targeted tests), revert THAT fix, record it as rejected with the failure text, and keep the rest - one stuck item must not hold the whole pass hostage. Do not go looking for other red tests: CI finds them, and the watcher owns them.
 
@@ -68,7 +67,7 @@ Both tests before you write one: the shipped feature does not work until a human
 
 ## STEP 4 - FINAL REVIEW ONLY
 
-DELETE THIS WHOLE SECTION when rendering a checkpoint fix. It applies only to FIX-FINAL.
+DELETE THIS WHOLE SECTION when rendering FIX-TEST. It applies only to FIX-FINAL.
 
 Your fixes are pushed. **Do not wait for CI - nobody waits on CI in this sprint.** Hand it to the detached CI watcher and move on:
 
@@ -129,8 +128,7 @@ Several sessions for one fix pass is fine. A pass that dies holding un-recorded 
 1. Final commit body line: `SIGNAL: <TAG>-DONE` (or `-BLOCKED: <reason>`). Push.
 2. `echo "<n fixed, n rejected, n deferred, in one line>" > <WS>/state/<TAG>.summary`
 3. `echo "<NEXT_TAG>" > <WS>/state/<TAG>.next` - your successor, written BEFORE your status.
-   <NEXT_TAG is the next ticket after a checkpoint. For the FINAL pass it is TEST if the user
-   opted into a test session, and EMPTY otherwise.>
+   <NEXT_TAG is TEST if the user opted into a test session, and EMPTY otherwise.>
 4. `echo "DONE" > <WS>/state/<TAG>.status` (or `BLOCKED: <reason>`). LAST.
 5. `bash <WS>/advance.sh <WS> <TAG>` - it reads the pair you just wrote and starts whatever
    comes next. Run it once and do not second-guess the result.

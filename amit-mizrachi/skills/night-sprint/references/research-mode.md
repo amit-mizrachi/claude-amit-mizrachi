@@ -20,7 +20,7 @@ fix route, Acceptance, The manual steps, The PR, and the morning report's items 
 | `VERIFY` = the repo's checks | `VERIFY` = `bash <WS>/research-check.sh <WS>` | every claim must name its source; the review checks the source says it |
 | implementer per ticket | researcher per ticket, `research-ticket-prompt.md` | writes `findings/<NN>-<slug>.md` |
 | review lanes over the diff | ONE lane, **evidence**, `research-review-find-prompt.md` | re-opens the sources behind the claims |
-| fixer, or a handback | always a fresh fixer, `research-review-fix-prompt.md`, or SKIP | the findings files are short; a handback buys nothing |
+| one fixer at the end | always a fresh fixer, `research-review-fix-prompt.md`, or SKIP | the same as a code sprint: every finding is fixed once, at the end |
 | optional `TEST`, a detached CI watcher (`ci-watch.sh`) handles CI | `SYNTH` builds and publishes the artifact, runs `research-check.sh --final` | there is no CI; the artifact is the thing delivered |
 | permission mode and test session from the invocation, else `auto` and none | always `auto`, no test session | research has nothing to boot or test |
 | connectors as the work needs | connectors **READ ONLY**, always | nothing may post under the user's name at 3am |
@@ -81,8 +81,16 @@ into the workspace. So:
    holds the answer, useful search terms, a trap to avoid. `None known.` is a fine value.
 6. **Wire the chain:** `T01.next` = `T02` ... `T<TOTAL>.next` = `REVIEW-FINAL`,
    `REVIEW-FINAL.next` = `FIX-FINAL`, `FIX-FINAL.next` = `SYNTH`, `SYNTH.next` empty.
+
+   **Blitz (`BLITZ=1`, from `speed: blitz`)** - research questions are usually independent,
+   so this is where blitz pays most. Leave the tickets off the chain: for each, `touch
+   state/T<NN>.queued state/T<NN>.isolate`, and write `state/T<NN>.after` only where one
+   question really needs another's answer. Queue `REVIEW-FINAL` too, with
+   `state/REVIEW-FINAL.waits` = every ticket. `NEXT_TAG` is empty in every ticket's vars. Each
+   ticket researches in its own tree and lands its findings file with `land.sh`; the research
+   repo has no remote, so `land.sh` lands without pushing.
 7. **`PLAN.md`** from `research-plan-template.md`, filled from `spec.md`.
-8. **Launch `T01`** with `launch.sh`, start the runner with `bash <WS>/runner.sh start <WS>`, arm
+8. **Launch `T01`** with `launch.sh` (blitz: `bash <WS>/schedule.sh <WS>` instead), start the runner with `bash <WS>/runner.sh start <WS>`, arm
    a `Monitor` on `bash <WS>/runner.sh follow <WS>` (re-arm it at every 30-minute expiry), and go
    into the monitor loop.
 
