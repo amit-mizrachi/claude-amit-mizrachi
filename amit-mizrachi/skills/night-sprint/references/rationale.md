@@ -726,3 +726,18 @@ Integration is `land.sh`: the ticket's own session merges the sprint branch in u
 tree, and the sprint branch only ever fast-forwards to a tree that passed. The scheduler runs from
 the runner, never from a session's `advance.sh`: launching three sessions can outlast a session's
 shell timeout, and a launch killed after its claim is a STRANDED tag.
+
+## Codex reviews the whole plan, blind spots first (1.18.0, user request)
+
+Codex used to review only the decisions the draft already listed: a pick per decision, any
+missing decision, the biggest risk. That checks the questions the plan stage knew to ask. The
+costly misses are the ones it did not know to ask - existing data that needs a migration, a
+second consumer of the API being changed, a role that sees the screen differently, a rollout
+with no flag. A reviewer handed a list of decisions grades the list; it rarely steps outside it.
+
+**Rule.** The Codex prompt reviews the whole plan (what we build, UI, build outline, risks) and
+asks for `Blind spots:` by name, with a short checklist of where they hide and an instruction to
+open the code the feature touches before answering "none". The plan stage treats each blind spot
+as a lead: it confirms it in the repo snapshot or the findings, cites it, and files it as a
+decision (only if it passes STEP 1's filter, same cap of 5), a decided-for-you line, a build step
+or a risk. Nothing confirmed is dropped silently; `## Second opinion` says where each one went.

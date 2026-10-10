@@ -805,6 +805,12 @@ grep -q 'does not start with `ready: yes`' "$QWS/prompt-SYNTH.txt" && grep -q 'S
 grep -q 'Ask again ONCE with the same arguments and no `model`' "$QWS/prompt-SYNTH.txt" \
   && ok "an account without gpt-6-astra falls back to its default Codex model, once" \
   || no "an account without gpt-6-astra falls back to its default Codex model, once" "no fallback rule"
+grep -q 'Review the WHOLE plan, not only its decisions' "$QWS/prompt-SYNTH.txt" && grep -q 'Blind spots: <what the plan never considers at all' "$QWS/prompt-SYNTH.txt" \
+  && ok "Codex reviews the whole plan and names its blind spots" \
+  || no "Codex reviews the whole plan and names its blind spots" "whole-plan or blind-spot ask missing"
+grep -q 'Never drop a confirmed blind spot silently' "$QWS/prompt-SYNTH.txt" \
+  && ok "every confirmed blind spot is filed somewhere in the plan" \
+  || no "every confirmed blind spot is filed somewhere in the plan" "no filing rule"
 s3=$(grep -n '^## STEP 3 - A SECOND OPINION FROM CODEX' "$QWS/prompt-SYNTH.txt" | cut -d: -f1)
 s4=$(grep -n '^## STEP 4 - DRAW THE UI' "$QWS/prompt-SYNTH.txt" | cut -d: -f1)
 [ -n "$s3" ] && [ -n "$s4" ] && [ "$s3" -lt "$s4" ] \
