@@ -677,3 +677,20 @@ duplicate does not end when one copy writes DONE.
 
 **Worth checking.** The `--cwd` comments above (2026-09-23) describe `claude agents` returning `[]`
 for sessions that were plainly running. A caller in a deleted cwd produces exactly that symptom.
+
+## No questions once invoked (2026-10-09, user request)
+
+Both `night-sprint` and `night-marathon` used to open with questions: permission mode and test
+session, a spec and ticket approval gate, and for the marathon a mode / test / sources / depth
+interview plus a brief approval. The user invokes these skills to walk away. Every question at
+kickoff is a run that has not started when they come back.
+
+**Rule.** From invocation on, neither skill calls `AskUserQuestion` or asks in text. Each setting
+comes from the invocation or a default (`auto`, no test session, Standard depth, the fitting
+connectors read only, autonomous mode). Every call that would have been a question is written
+under `Decided without asking` (night-sprint `LOG.md`, night-marathon `BRIEF.md`) and named in
+the kickoff summary, so the user can stop the run and re-invoke with the setting named.
+
+**The one wait left** is night-marathon's `review` mode, and only when the invocation itself
+says `mode: review`. That is the user's choice made at invocation, not a question the skill
+raises. A missing feature or repo is a failed kickoff that says what is missing, not a question.
