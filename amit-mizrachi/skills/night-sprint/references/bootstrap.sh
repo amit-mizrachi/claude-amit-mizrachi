@@ -12,7 +12,7 @@
 # WHY IT IS A SCRIPT. The workspace copies exist so that editing the skill cannot change a
 # sprint already running, which is right - and it means kickoff has to copy the correct set.
 # Four scripts now `source "$WS/agents.sh"`, so a workspace missing that one file has a
-# launcher, a reviver, a runner and a handback that all fail on their first line, at 3am, with
+# launcher, a reviver, a runner and a closer that all fail on their first line, at 3am, with
 # nobody awake. The same applies to `classify-error.sh`: miss it and the sprint silently loses
 # its ability to tell a spending cap from a dropped socket, which is the single most expensive
 # misclassification it can make. Neither is something to leave to a checklist.
@@ -28,7 +28,7 @@ mkdir -p "$WS/state" "$WS/tickets"
 
 # --- the scripts the sprint runs. agents.sh is sourced by five of them; classify-error.sh is
 #     what makes recovery correct rather than merely persistent.
-SCRIPTS="agents.sh launch.sh advance.sh watch.sh runner.sh revive.sh close.sh classify-error.sh context-used.sh handback.sh accept.sh ci-watch.sh render.sh research-check.sh"
+SCRIPTS="agents.sh launch.sh advance.sh watch.sh runner.sh revive.sh close.sh classify-error.sh context-used.sh schedule.sh land.sh accept.sh ci-watch.sh render.sh research-check.sh"
 # --- the templates. continuation-prompt.md stays a template on purpose: each session that
 #     hands off fills its own copy for its successor.
 TEMPLATES="continuation-prompt.md implementer-prompt.md review-find-prompt.md review-fix-prompt.md test-prompt.md plan-template.md ci-watch-prompt.md"
@@ -62,7 +62,7 @@ import os, re, sys
 ws = sys.argv[1]
 # Read by the scripts as bare one-value files.
 derive = ["WORKTREE", "SLUG", "BRANCH", "VERIFY", "FORMAT_CHECK", "PERMISSION_MODE", "MODE",
-          "CONTEXT_WINDOW", "WARN_AT_USED", "RELAY_AT_USED", "CEILING_USED"]
+          "CONTEXT_WINDOW", "WARN_AT_USED", "RELAY_AT_USED", "CEILING_USED", "BLITZ", "MAX_PARALLEL"]
 # Needed by the prompt templates; an unset one is a session that cannot do its job.
 required = ["REPO", "REPO_PATH", "REPO_SLUG", "SLUG", "USER", "WS", "WORKTREE", "BRANCH",
             "BASE", "TOOLCHAIN", "VERIFY", "FORMAT_CHECK", "CONTEXT_WINDOW",
@@ -72,7 +72,10 @@ required = ["REPO", "REPO_PATH", "REPO_SLUG", "SLUG", "USER", "WS", "WORKTREE", 
 required_research = ["SLUG", "USER", "WS", "WORKTREE", "BRANCH", "VERIFY", "RESEARCH_TITLE",
                      "QUESTION", "DECISION", "AUDIENCE", "SOURCES", "CONTEXT_WINDOW",
                      "WARN_AT_USED", "RELAY_AT_USED", "CEILING_USED"]
+# BLITZ=1 runs tickets side by side on a dependency graph (schedule.sh, land.sh); MAX_PARALLEL
+# caps how many write at once. Off unless the invocation says `speed: blitz`.
 defaults = {"PERMISSION_MODE": "auto", "MODE": "code", "CONTEXT_WINDOW": "200000",
+            "BLITZ": "0", "MAX_PARALLEL": "3",
             "WARN_AT_USED": "20", "RELAY_AT_USED": "30", "CEILING_USED": "60"}
 
 vals = {}
@@ -109,6 +112,13 @@ print("bootstrap: %d facts, %d one-value files derived" % (len(vals), len(derive
 PY
 rc=$?
 [ $rc -eq 0 ] || exit $rc
+
+# Resolve the {{#BLITZ}} / {{^BLITZ}} blocks in every copied template once, now that facts.env
+# says which mode this is. A session that fills a template by hand (a continuation) then never
+# sees a marker, and render.sh finds nothing left to decide.
+for f in $TEMPLATES; do
+  bash "$WS/render.sh" "$WS" --blocks "$WS/$f" || { echo "bootstrap: FAILED - $f has a broken {{block}}" >&2; exit 1; }
+done
 
 # --- research mode: the worktree is a local git repo with no remote. Sessions commit their
 #     findings there, which is what gives the runner a HEAD to diff and the reviver a log to

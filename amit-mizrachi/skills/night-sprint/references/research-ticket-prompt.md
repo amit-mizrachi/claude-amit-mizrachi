@@ -8,9 +8,16 @@ It informs this decision: <DECISION>
 Written for: <AUDIENCE>
 Workspace: <WS>. You are tag <TAG> (ticket <NN> of <TOTAL>).
 
+{{^BLITZ}}
 WORK HERE - DO NOT CREATE A WORKTREE OR BRANCH:
   cd <WORKTREE>
 A local git repo on branch <BRANCH>, with no remote, shared by the whole sprint. Earlier tickets committed their findings here. You are the ONLY session touching it right now. Never push, never rebase, never create a branch.
+{{/BLITZ}}
+{{#BLITZ}}
+WORK HERE - THE TICKET'S OWN WORKTREE. THIS IS A BLITZ RUN:
+  cd "$(cat <WS>/state/<TAG>.cwd)"
+Questions are researched side by side here. You are in a worktree of your own on branch <BRANCH>--<the ticket's first tag>, cut from <BRANCH> when the ticket started; other tickets are writing their own findings in other worktrees right now. Never touch another worktree, never commit to <BRANCH> yourself, never push, never rebase, never create a branch. Run `<VERIFY>` from inside this worktree: it checks this tree. Your findings reach <BRANCH> only through `<WS>/land.sh`, when you are done.
+{{/BLITZ}}
 
 READ FIRST:
 - <WS>/PLAN.md - the research goal, ticket order and protocol.
@@ -96,8 +103,16 @@ Do not chase it. One line:
 ## WHEN YOU ARE DONE - in this order, and the order matters
 
 1. Commit findings/<NN>-<slug>.md with `SIGNAL: <TAG>-DONE` in the commit body (or `SIGNAL: <TAG>-BLOCKED: <one-line reason>`). Do not push - there is no remote.
+{{#BLITZ}}
+   Then LAND IT: `bash <WS>/land.sh <WS> <TAG> merge` (BUSY, exit 75: run it again; CONFLICT, exit 3: keep both sides, `git add`, `git commit --no-edit`), run `<VERIFY>` again in this worktree, then `bash <WS>/land.sh <WS> <TAG> publish` (LANDED). Tickets write different files, so a conflict is rare; a VERIFY failure after the merge is yours to fix before publish.
+{{/BLITZ}}
 2. `echo "<the answer, in one line>" > <WS>/state/<TAG>.summary`
+{{^BLITZ}}
 3. `echo "<NEXT_TAG>" > <WS>/state/<TAG>.next` - written BEFORE your status. Leave it empty if nothing follows you.
+{{/BLITZ}}
+{{#BLITZ}}
+3. Leave <WS>/state/<TAG>.next alone: the scheduler starts what comes next.
+{{/BLITZ}}
 4. `echo "DONE" > <WS>/state/<TAG>.status` (or `BLOCKED: <reason>`). **LAST.**
 5. `bash <WS>/advance.sh <WS> <TAG>` - run it once and do not second-guess it.
 

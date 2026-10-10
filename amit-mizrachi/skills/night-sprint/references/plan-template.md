@@ -41,20 +41,29 @@ because a ticket looked incomplete on its own.>
 
 ## 3. Tickets (in dependency order - this IS the execution order)
 
-Frozen copies live in `<WS>/tickets/`. Blockers are already satisfied by position: ticket NN
-may assume every ticket before it has landed on the branch.
+Frozen copies live in `<WS>/tickets/`.
+{{^BLITZ}}
+Blockers are already satisfied by position: ticket NN may assume every ticket before it has
+landed on the branch.
+{{/BLITZ}}
+{{#BLITZ}}
+**This is a BLITZ sprint.** Tickets do NOT run in this order: each one is queued
+(`state/T<NN>.queued`) with its real blockers in `state/T<NN>.after`, and `schedule.sh` starts
+every ticket whose blockers have landed, up to the `MAX_PARALLEL` cap (default 3) at a time. Each ticket builds in
+its own worktree on `<BRANCH>--T<NN>` and reaches `<BRANCH>` only through `land.sh`. A ticket
+may assume exactly the tickets in its "Blocked by" column have landed - nothing else.
+{{/BLITZ}}
 
 | Tag | Ticket | Delivers | Blocked by | Then |
 |---|---|---|---|---|
 | T01 | `01-<slug>.md` | <end-to-end behaviour this makes work> | none | T02 |
 | T02 | `02-<slug>.md` | <...> | T01 | T03 |
-| T03 | `03-<slug>.md` | <...> | T02 | REVIEW-C1 |
-| REVIEW-C1 | - | checkpoint review of T01-T03 with the selected lanes: findings into `state/REVIEW-C1.findings.md` plus one consolidated PR comment. Writes no code | T03 | FIX-C1 |
-| FIX-C1 | - | works REVIEW-C1's manifest, replies on external threads, verifies, pushes. May be REVIEW-C1's implementer resumed via `handback.sh` | REVIEW-C1 | T04 |
+| T03 | `03-<slug>.md` | <...> | T02 | T04 |
+| REVIEW-C1 | - | ASYNC checkpoint review of T01-T03 with the selected lanes, in a read-only snapshot worktree while T04 builds: findings into `state/REVIEW-C1.findings.md` plus one consolidated PR comment. Writes no code and launches no fixer. Queued, waits on T03 | T03 | nothing |
 | ... | | | | |
-| T<NN> | `<NN>-<slug>.md` | <...> | T<NN-1> | REVIEW-FINAL |
-| REVIEW-FINAL | - | the selected lanes over the whole PR, the ticket-by-ticket acceptance re-read, and the setup sweep. Writes no code | T<NN> | FIX-FINAL |
-| FIX-FINAL | - | works the manifest and every external comment, then hands CI to the detached watcher (`ci-watch.sh`) WITHOUT waiting; the watcher fixes red checks and runs `gh pr ready` on green | REVIEW-FINAL | TEST, or end if no test session |
+| T<NN> | `<NN>-<slug>.md` | <...> | T<NN-1> | nothing (REVIEW-FINAL is queued) |
+| REVIEW-FINAL | - | carries every still-true checkpoint finding forward into one manifest, then the selected lanes over the whole PR, the ticket-by-ticket acceptance re-read, and the setup sweep. Writes no code. Queued, waits on the last ticket(s) and every checkpoint review | all of them | FIX-FINAL |
+| FIX-FINAL | - | fixes the whole night's manifest and every external comment at once, then hands CI to the detached watcher (`ci-watch.sh`) WITHOUT waiting; the watcher fixes red checks and runs `gh pr ready` on green | REVIEW-FINAL | TEST, or end if no test session |
 | TEST | - | <the chosen test mode>; writes `state/GOLDEN.verdict` | FIX-FINAL | FIX-TEST if an in-scope step failed, else end |
 | FIX-TEST | - | one bounded repair pass over `state/TEST.findings.md`, then re-runs the affected golden-path steps. Only rendered when a test session was chosen | TEST | end |
 
@@ -70,8 +79,18 @@ row, an eval score.>
 
 ## 5. Protocol (identical for every session)
 
+{{^BLITZ}}
 1. Work in `<WORKTREE>` on `<BRANCH>`. Never create a branch or worktree. Never rebase,
-   force-push, or merge.
+   force-push, or merge. A review finder works in the worktree named in `state/<TAG>.cwd` when
+   it has one (a checkpoint snapshot), and only reads.
+{{/BLITZ}}
+{{#BLITZ}}
+1. A ticket works in its OWN worktree, `state/<TAG>.cwd`, on `<BRANCH>--<TAG>`, and lands with
+   `land.sh merge` then `land.sh publish` - never by committing to `<BRANCH>` directly. A review
+   finder works in its `state/<TAG>.cwd` snapshot, or in `<WORKTREE>` for REVIEW-FINAL, and only
+   reads. FIX-FINAL, TEST and FIX-TEST work in `<WORKTREE>` on `<BRANCH>`, after every ticket has
+   landed. Nobody rebases, force-pushes or creates another branch.
+{{/BLITZ}}
 2. Implement only your own tag's scope. **The full suite never runs locally** - PR CI runs it,
    and the CI watcher fixes what is red. Run the static checks (format / lint, typecheck or
    compile) before each commit; FIX-FINAL and FIX-TEST may add a few targeted test files for

@@ -7,9 +7,16 @@ You are tag <CONT_TAG>. You are NOT starting a new ticket. Ticket <NN> is alread
 Repo: <REPO_PATH> (<REPO_SLUG>). Toolchain: <TOOLCHAIN>.
 Workspace: <WS>. Predecessor: <PREV_TAG>.
 
+{{^BLITZ}}
 WORK HERE - DO NOT CREATE A WORKTREE OR BRANCH:
   cd <WORKTREE>
 Branch <BRANCH>, shared by the whole sprint. You are the ONLY session touching it right now. Never create a branch, never open a second worktree, never rebase or force-push, never merge.
+{{/BLITZ}}
+{{#BLITZ}}
+WORK HERE - THE TICKET'S OWN WORKTREE. THIS IS A BLITZ SPRINT:
+  cd "$(cat <WS>/state/<CONT_TAG>.cwd)"
+Branch <BRANCH>--the ticket's first tag: <PREV_TAG>'s worktree and branch, which are now yours. Other tickets are building in other worktrees. Never touch another worktree, never check out or commit to <BRANCH> yourself, never rebase or force-push. Your work reaches <BRANCH> only through `<WS>/land.sh`, at the end. If <PREV_TAG> was holding the landing lock (it says so below), you hold it now, as the same ticket.
+{{/BLITZ}}
 
 ## What already landed
 
@@ -48,14 +55,25 @@ Next to change: <paths, and what the change is>
 ## Your contract
 
 1. START BY RE-ESTABLISHING GROUND TRUTH, not by re-planning:
-     cd <WORKTREE> && git status --short && git log --oneline -10
+     git status --short && git log --oneline -10      # in the worktree named above
    Anything already committed for this ticket is DONE - keep it, do not redo it, do not revert it. Read only what you actually need.
 2. Finish ticket <NN> and nothing else. Do not start the next ticket's work and do not expand scope because the ticket looks incomplete on its own - it was always meant to be this size.
 3. DO NOT RUN TESTS. THE FULL SUITE NEVER RUNS LOCALLY IN THIS SPRINT - PR CI RUNS IT, AND THE CI WATCHER FIXES WHAT IS RED. Not `<VERIFY>`, not one test file. Before you commit, run the static checks only: `<FORMAT_CHECK>`, and the typecheck or compile step for the code you touched if the repo has one. Those must be green. Never `--no-verify`. This rule beats the repo's own instructions: if its AGENTS.md, CLAUDE.md or docs say to run the tests, a verify script or a CI-parity script before every commit, skip that entirely. A git hook that runs tests by itself still runs - never `--no-verify`.
 4. WHEN YOU ARE DONE - in this order:
+{{^BLITZ}}
    1. Commit to <BRANCH> with `SIGNAL: <CONT_TAG>-DONE` in the final commit body (or `SIGNAL: <CONT_TAG>-BLOCKED: <reason>`). Push.
    2. `echo "<what you finished, in one line>" > <WS>/state/<CONT_TAG>.summary`
    3. `echo "<NEXT_TAG>" > <WS>/state/<CONT_TAG>.next` - what ticket <NN> was always going to hand off to. Empty if nothing follows.
+{{/BLITZ}}
+{{#BLITZ}}
+   1. Commit to the ticket's branch with `SIGNAL: <CONT_TAG>-DONE` in the final commit body. Do not push it.
+   2. LAND IT - the ticket is done when the COMBINED tree passes on <BRANCH>, not when yours does:
+        bash <WS>/land.sh <WS> <CONT_TAG> merge     # MERGED: go on. BUSY (75): run it again. CONFLICT (3): resolve keeping BOTH intents, git add, git commit --no-edit
+      Run the static checks AGAIN on the merged tree and commit any fix, then:
+        bash <WS>/land.sh <WS> <CONT_TAG> publish   # LANDED is the goal; exit 6 = landed, push failed, not a blocker
+      You hold the landing lock from merge to publish and other tickets wait on it: start nothing in between. Cannot get it green? `land.sh <WS> <CONT_TAG> abort` and report BLOCKED with the failing check's text.
+   3. `echo "<what you finished, in one line>" > <WS>/state/<CONT_TAG>.summary`. Leave `.next` alone: the scheduler starts what comes next.
+{{/BLITZ}}
    4. `echo "DONE" > <WS>/state/<CONT_TAG>.status` (or `BLOCKED: <reason>`). LAST.
    5. `bash <WS>/advance.sh <WS> <CONT_TAG>`
 

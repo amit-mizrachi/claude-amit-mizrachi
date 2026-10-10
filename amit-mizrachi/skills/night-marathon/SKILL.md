@@ -1,7 +1,7 @@
 ---
 name: night-marathon
 description: "Takes a feature from an idea to one pull request with no supervision between the stages, and asks the user nothing once it is invoked. It researches what the plan needs from the code and the allowed sources, publishes a short plan artifact with realistic UI mockups drawn from the repo's own design system and a pick list of the few decisions that matter, then builds the chosen plan overnight as one PR. Two modes: autonomous (the default - the recommended options are built without stopping) and review (only when the invocation says `mode: review` - the run stops at the plan artifact until the user pastes their picks into the conductor session). Use when the user says \"night marathon\", \"feature e2e\", \"feature end to end\", \"research, plan and build this\", \"take this feature all the way\", or wants a feature planned with mockups and then built while they are away."
-argument-hint: "<feature description> [repo: <path>] [mode: autonomous|review] [test: none|dev-stack|evals|<command>] [depth: quick|standard|deep] [sources: <connector>, ...]"
+argument-hint: "<feature description> [repo: <path>] [mode: autonomous|review] [speed: serial|blitz] [parallel: <n>] [test: none|dev-stack|evals|<command>] [depth: quick|standard|deep] [sources: <connector>, ...]"
 ---
 
 # Night Marathon
@@ -43,6 +43,7 @@ Take each setting from the invocation when it names one, else use the default. D
 | Setting | Invocation | Default |
 |---|---|---|
 | **Mode** | `mode: autonomous\|review` | `autonomous` - the recommended plan is built |
+| **Speed** | `speed: serial\|blitz`, `parallel: <n>` | `serial`. `blitz` runs the research questions, then the build tickets, side by side on their dependency graph (night-sprint's blitz mode), at most `parallel` writers at once (default 3). Faster, and it costs more tokens and quota per hour, which is why it is never the default |
 | **Test the build** | `test: none\|dev-stack\|evals\|<command>` (night-sprint's `test:` values) | `none` |
 | **Extra sources** | `sources: <connector>, ...` | every connector in your tool list (`mcp__claude_ai_<Name>__*`, `mcp__<server>__*`) that could hold earlier talk about this feature - Slack, Monday, Figma, Drive - at most four. All are read only. The repo and the web are always in |
 | **Depth** | `depth: quick\|standard\|deep` | `standard` - 5 research questions (quick 3, deep 8) |
@@ -58,6 +59,7 @@ Write `<WS>/BRIEF.md`:
     **Feature:** <what it does, for whom, 1-3 sentences>
     **Repo:** <owner/repo>, base <BASE>
     **Mode:** <autonomous | review> - <what that means, one line>
+    **Speed:** <serial | blitz, at most <n> at once>
     **Build test:** <none | dev-stack | evals | the command>
     **Second opinion:** <Codex gpt-6-astra (medium) reviews the draft plan before it is final | none - <codex-bridge is not connected | the fix: line>>
 
@@ -111,6 +113,9 @@ Do not show it for approval. Go straight to step 4; the brief goes into the repo
        REPO_SNAPSHOT=<WS>/repo
        REPO_SHA=<REPO_SHA>
        BUILD_TEST=<none|dev-stack|evals|the command>
+       SPEED=<serial|blitz>
+       BLITZ=<1 for blitz, else 0>
+       MAX_PARALLEL=<parallel: from the invocation, else 3>
        DEPTH=<3|5|8>
        NS_DIR=<NS>
        NM_DIR=<NM>

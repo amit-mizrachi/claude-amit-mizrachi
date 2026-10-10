@@ -5,9 +5,16 @@ AUTONOMOUS NIGHT RUN. <USER> is ASLEEP and will NOT answer. Never ask a question
 Repo: <REPO_PATH> (<REPO_SLUG>). Toolchain: <TOOLCHAIN>.
 Workspace: <WS>. You are tag <TAG> (ticket <NN> of <TOTAL>).
 
+{{^BLITZ}}
 WORK HERE - DO NOT CREATE A WORKTREE OR BRANCH:
   cd <WORKTREE>
 This worktree and branch <BRANCH> already exist and are shared by the whole sprint. Earlier tickets have landed their commits here. You are the ONLY session touching it right now. Never create a branch, never open a second worktree, never rebase or force-push, never merge.
+{{/BLITZ}}
+{{#BLITZ}}
+WORK HERE - YOUR OWN WORKTREE. THIS IS A BLITZ SPRINT:
+  cd "$(cat <WS>/state/<TAG>.cwd)"
+Tickets build side by side here. You were launched in a worktree of your own, on branch <BRANCH>--<TAG>, cut from the sprint branch <BRANCH> the moment you started, so every ticket that blocks yours has already landed in it. Other tickets are building in other worktrees right now. Never touch another worktree, never check out or commit to <BRANCH> yourself, never rebase or force-push, never create another branch. Your work reaches <BRANCH> one way only: `<WS>/land.sh`, at the end (WHEN YOU ARE DONE).
+{{/BLITZ}}
 
 READ FIRST:
 - <WS>/PLAN.md - goal, ticket order, verify command, review cadence.
@@ -64,7 +71,12 @@ MEASURE AT EVERY ONE OF THESE: after each commit; after any subagent or fan-out 
 Two exceptions, only these two. **One command from green: FINISH IT** - a split that saves nothing costs a whole session of re-reading. **Not one file changed yet: do NOT hand off** - your successor would start where you did, minus your reading, which is how a ticket loops all night without being built. Keep going until you have something real to pass on. Still reading at <CEILING_USED>% used? Hand off anyway, and say plainly in the continuation prompt that this ticket is bigger than the plan thought.
 
 THE HANDOFF, in this order:
+{{^BLITZ}}
   1. Commit and push what you have. Not green? Commit as WIP whose body says `SIGNAL: <TAG>-RELAYED` and names the failing checks. Never stash, never revert.
+{{/BLITZ}}
+{{#BLITZ}}
+  1. Commit what you have to your own branch; do not push it. Not green? Commit as WIP whose body says `SIGNAL: <TAG>-RELAYED` and names the failing checks. Never stash, never revert. Your successor runs in this same worktree. If you are holding the landing lock (between `land.sh merge` and `land.sh publish`), say so in the continuation prompt: your successor holds it as the same ticket.
+{{/BLITZ}}
   2. Fill <WS>/continuation-prompt.md into <WS>/prompt-<TAG>c2.txt: what landed, which acceptance criteria are met and which are not, the real static check output, files changed and files next, every decision and dead end so your successor does not rediscover them. Your successor starts empty and cannot read this conversation - assume it knows nothing.
   3. `echo "<what landed, what is left>" > <WS>/state/<TAG>.summary`
   4. `echo "<TAG>c2" > <WS>/state/<TAG>.next`
@@ -83,12 +95,32 @@ The morning report turns that file into tickets. This is the pressure valve for 
 
 ## WHEN YOU ARE DONE - in this order, and the order matters
 
+{{^BLITZ}}
 1. Commit to <BRANCH> with `SIGNAL: <TAG>-DONE` in the final commit body (or `SIGNAL: <TAG>-BLOCKED: <one-line reason>`). Push.
 2. `echo "<what you built, in one line>" > <WS>/state/<TAG>.summary`
 3. `echo "<NEXT_TAG>" > <WS>/state/<TAG>.next` - written BEFORE your status. Leave it empty if nothing follows you.
+{{/BLITZ}}
+{{#BLITZ}}
+1. Commit to your branch with `SIGNAL: <TAG>-DONE` in the final commit body. Do not push your branch.
+2. LAND IT. Your ticket is not done when your own checks pass; it is done when the COMBINED tree passes on <BRANCH>.
+
+       bash <WS>/land.sh <WS> <TAG> merge
+
+   - `MERGED` (exit 0): <BRANCH>, with every ticket that landed while you were building, is now merged into your branch.
+   - `BUSY` (exit 75): another ticket is landing. Run the same command again; each call waits up to four minutes.
+   - `CONFLICT` (exit 3): resolve each named file keeping BOTH intents. The other side is a ticket that already landed and is not yours to undo. `git add` them, then `git commit --no-edit`.
+
+   Run the static checks AGAIN, on the combined tree: `<FORMAT_CHECK>`, plus the typecheck or compile step. Two tickets that were each green can be red together, and that is yours to fix now, minimally. Commit the fix. Then:
+
+       bash <WS>/land.sh <WS> <TAG> publish
+
+   `LANDED` (exit 0) is the goal. Exit 6 means it landed but the push failed: say so in your summary, it is not a blocker. From `merge` to `publish` you hold the landing lock and every other finished ticket waits on you, so start nothing else in between. Cannot get the combined tree green? `bash <WS>/land.sh <WS> <TAG> abort`, keep your commits, and report BLOCKED with the failing check's text.
+3. `echo "<what you built, in one line>" > <WS>/state/<TAG>.summary`
+   Leave <WS>/state/<TAG>.next alone: in a blitz sprint the scheduler starts what comes next, from the dependency graph.
+{{/BLITZ}}
 4. `echo "DONE" > <WS>/state/<TAG>.status` (or `BLOCKED: <reason>`). **LAST**, because the status is what releases the chain, and it must never be read before `.next` is correct.
 5. `bash <WS>/advance.sh <WS> <TAG>` - the one thing that starts whatever comes next. It reads the pair you just wrote, claims the tag atomically, and is a harmless no-op if the watcher got there first. Run it once and do not second-guess it.
 
-If you are BLOCKED: still do 1-4 (with BLOCKED), push whatever you have so the work is not lost, then run step 5 - it will correctly launch nothing and let the conductor decide. A clear blocker reported at 2am is worth far more than a silent retry loop.
+If you are BLOCKED: still do 1-4 (with BLOCKED), commit whatever you have so the work is not lost (in a blitz sprint, do not land it), then run step 5 - it will correctly launch nothing and let the conductor decide. A clear blocker reported at 2am is worth far more than a silent retry loop.
 
 Finally, post a 3-5 line summary: what landed, what you decided on your own, what you deferred, and anything the next session must know.

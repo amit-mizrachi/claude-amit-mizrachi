@@ -694,3 +694,35 @@ the kickoff summary, so the user can stop the run and re-invoke with the setting
 **The one wait left** is night-marathon's `review` mode, and only when the invocation itself
 says `mode: review`. That is the user's choice made at invocation, not a question the skill
 raises. A missing feature or repo is a failed kickoff that says what is missing, not a question.
+
+## Async reviews, and blitz mode (1.17.0)
+
+**Reviews stopped holding the chain.** A checkpoint review used to be a link in it: `T03 ->
+REVIEW-C1 -> FIX-C1 -> T04`, so every checkpoint cost the night a finder plus a fixer of
+wall-clock with no ticket building. Now a checkpoint finder is QUEUED (`schedule.sh`), reads a
+detached snapshot worktree frozen at its scope's last commit, and launches nothing; T04 starts
+the moment T03 ends. Findings carry `AT: <sha>` because they are acted on hours later.
+`REVIEW-FINAL` waits for every finder, re-checks each finding against HEAD, carries the still-true
+ones into its own manifest (`ORIGIN:`), and `FIX-FINAL` fixes the night's findings in one pass.
+
+The cost was weighed and accepted by the user: a BLOCKER found at a checkpoint is not fixed until
+the end, so later tickets may build on it and `FIX-FINAL` reworks them as well. The alternative
+considered - a BLOCKER on a contract spawns an urgent fix ticket and gates its dependents - needed
+gates on chain successors and a race-free way to insert a tag into a chain whose sessions rewrite
+their own `.next`. It was dropped for one fix pass at the end.
+
+`handback.sh` went with the checkpoint fixers. It existed to resume the implementer that wrote
+the code for a small checkpoint fix set; under async review that implementer has already moved
+on to its next ticket, and `FIX-FINAL` always launched fresh (its prompt carries the acceptance
+gate). The 103M-token lesson it encoded - do not pay a fresh window per review - is kept by
+having one fixer per sprint instead of one per review.
+
+**Blitz mode is concurrency without giving up one branch and one PR.** Serial stays the default:
+it is cheaper and nothing waits at night. `speed: blitz` queues every ticket with its real
+blockers (`.after`), and `schedule.sh` runs the frontier up to `MAX_PARALLEL` writers. The DUP
+rule - never two agents in one tree - holds by giving each ticket its own tree (`.isolate`).
+Integration is `land.sh`: the ticket's own session merges the sprint branch in under
+`state/land.lock` (it knows its side of any conflict), re-runs the static checks on the combined
+tree, and the sprint branch only ever fast-forwards to a tree that passed. The scheduler runs from
+the runner, never from a session's `advance.sh`: launching three sessions can outlast a session's
+shell timeout, and a launch killed after its claim is a STRANDED tag.

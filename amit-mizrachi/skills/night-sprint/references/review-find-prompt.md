@@ -3,20 +3,29 @@
 AUTONOMOUS NIGHT RUN. <USER> is ASLEEP and will NOT answer. Never ask a question - judge each finding yourself and record it. ASCII only, no em/en dashes.
 
 Repo: <REPO_PATH> (<REPO_SLUG>). Toolchain: <TOOLCHAIN>.
-Workspace: <WS>. You are tag <TAG>. The fix tag is <FIX_TAG>; the session that wrote this code is <IMPL_TAG>.
+Workspace: <WS>. You are tag <TAG>. Every finding of this sprint is fixed once, at the end, by <FIX_TAG>.
 
 DO NOT RUN TESTS. THE FULL SUITE NEVER RUNS LOCALLY IN THIS SPRINT - PR CI RUNS IT, AND THE CI WATCHER FIXES WHAT IS RED. A finder never runs any test, at any checkpoint. Find by reading the diff.
 
 YOU FIND. YOU DO NOT FIX - not one file, not the verify command, not a commit, even when a fix looks like a one-liner. The fixing is a separate step because a session that consolidates reviews AND edits code spends its window twice and dies mid-triage, losing the triage.
 
 WORK HERE - DO NOT CREATE A WORKTREE OR BRANCH:
-  cd <WORKTREE>
-Branch <BRANCH>, shared by the whole sprint. You hold it exclusively and you are only reading it. Never rebase, force-push, or merge.
+  cd "$(cat <WS>/state/<TAG>.cwd 2>/dev/null || echo <WORKTREE>)"
+
+REVIEWS IN THIS SPRINT ARE ASYNC. A checkpoint review (REVIEW-C<n>) does not stop the sprint: you
+were launched in a read-only SNAPSHOT worktree, detached at the tip of <BRANCH> as it stood when
+you started, while the next tickets keep building elsewhere. Review that snapshot as it is -
+never pull, check out, commit or push in it. Nothing you find is fixed now; you write it down,
+REVIEW-FINAL carries what is still true forward, and <FIX_TAG> fixes all of it at the end. That
+is what lets nobody wait on a review. REVIEW-FINAL itself runs in <WORKTREE> on <BRANCH>, after
+every ticket and every checkpoint review has ended, and only reads it too. Never rebase,
+force-push, or merge.
 
 THE PR NUMBER IS NOT IN THIS PROMPT, because the draft PR does not exist at kickoff when this
-prompt is written. Discover it once, at the start, and use it everywhere below:
+prompt is written. Discover it once, at the start, and use it everywhere below. Name the branch:
+a snapshot worktree is detached, and a bare `gh pr view` there finds nothing:
 
-  PR="$(gh pr view --json number -q .number)"
+  PR="$(gh pr view <BRANCH> --json number -q .number)"
 
 If that comes back empty the PR has not been opened yet. Say so in your summary, write the
 manifest anyway, and skip only the posting step - the manifest is the deliverable.
@@ -55,11 +64,14 @@ Permissions or access-control changes always need a human (charter #9). Never qu
 
 ## STEP 3 - WRITE THE MANIFEST. This file is the deliverable.
 
+REVIEW-FINAL: do the CARRY step at the top of STEP 6 first, so this manifest holds the whole night's open findings - it is the only thing <FIX_TAG> reads.
+
   <WS>/state/<TAG>.findings.md
 
 One block per FIX finding, in severity order, exactly these fields:
 
     ID:        F<n>
+    AT:        <the short sha you reviewed - `git rev-parse --short HEAD`>
     SEVERITY:  BLOCKER | HIGH | MEDIUM | LOW
     LANE:      correctness | security | architecture | observability | reuse | simplification
     WHERE:     <file>:<line>
@@ -67,11 +79,13 @@ One block per FIX finding, in severity order, exactly these fields:
     EVIDENCE:  <the failure path, or the unmet acceptance criterion - why this is real>
     ACTION:    <the concrete change required>
 
-Concrete enough that a session which never saw the review can act on it without re-running anything. EVIDENCE is not optional: a finding with no failure path is a finding that has not been triaged.
+Concrete enough that a session which never saw the review can act on it without re-running anything - hours later, after more tickets have landed on top of the code you read. That is why AT names the commit: WHERE is a line in THAT commit. EVIDENCE is not optional: a finding with no failure path is a finding that has not been triaged.
 
 ## STEP 4 - PUT IT ON THE PR, ONCE
 
 Post **one** consolidated comment. Not one comment per finding.
+
+REVIEW-FINAL posts only the findings it raised itself; the carried ones were posted by their checkpoint review when they were found.
 
   gh pr comment "$PR" --body-file <WS>/state/<TAG>.findings.md
 
@@ -114,6 +128,7 @@ BOTH TESTS OR IT IS NOT A BLOCK: (1) the shipped feature does not work until a h
 
 DELETE THIS WHOLE SECTION when rendering a checkpoint review. It applies only to REVIEW-FINAL.
 
+- **CARRY THE CHECKPOINT FINDINGS FORWARD - this comes first.** The checkpoint reviews were async, so nobody fixed what they found: by design, every finding of the night is fixed once, by <FIX_TAG>, from YOUR manifest alone. Read every `<WS>/state/REVIEW-C*.findings.md`. Check each finding against HEAD now; later tickets may have fixed it, moved it or made it moot. Still real: copy it into your manifest with a new ID, today's WHERE and AT, and one more field, `ORIGIN: REVIEW-C<n> F<k>`. Gone: one line in your summary, `REVIEW-C<n> F<k> resolved by later work (<sha or ticket>)`. Do not post carried findings to the PR again; they were posted when they were found.
 - **Re-read every ticket in <WS>/tickets/ against what actually landed.** Post any UNMET acceptance criterion as a finding like any other. This is the last honest check before <USER> sees it.
 - **Do NOT take the PR out of draft.** The CI watcher does that, and only once the required checks are green at the pushed head.
 - **SWEEP THE DIFF FOR SETUP AND WRITE THE VERDICT.** You already have the whole diff loaded, so this is nearly free here. Over `git diff <BASE>...HEAD`: new env or config reads and whether `.env.example` documents them; new `secrets.*` or `vars.*` in `.github/workflows/*`; new terraform / terragrunt units; new migrations; new infrastructure a deploy will not create; a new third-party integration or OAuth client; anything a ticket's acceptance criteria assume exists but no code creates. Then check what is ALREADY set: `gh secret list`, `gh variable list`, `.env.example`, the repo's own store. **A FAILED READ IS NOT AN EMPTY ANSWER** - if a listing errors, say the read failed; never record it as "not configured".
@@ -135,9 +150,12 @@ Check it after the review lanes return; that is where the number jumps. You do n
 
 1. `echo "<n findings, n deferred, n rejected, lanes run>" > <WS>/state/<TAG>.summary`
 
-2. **Decide the fix route**, and write your successor to `<WS>/state/<TAG>.next` BEFORE you write your status. Nothing launches off your status until `.next` is correct; that ordering is the whole reason the two files are separate.
+2. **Decide what runs next**, and write it to `<WS>/state/<TAG>.next` BEFORE you write your status. Nothing launches off your status until `.next` is correct; that ordering is the whole reason the two files are separate.
 
-   Does the fixer have anything to do? It does if you wrote ANY finding, or if the PR carries an unaddressed comment from a bot, CI, or a human:
+   **A CHECKPOINT review (REVIEW-C<n>) launches nothing.** Your findings wait in your manifest for REVIEW-FINAL to carry forward and for <FIX_TAG> to fix. There is no checkpoint fixer, and you never hand findings to the session that wrote the code: it has moved on to its next ticket, which is the point.
+       : > <WS>/state/<TAG>.next
+
+   **REVIEW-FINAL decides whether <FIX_TAG> has anything to do.** It does if your manifest has ANY finding (your own or carried forward), or if the PR carries an unaddressed comment from a bot, CI, or a human:
      gh pr view "$PR" --json comments,reviews
 
    - **Nothing at all** - no findings, no open comments:
@@ -145,20 +163,12 @@ Check it after the review lanes return; that is where the number jumps. You do n
        echo "<TAG> posted no findings and the PR has no open comments" > <WS>/state/<FIX_TAG>.summary
        echo "<NEXT_AFTER_FIX>" > <WS>/state/<FIX_TAG>.next
        echo "<NEXT_AFTER_FIX>" > <WS>/state/<TAG>.next
-     <For a FINAL review with nothing to address, no fixer will hand CI on, so you do it: `bash <WS>/ci-watch.sh <WS>`. It returns at once; do not wait for CI and do not take the PR out of draft yourself - the watcher does that on green.>
+     No fixer will hand CI on, so you do it: `bash <WS>/ci-watch.sh <WS>`. It returns at once; do not wait for CI and do not take the PR out of draft yourself - the watcher does that on green.
 
-   - **A SMALL fix set** - 5 findings or fewer, no BLOCKER, and all of them inside files <IMPL_TAG> itself changed. **Checkpoint reviews only: a FINAL review always launches its rendered fixer**, because that prompt carries the acceptance gate and a handback would drop it. Otherwise hand it back to the session that wrote the code rather than paying for a fresh window to re-read it:
-       echo "<FIX_TAG>" > <WS>/state/<TAG>.next
-       bash <WS>/handback.sh <WS> <FIX_TAG> <IMPL_TAG> <WS>/state/<TAG>.findings.md \
-         || bash <WS>/launch.sh <WS> <FIX_TAG>
-     The `||` is not a formality. `handback.sh` refuses when that window is too full, its
-     session is gone, or the tag's rendered prompt has obligations a handback would drop. The
-     fresh fixer is then the right answer. Do not argue with it.
-
-   - **Anything larger** - a BLOCKER, or findings spread past what one ticket touched:
+   - **Anything to fix** - always a fresh fixer, because its rendered prompt carries the acceptance gate:
        echo "<FIX_TAG>" > <WS>/state/<TAG>.next
        bash <WS>/launch.sh <WS> <FIX_TAG>
 
 3. `echo "DONE" > <WS>/state/<TAG>.status` (or `BLOCKED: <reason>`). LAST. Never `RELAYED` unless you actually relayed.
 
-Post a summary as your last message: findings by severity, which lanes you ran and which you skipped and why, what you deferred, what you rejected and why, the fix route you chose, and anything needing a human decision in the morning.
+Post a summary as your last message: findings by severity, which lanes you ran and which you skipped and why, what you deferred, what you rejected and why, what you carried forward and what later work had already resolved (REVIEW-FINAL), what runs next, and anything needing a human decision in the morning.

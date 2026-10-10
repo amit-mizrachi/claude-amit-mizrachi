@@ -1,7 +1,7 @@
 ---
 name: night-sprint
-description: Delivers a whole feature overnight through autonomous sessions run strictly one after another, and asks the user nothing once it is invoked, all on ONE branch landing as ONE pull request. A conductor session writes no code - it sets the sprint up, then a deterministic runner launches each ticket, advances the chain, revives what dies and waits out spending limits, escalating only what needs judgement. Each implementer watches its own context window and hands its ticket to a fresh session before it fills. Gets or builds a ticket breakdown first (via a spec and a ticket-splitting skill), decides whether to review once at the end or at checkpoints, runs each review as a FIND step plus a FIX step with only the review lanes that diff actually earns, optionally runs a test session that boots the stack or runs evals, and hands CI to a detached watcher session that fixes red checks on its own, so no sprint session (and nobody) waits on CI. Also runs in research mode (`mode: research`), where each ticket is a research question answered from cited sources and the sprint ends in one published artifact instead of a PR. Use when the user says "night sprint", "sprint this feature", "build this overnight", "run this while I sleep", "ticket after ticket", or wants a feature taken end to end unattended in a single PR.
-argument-hint: "<feature | spec path | ticket dir | issue URL> [test: none|dev-stack|evals|<command>] [permission: auto|<mode>] [approval: delegated] [mode: research]"
+description: Delivers a whole feature overnight through autonomous sessions, run one after another by default or side by side in blitz mode (`speed: blitz`, tickets on a dependency graph, each in its own worktree, landed onto the branch one by one), and asks the user nothing once it is invoked, all on ONE branch landing as ONE pull request. A conductor session writes no code - it sets the sprint up, then a deterministic runner launches each ticket, advances the chain, revives what dies and waits out spending limits, escalating only what needs judgement. Each implementer watches its own context window and hands its ticket to a fresh session before it fills. Gets or builds a ticket breakdown first (via a spec and a ticket-splitting skill), decides whether to review once at the end or also at checkpoints, runs every checkpoint review ASYNC (it reads a snapshot while the next ticket keeps building, and nothing waits for it) and fixes every finding of the night once, at the end, with only the review lanes that diff actually earns, optionally runs a test session that boots the stack or runs evals, and hands CI to a detached watcher session that fixes red checks on its own, so no sprint session (and nobody) waits on CI. Also runs in research mode (`mode: research`), where each ticket is a research question answered from cited sources and the sprint ends in one published artifact instead of a PR. Use when the user says "night sprint", "sprint this feature", "build this overnight", "run this while I sleep", "ticket after ticket", "blitz", or wants a feature taken end to end unattended in a single PR.
+argument-hint: "<feature | spec path | ticket dir | issue URL> [speed: serial|blitz] [parallel: <n>] [test: none|dev-stack|evals|<command>] [permission: auto|<mode>] [approval: delegated] [mode: research]"
 ---
 
 # Night Sprint
@@ -12,6 +12,18 @@ One feature, delivered overnight by a **chain** of sessions: ticket 01 lands, ha
 ticket 02, and so on. **Exactly one session touches code at a time**, all in **one worktree on
 one branch**, so the sprint ends as **one PR** with no integration step.
 
+**Reviews never stop the chain.** A checkpoint review is ASYNC: it reads a frozen snapshot of the
+branch in its own worktree while the next ticket keeps building, writes its findings down, and
+fixes nothing. `REVIEW-FINAL` carries every still-true finding forward, and `FIX-FINAL` fixes the
+whole night's findings at once. The only review anything waits for is the final one.
+
+**Blitz mode** (`speed: blitz`) is the exception to "one at a time", chosen at invocation and
+never by default. Tickets run on their dependency graph instead of their numbering: every ticket
+whose blockers have landed starts at once, up to `MAX_PARALLEL` (default 3, `parallel: <n>`),
+each in its own worktree on its own branch. A finished ticket lands with `land.sh`, which merges
+the sprint branch into it under a lock, has the ticket's own session fix the combined tree, and
+fast-forwards the sprint branch. Still one branch, still one PR. See "Blitz mode" below.
+
 You are the **conductor**. You never write product code. You set the sprint up, launch the first
 ticket, arm the runner, and then handle only what a script cannot decide.
 
@@ -21,11 +33,13 @@ short list of exceptions to you. Silence from it means the sprint is running. It
 **detached**, started by `runner.sh start`, so nothing that happens to you or to your Monitor
 stops it. You hear it through a Monitor on `runner.sh follow`.
 
-**This is the sequential sibling of `orchestrating-parallel-delivery`.** That skill splits work
-across concurrent sessions to save wall-clock. This one deliberately does not: it is night time,
-nobody is waiting, and serial execution buys correctness - no frozen contracts, no disjoint-file
-rules, no merge conflicts, no tracker. If you catch yourself fanning out implementers, you are
-in the wrong skill.
+**By default this is the sequential sibling of `orchestrating-parallel-delivery`.** That skill
+splits work across concurrent sessions to save wall-clock. A serial sprint deliberately does not:
+it is night time, nobody is waiting, and serial execution buys correctness - no frozen contracts,
+no disjoint-file rules, no merge conflicts, no tracker. Blitz mode buys the wall-clock back with
+the dependency graph and `land.sh`, and only when the invocation asks for it. If you catch
+yourself fanning out implementers in a serial sprint, stop: that is blitz, and the user did not
+choose it.
 
 **Research mode.** If the invocation says `mode: research`, `facts.env` has `MODE=research`, or
 `product-research` launched you, read `references/research-mode.md` now. It replaces the
@@ -65,8 +79,12 @@ Decide that deliberately rather than discovering it in the morning.
    conversation that led here; with neither, stop and say what is missing - a failed kickoff,
    not a question. `approval: delegated` (a calling skill such as `night-marathon` started you)
    changes nothing here; it only says the caller may already have written the tickets.
-1. **Settle permission mode and the test session - FIRST, without asking.** Kickoff takes a while, so
-   fix these before you read a ticket or check a verify command.
+1. **Settle speed, permission mode and the test session - FIRST, without asking.** Kickoff takes a
+   while, so fix these before you read a ticket or check a verify command.
+   - **Speed**: `speed: blitz` in the invocation (or "blitz" in its words) sets `BLITZ=1` in
+     `facts.env`, and `parallel: <n>` sets `MAX_PARALLEL` (default `3`). Anything else is serial,
+     `BLITZ=0`. Never choose blitz yourself: it costs more tokens and more quota per hour, and that
+     is the user's trade to make.
    - **Permission mode**: `permission:` from the invocation, else **`auto`**. Record it in
      `PERMISSION_MODE`. `acceptEdits` still prompts on shell commands and a background session
      cannot answer a prompt, so it stalls in `blocked` all night. `bypassPermissions` needs a
@@ -83,13 +101,17 @@ Decide that deliberately rather than discovering it in the morning.
    nothing and return their output unapproved. Do not show the plan to the user for approval;
    name the tickets in the kickoff summary instead. Copy the final tickets into
    `tickets/<NN>-<slug>.md` so the sprint has a frozen local copy even if the tracker changes
-   overnight.
+   overnight. **Blitz needs the "Blocked by" edges to be real**: an edge that only reflects the
+   numbering serializes the graph and buys nothing. Tell the ticket skill so, and read each
+   ticket's edges once yourself - a ticket that edits what another ticket edits heavily should
+   block on it rather than race it.
 3. **Ground the run, into `facts.env`.** One `KEY=VALUE` per line, and this file is what the
    renderer fills every prompt from:
 
        REPO, REPO_PATH, REPO_SLUG, SLUG, USER, WS, WORKTREE, BRANCH, BASE, TOOLCHAIN,
        VERIFY, FORMAT_CHECK, CONVENTIONS, TOTAL,
-       CONTEXT_WINDOW, WARN_AT_USED, RELAY_AT_USED, CEILING_USED
+       CONTEXT_WINDOW, WARN_AT_USED, RELAY_AT_USED, CEILING_USED,
+       BLITZ, MAX_PARALLEL
 
    **`VERIFY` is what PR CI runs, recorded for the watcher - never run it locally**, not even to
    check it resolves: the full suite runs only on the PR. **`FORMAT_CHECK` is the formatter or
@@ -111,7 +133,7 @@ Decide that deliberately rather than discovering it in the morning.
    changes a running sprint, chmods them, derives the one-value files the scripts read from
    `facts.env` so the two cannot drift, and **fails loudly if a script or a required fact is
    missing**. Four scripts `source "$WS/agents.sh"`: a workspace missing one file is a launcher,
-   a reviver, a runner and a handback that all fail on their first line at 3am.
+   a reviver, a runner and a closer that all fail on their first line at 3am.
 6. **Render the prompts rather than writing them.**
 
        bash <WS>/render.sh <WS> <WS>/implementer-prompt.md <WS>/prompt-T01.txt <WS>/vars-T01.env
@@ -122,9 +144,9 @@ Decide that deliberately rather than discovering it in the morning.
 
    | Role | `vars-<TAG>.env` must set |
    |---|---|
-   | implementer `T<NN>` | `TAG`, `NN`, `TICKET_TITLE`, `GOTCHAS`, `NEXT_TAG`, `CONVENTIONS`, `TOTAL` |
-   | review finder | `TAG`, `CHECKPOINT`, `SCOPE`, `REVIEW_LANES`, `FIX_TAG`, `IMPL_TAG`, `NEXT_AFTER_FIX` |
-   | review fixer | `TAG`, `CHECKPOINT`, `FIND_TAG`, `NEXT_TAG` |
+   | implementer `T<NN>` | `TAG`, `NN`, `TICKET_TITLE`, `GOTCHAS`, `NEXT_TAG` (empty in blitz), `CONVENTIONS`, `TOTAL` |
+   | review finder (`REVIEW-C<n>`, `REVIEW-FINAL`) | `TAG`, `CHECKPOINT`, `SCOPE`, `REVIEW_LANES`, `FIX_TAG=FIX-FINAL`, `NEXT_AFTER_FIX` |
+   | `FIX-FINAL` | `TAG=FIX-FINAL`, `CHECKPOINT`, `FIND_TAG=REVIEW-FINAL`, `NEXT_TAG` |
    | `TEST` | `TOTAL`, `FIND_FINAL_TAG` |
    | `FIX-TEST` | `TAG=FIX-TEST`, `CHECKPOINT`, `FIND_TAG=TEST`, `NEXT_TAG` (leave empty - it decides its own) |
    | continuation (filled by the relaying session, not you) | `CONT_TAG`, `PREV_TAG`, `NN`, `TICKET_TITLE`, `NEXT_TAG` |
@@ -133,7 +155,17 @@ Decide that deliberately rather than discovering it in the morning.
    after `T01` lands - so a prompt that baked the number in could never render. The review
    prompts discover it themselves with `gh pr view --json number -q .number`.
 
-   **What to render now:** every ticket prompt and every review pair. Render `TEST`
+   **`{{#BLITZ}}` / `{{^BLITZ}}` blocks resolve themselves.** `bootstrap.sh` resolves them in
+   every workspace template from `BLITZ`, so the rendered prompts already hold only this sprint's
+   mode. Never delete a blitz section by hand.
+
+   **A checkpoint finder's `SCOPE` is a range, not a ticket list**, because in an async (and above
+   all a blitz) sprint other work lands between two checkpoints. The first is
+   `` git diff $(git merge-base origin/<BASE> HEAD)..HEAD ``; each later one starts where the last
+   snapshot stood: `` git diff $(cat <WS>/state/REVIEW-C<n-1>.headsha)..HEAD ``.
+
+   **What to render now:** every ticket prompt, every review finder, and `FIX-FINAL`. There is no
+   checkpoint fixer. Render `TEST`
    only if the user opted in - and **when you do, also render `prompt-FIX-TEST.txt` from
    `review-fix-prompt.md`** with `FIND_TAG=TEST`, keeping its FIX-TEST-ONLY section and deleting
    the FINAL-ONLY one. The tester routes an in-scope failure to `FIX-TEST`, and `launch.sh`
@@ -141,15 +173,29 @@ Decide that deliberately rather than discovering it in the morning.
    `launch: no prompt file`.
 
    **What to delete from each rendered file:** the FINAL-ONLY section from a checkpoint review's
-   find and fix prompts; the FIX-TEST-ONLY section from every fixer except `FIX-TEST`; the two
-   unused modes from the `TEST` prompt.
-7. **Wire the chain.** Write each tag's successor to `state/<TAG>.next`, one tag per file
-   (`T01.next` -> `T02`, the last one empty). `advance.sh` reads these; a session may overwrite
-   its own before it writes its status.
+   find prompt; the FIX-TEST-ONLY section from `FIX-FINAL`; the FINAL-ONLY section from
+   `FIX-TEST`; the two unused modes from the `TEST` prompt.
+7. **Wire the chain and queue the rest.** Two mechanisms, one per kind of tag:
+   - **The chain** - `state/<TAG>.next`, one tag per file. `advance.sh` reads these; a session may
+     overwrite its own before it writes its status. Serial: `T01.next` -> `T02` ... the last
+     ticket's `.next` EMPTY. Both modes: `REVIEW-FINAL.next` -> `FIX-FINAL`, `FIX-FINAL.next` ->
+     `TEST` or empty.
+   - **The queue** - `touch state/<TAG>.queued`, plus its dependencies: `state/<TAG>.after` (hard:
+     each must end DONE, or this tag is SKIPPED) and `state/<TAG>.waits` (soft: each must merely
+     have ended). `schedule.sh`, run by the runner every sweep, starts a queued tag the moment its
+     dependencies settle. Queue:
+     - each checkpoint finder, `.waits` = the last ticket of its scope (every ticket of its scope
+       in blitz), plus `touch state/REVIEW-C<n>.snapshot` so it reads a frozen worktree;
+     - `REVIEW-FINAL`, `.waits` = the last ticket (every ticket in blitz) and every checkpoint
+       finder;
+     - in blitz, every ticket: `.after` = its "Blocked by" tags, plus `touch state/T<NN>.isolate`.
+     A ticket tag named in `.after` is settled through its relays: `T03` is DONE when the
+     `T03c<n>` it relayed to is.
 8. **Write `PLAN.md`** from `plan-template.md` - the goal, out-of-scope, ticket order, the
    golden path the tester walks, and the protocol every session follows.
-9. **Launch ticket 01** with `launch.sh`, then start the runner and arm the Monitor that listens
-   to it, and go into the monitor loop:
+9. **Launch the first work** - serial: ticket 01 with `launch.sh`; blitz: `bash <WS>/schedule.sh
+   <WS>`, which starts every ticket with no blockers up to the cap - then start the runner and arm
+   the Monitor that listens to it, and go into the monitor loop:
 
        bash <WS>/runner.sh start <WS>          # must print `runner: running`
        Monitor: bash <WS>/runner.sh follow <WS>   (timeout_ms 1800000; re-arm on every expiry)
@@ -163,9 +209,9 @@ Decide that deliberately rather than discovering it in the morning.
 | Role | Count | Writes code | Job |
 |---|---|---|---|
 | **Conductor** (you) | 1 at a time, hands itself on | never | set up, arm the runner, handle escalations, report. **Never interrupts a working session** |
-| **Implementer** | 1+ per ticket, **serial** | yes | build ONE ticket, static checks green (no tests), commit, hand off - and watch its own window |
-| **Review finder** | 1 per review | **never** | run the selected lanes, triage, write the findings manifest, post ONE PR comment, choose the fix route |
-| **Review fixer** | 0 or 1 per finder | yes (fixes only) | work the manifest, reply on external threads, check, push. Static checks; `FIX-FINAL` and `FIX-TEST` may add a few targeted tests, never the suite |
+| **Implementer** | 1+ per ticket; **serial**, or up to `MAX_PARALLEL` at once in blitz | yes | build ONE ticket, static checks green (no tests), commit, hand off - and watch its own window. In blitz: in its own worktree, and it lands itself with `land.sh` |
+| **Review finder** | 1 per review, **async** | **never** | run the selected lanes over a snapshot, triage, write the findings manifest, post ONE PR comment. A checkpoint finder launches nothing; `REVIEW-FINAL` carries every still-true checkpoint finding forward and decides whether `FIX-FINAL` runs |
+| **Review fixer** | `FIX-FINAL`, plus `FIX-TEST` if the tester routes one | yes (fixes only) | work the whole night's manifest at once, reply on external threads, check, push. Static checks plus a few targeted tests, never the suite |
 | **Tester** | 0 or 1 | no | exercise the built thing, report PASS/FAIL per step, write `GOLDEN.verdict` |
 | **CI watcher** | 0 or 1, **outside the chain** | yes (CI fixes only) | started by `ci-watch.sh` from the final stage; waits for the required checks at the pushed head, fixes and pushes what is red, inherited base-branch failures included (three passes at most), takes the PR out of draft on green, writes `ACCEPTANCE.verdict`. **Nothing waits for it** - not the runner, not TEST, not you |
 
@@ -188,13 +234,15 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
 |---|---|
 | Workspace | `~/.claude/night-sprint/<slug>/` - `facts.env`, `PLAN.md`, `tickets/`, `prompt-<TAG>.txt`, `vars-<TAG>.env`, `state/`, `LOG.md` |
 | Pinned facts | `facts.env`, plus one-value files the scripts read: `WORKTREE`, `SLUG`, `PERMISSION_MODE`, `BRANCH`, `VERIFY`, `CONTEXT_WINDOW`, `WARN_AT_USED`, `RELAY_AT_USED`, `CEILING_USED` |
-| Tags | `T01`..`TNN`, a pair per review (`REVIEW-C1` + `FIX-C1` .. `REVIEW-FINAL` + `FIX-FINAL`), then `TEST`, `FIX-TEST` if the tester finds an in-scope failure, plus continuations `<TAG>c2`, `<TAG>c3` |
+| Tags | `T01`..`TNN`, async finders `REVIEW-C1`.., then `REVIEW-FINAL` + `FIX-FINAL`, then `TEST`, `FIX-TEST` if the tester finds an in-scope failure, plus continuations `<TAG>c2`, `<TAG>c3` |
 | Successors | `state/<TAG>.next`, written at setup, rewritable by the session **before** its status |
+| Queue | `state/<TAG>.queued` + `.after` (hard deps) + `.waits` (soft deps), started by `schedule.sh` from the runner. A dependency whose `.after` ends BLOCKED or SKIPPED gets its dependents `SKIPPED: blocker <X>`, recursively. Finders never count toward `MAX_PARALLEL` |
+| Own worktrees | `state/<TAG>.isolate` (blitz ticket: `<WORKTREE>-<TAG>` on `<BRANCH>--<TAG>`) or `state/<TAG>.snapshot` (finder: `<WORKTREE>-<TAG>`, detached at the branch tip). `launch.sh` creates it and records `state/<TAG>.cwd`; a relay copies `.cwd` to its continuation. Left on disk after the sprint for inspection |
+| Landing (blitz) | `bash <WS>/land.sh <WS> <TAG> merge` then `publish` (or `abort`), under `state/land.lock`. Only a ticket's own session lands it |
 | Branch / worktree | ONE of each: `<type>/<slug>` off `origin/<default>`, in `.claude/worktrees/<slug>` |
 | Launching | `bash <WS>/launch.sh <WS> <TAG>` - never a bare `claude --bg`. It runs in `WORKTREE`, or in `state/<TAG>.cwd` when a tag has one (a phase conductor runs in its own repo, and `revive.sh` resumes it there) |
 | Advancing | `bash <WS>/advance.sh <WS> <TAG>` - **the only thing that decides what runs next** |
 | Reviving | `bash <WS>/revive.sh <WS> <TAG> <cause>` - never re-launch a dead tag by hand |
-| Handing a small fix set back | `bash <WS>/handback.sh <WS> <FIX_TAG> <IMPL_TAG> <manifest>` |
 | Handing off | the SESSION does it, from its own prompt, when its own gauge says so. There is no conductor-side command and there must not be one |
 | One tag, one session | many sessions per tag over a night, never two at once. `launch.sh` claims atomically; a session is never interrupted so never forked; `revive.sh` refuses any session whose transcript is still growing |
 | Stopping | only `revive.sh` (a dead or blocked session, before it revives it) and `close.sh` (a session whose tag is terminal and whose turn has ended) ever stop a session, both through `stop_session` in `agents.sh`; `close.sh` then takes it off the agent list with `remove_session` (`claude rm`). Never hand-roll a stop or a removal: `claude stop` and `claude rm` take the **short 8-char id**, never the full `sessionId`. `claude rm` keeps the shared worktree (a sprint session runs in it but did not create it) and the transcript, so a removed session still resumes with `claude --resume <sessionId>` |
@@ -224,14 +272,15 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
 | `references/continuation-prompt.md` | a relayed tag's successor - sessions fill this one themselves |
 | `references/render.sh` | fill a template from `facts.env` + per-tag vars, and refuse a half-filled one |
 | `references/launch.sh` | atomic claim + launch + session-id capture. Refuses while the sprint is paused |
-| `references/advance.sh` | the single transition owner: read `.status` + `.next`, start the successor |
+| `references/advance.sh` | the single transition owner of the chain: read `.status` + `.next`, start the successor |
+| `references/schedule.sh` | the queue: start every queued tag whose `.after` / `.waits` have settled, up to the writer cap, and skip what a blocked dependency made impossible. The runner calls it each sweep |
+| `references/land.sh` | blitz only: a ticket lands its branch on the sprint branch - merge under a lock, fix the combined tree, fast-forward and push |
 | `references/watch.sh` | the runner: does the routine, escalates the exceptions |
 | `references/runner.sh` | keeps `watch.sh` detached (`start`, `status`) and is your Monitor's command (`follow`): prints each new runner line once, and restarts a runner that died mid-run |
 | `references/revive.sh` | the reviver, for dead sessions only: resume, then restart, then abandon |
 | `references/phase-chain.sh` | one detached runner over a chain of CONDUCTORS (night-marathon's research conductor, then each build): launches each phase when the one before writes `DONE`, revives a conductor that dies |
 | `references/close.sh` | removes a finished session from the agent list (stop, then `claude rm`) once its tag is terminal, so only the conductor is left at the end |
 | `references/classify-error.sh` | what actually ended a session: transient / quota / auth / none |
-| `references/handback.sh` | resume the implementer for a small fix set instead of paying for a fresh window |
 | `references/accept.sh` | are the required CI checks green **at the pushed sha**? Run by the CI watcher, in its own worktree |
 | `references/ci-watch.sh` | hand CI to ONE detached watcher session outside the chain, and return at once. A no-op while one is alive; replaces a finished or dead one |
 | `references/ci-watch-prompt.md` | the watcher's prompt: sync to the pushed head, `accept.sh`, read the failing log, fix, push, repeat; ready on green, BLOCKED after three passes |
@@ -239,6 +288,7 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
 | `references/context-used.sh` | the gauge: percent of a window already USED |
 | `references/rationale.md` | **maintainer only, never loaded at runtime**: the incident behind every rule here |
 | `tests/run.sh` | offline tests for the classifier, the transition owner, the renderer and the `set -u` guards |
+| `tests/blitz.sh` | offline tests for the queue, the landing lock, the render blocks and the relay's worktree |
 
 **There is deliberately no script for the context rungs.** A session hands its own ticket on.
 
@@ -250,7 +300,18 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
   checkpoint at each natural seam, roughly every 3-4 tickets, plus the final one. Put one right
   after the ticket that lands a schema or interface everything else builds on.
 - **Always at least one.** A sprint never ends without `REVIEW-FINAL`.
-- A review is **a session in the chain, not a parallel job** - it holds the worktree.
+
+**Every review is async, and only the final one is waited for.** A checkpoint finder is queued,
+not chained: the runner starts it when the last ticket of its scope ends, in a snapshot worktree
+frozen at that commit, while the next ticket is already building. It writes its manifest, posts
+one PR comment, and launches nothing. `REVIEW-FINAL` waits for every ticket and every checkpoint
+finder, re-checks each checkpoint finding against HEAD, carries the ones still true into its own
+manifest (`ORIGIN: REVIEW-C<n> F<k>`), and adds its own. `FIX-FINAL` fixes the lot in one pass.
+
+**The cost, chosen on purpose.** A BLOCKER found at checkpoint 1 is not fixed until the end, so
+tickets 4 to 9 may build on it and `FIX-FINAL` reworks them too. That is accepted: one fix pass
+over the finished feature is cheaper than stopping the night for every review, and a finding
+re-checked against the finished code is often already moot.
 
 **Lanes: correctness always, the rest only when the diff gives them something to find.**
 
@@ -273,22 +334,48 @@ High-risk changes stay eligible for the broad set - say so when you pick it.
 commits. The fixer never runs a review of any kind. One window cannot do both: it pays for the
 review twice and dies mid-triage, losing the triage.
 
-### The fix route - the finder chooses one of three
+### What runs after REVIEW-FINAL
 
 | Route | When | How |
 |---|---|---|
-| **SKIP** | no findings AND no open bot / CI / human comment | write `SKIPPED` to `state/<FIX_TAG>.status`, point `.next` past it |
-| **HAND BACK** | 5 findings or fewer, no BLOCKER, all inside files the implementer itself changed | `handback.sh` resumes that implementer with the manifest. It **refuses** if that window is past the relay line or the session is gone, and the fallback is a fresh fixer |
-| **FRESH FIXER** | a BLOCKER, or findings spread past one ticket | `launch.sh <FIX_TAG>` |
+| **SKIP** | no finding in the whole night's manifest AND no open bot / CI / human comment | write `SKIPPED` to `state/FIX-FINAL.status`, point `.next` past it, hand CI to the watcher |
+| **FIX-FINAL** | anything at all to fix | `launch.sh FIX-FINAL` - always a fresh session, because its prompt carries the acceptance gate |
 
-Seven brand-new fixer sessions once cost 103M tokens, a quarter of a sprint, much of it
-re-reading code the previous session had just written.
+There is no checkpoint fixer and no handback: the session that wrote the code has moved on to
+its next ticket by the time its review lands, which is the whole point. (`handback.sh` resumed it
+for small checkpoint fix sets; it went when checkpoint fixes did.)
 
 **The manifest is local and stays local.** `state/<TAG>.findings.md` carries
-`ID / SEVERITY / LANE / WHERE / ISSUE / EVIDENCE / ACTION` per finding, and that file is what the
-fixer reads. The PR gets **one** consolidated comment, with inline anchors only for BLOCKER and
-HIGH where the exact line is the point. External bot, CI and human threads are different: each
-gets a reply, because somebody outside the sprint is waiting on it.
+`ID / AT / SEVERITY / LANE / WHERE / ISSUE / EVIDENCE / ACTION` per finding (`AT` is the commit
+the finder read, because by the time anyone acts on it more has landed), and REVIEW-FINAL's is
+what the fixer reads. The PR gets **one** comment per review, with inline anchors only for
+BLOCKER and HIGH where the exact line is the point. External bot, CI and human threads are
+different: each gets a reply, because somebody outside the sprint is waiting on it.
+
+## Blitz mode - the dependency graph, and landing
+
+`speed: blitz` trades tokens and quota for wall-clock. Use it when the user asked for it; never
+infer it.
+
+- **The graph.** Every ticket is queued with its real blockers in `.after`. `schedule.sh` starts
+  each one whose blockers are DONE, oldest first, while fewer than `MAX_PARALLEL` writers run.
+  A BLOCKED or abandoned ticket skips exactly its dependents; everything else goes on, so the
+  conductor no longer skips them by hand.
+- **One tree per ticket.** `launch.sh` cuts `<BRANCH>--<TAG>` from the sprint branch as it stands
+  at launch, in `<WORKTREE>-<TAG>`, so a ticket starts with every blocker already merged. No two
+  sessions ever share a tree - that is still the DUP rule, kept by giving each its own.
+- **Landing.** A ticket is done when the COMBINED tree passes. `land.sh merge` takes
+  `state/land.lock` and merges the sprint branch into the ticket branch; the ticket's own session
+  resolves conflicts (it knows its side) and re-runs the static checks; `land.sh publish`
+  fast-forwards the sprint branch and pushes. The lock makes the fast-forward always possible and
+  serializes pushes. A lock whose owner ended without releasing it, or older than 90 minutes, is
+  taken over and logged.
+- **The shared worktree is quiet until the end.** No session writes `<WORKTREE>` while tickets
+  run; `land.sh` only fast-forwards it. `REVIEW-FINAL` reads it, and `FIX-FINAL`, `TEST` and
+  `FIX-TEST` work in it, after every ticket has landed, exactly as in a serial sprint.
+- **What it does not buy.** Three writers spend the rolling session limit three times as fast; a
+  night bound by budget waits reaches the wait sooner rather than finishing sooner. Name that in
+  the morning report when it happened.
 
 ## Monitor loop - what the runner escalates, and what you do
 
@@ -299,7 +386,7 @@ waits and closing finished sessions itself, and logs all of them to `state/EVENT
 
 | Event | Do |
 |---|---|
-| `BLOCKED <tag> <reason>` | It hit something real - do **not** revive. Record it, skip every ticket that lists it as a blocker, continue with the rest. |
+| `BLOCKED <tag> <reason>` | It hit something real - do **not** revive. Record it, skip every ticket that lists it as a blocker, continue with the rest. In blitz `schedule.sh` already skips its dependents (`SKIPPED: blocker <tag>`) and the others keep running. |
 | `DUP <tag> <id> <id> ...` | **Two agents in one worktree.** Drop everything and fix this first (below). Nothing else the runner says about `<tag>` can be trusted while it holds. |
 | `AUTH <tag>` / `AUTH-PAUSE <...>` | The CLI is logged out or its token expired. No retry can fix it and the sprint is **stopped** - the runner idles rather than spending revives against it. The tag keeps **no** terminal status, because nothing about the work is wrong. Report it and give the exact two-step recovery: `claude /login` in a real terminal, then `bash <WS>/revive.sh <WS> <tag> auth-retry`, which clears the hold and resumes the conversation. |
 | `BUDGET <tag> <class> retry-at <hh:mm>` | Out of capacity. **There is nothing to run** - the runner is waiting and will resume by itself. Log it; the morning report must explain the gap. |
@@ -616,10 +703,10 @@ relay**:
 | T03 | `e5f6...` | ns-<slug>-T03 | implementer | DIED transient | how far it got before the API dropped it |
 | T03 | `9a8b...` | ns-<slug>-T03-r2 | implementer (resumed) | DONE | what it finished after the resume |
 | T05 | `c3d4...` | ns-<slug>-T05 | implementer | RELAYED to T05c2 at 31% used | what it landed before handing on |
-| REVIEW-C1 | `...` | ns-<slug>-REVIEW-C1 | review finder | DONE | lanes run, n findings posted, n deferred, n rejected |
-| FIX-C1 | `...` | ns-<slug>-FIX-C1 | review fixer (handback) | DONE | n fixed, n rejected and why |
-| REVIEW-04 | `...` | ns-<slug>-REVIEW-04 | review finder | BUDGET-BLOCKED 1h59m | the wait, and what it finished afterwards |
-| FIX-C2 | - | - | not launched | SKIPPED | nothing to address |
+| REVIEW-C1 | `...` | ns-<slug>-REVIEW-C1 | review finder (async, beside T04) | DONE | lanes run, n findings posted, n deferred, n rejected |
+| REVIEW-C2 | `...` | ns-<slug>-REVIEW-C2 | review finder | BUDGET-BLOCKED 1h59m | the wait, and what it finished afterwards |
+| REVIEW-FINAL | `...` | ns-<slug>-REVIEW-FINAL | review finder | DONE | n carried forward, n resolved by later work, n new |
+| T06 | - | - | not launched (blitz) | SKIPPED | blocker T04 BLOCKED |
 
 A ticket that took three sessions and two relays is exactly what the user wants to see. Read it
 carefully though: **relays are the normal shape, not a signal.** A ticket that relayed twice is
@@ -675,7 +762,11 @@ never bypass hooks with `--no-verify`.
 
 | Rationalization | Reality |
 |---|---|
-| "Tickets 3 and 4 are independent, I'll run both." | Serial is the contract - it is what removes conflicts and integration. Concurrency is `orchestrating-parallel-delivery`. |
+| "Tickets 3 and 4 are independent, I'll run both." | In a serial sprint, serial is the contract - it is what removes conflicts and integration. Concurrency is blitz mode, and only the invocation turns it on. |
+| "This is a big sprint, I'll switch it to blitz." | Blitz spends more tokens and quota per hour; that trade is the user's. Run what they invoked. |
+| "The checkpoint found a BLOCKER - I'll launch a fixer now." | Reviews are async and fixes happen once, in `FIX-FINAL`. REVIEW-FINAL re-checks it against the finished code and carries it forward. |
+| "Two blitz tickets touch the same file, the merge will sort it out." | It will, at the price of a conflict at landing. When the overlap is heavy, make one ticket block the other at kickoff. |
+| "The blitz ticket is green on its own, mark it DONE." | DONE comes after `land.sh publish` says LANDED - the combined tree is what ships. |
 | "I'll just implement this small ticket myself." | The conductor writes no product code. Your context is the scarcest resource of the night. |
 | "No plan yet, I'll figure out tickets as I go." | Cut a spec and a ticket breakdown first, headless, and name the tickets in the kickoff summary. A sprint with no breakdown builds the wrong thing 9 times. |
 | "I'll just check this one setting with the user before I start." | The sprint asks nothing once invoked. Take it from the invocation or the default, log it under `Decided without asking`, and go. A question at kickoff is a sprint that has not started when the user comes back. |
@@ -683,7 +774,7 @@ never bypass hooks with `--no-verify`.
 | "The reviewer found a one-line fix, it can just make it." | Then it is not a finder, and the next fat review dies mid-triage exactly the way the split was built to stop. |
 | "The fixer should re-run the review to check nothing was missed." | That refills its window with specialist reports and puts it back in the failure mode the split removed. The manifest is the input. Reject an item in a line if it is wrong. |
 | "Post each finding as its own inline comment so nothing is missed." | One consolidated comment, inline only for BLOCKER and HIGH. The fixer reads the LOCAL manifest; a round trip through GitHub to fetch back your own notes is not a review artefact. |
-| "Every review needs a fresh fixer session." | Not for five findings in files the implementer just wrote. `handback.sh` resumes it, and refuses when that is the wrong call. Seven fresh fixers once cost 103M tokens. |
+| "Every review needs its own fixer session." | One fixer, at the end, for the whole night. Seven fresh fixers once cost 103M tokens, a quarter of a sprint. |
 | "It stalled - retry harder and poll faster." | Classify it first. A spending cap cannot be solved by a faster watchdog, and a ladder spent against one loses hours while reporting a permission problem. |
 | "T05 died on an API error, I'll relaunch the ticket." | Resume it - `revive.sh` does. The conversation is on disk; a fresh session re-reads the codebase and repeats every decision the dead one made. |
 | "I'll resume it by hand, it's one `claude --bg --resume`." | Resume mints a **new session id** and drops the name. By hand, `state/<tag>.session` points at a corpse while a real session runs unwatched. |
@@ -708,8 +799,9 @@ never bypass hooks with `--no-verify`.
 ## Anti-Patterns
 
 - **Bare `claude --bg`** during a sprint - bypasses the claim and can put two agents in one
-  worktree. Always `launch.sh`, always `revive.sh`, always `advance.sh` for the chain, and
-  `ci-watch.sh` for the CI watcher (it runs in its own worktree, outside the chain).
+  worktree. Always `launch.sh`, always `revive.sh`, always `advance.sh` for the chain,
+  `schedule.sh` for the queue, and `ci-watch.sh` for the CI watcher (it runs in its own worktree,
+  outside the chain).
 - **Restarting a ticket that only needed a resume**, or retrying one that needed a human.
 - **Emitting routine events to the conductor** - a `DONE` whose only possible answer is a
   scripted `launch.sh` call is a script's job. If you find yourself adding one, add it to

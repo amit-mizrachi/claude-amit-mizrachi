@@ -38,6 +38,7 @@ Invoke `to-tickets`, telling it:
 - The input is <WS>/build/spec.md. The agent invoking it owns the approval gate and no human can answer, so it skips the quiz.
 - Publish in the Local files form into <WS>/build/tickets/ as `01-<slug>.md` and so on. Never a tracker.
 - PLAN.md's build outline is the starting cut; vertical slices win where it is horizontal.
+- "Blocked by" names only a ticket that must really land first. The run's speed is <SPEED>: in a blitz build those edges ARE the schedule, and an edge that only follows the numbering makes tickets wait for nothing.
 - Every ticket that builds UI names its mockup file(s) and the components from PLAN.md, and its acceptance criteria include "matches the mockup in every state it shows".
 
 ## STEP 3 - RUN THE NIGHT-SPRINT
@@ -46,6 +47,7 @@ Read <NS_DIR>/SKILL.md and follow it as the conductor, with these settings alrea
 
 - **approval: delegated.** night-marathon asks <USER> nothing, and neither do you. Kickoff step 1 is answered (below) and step 2's tickets exist in <WS>/build/tickets/. Do not ask.
 - **permission: auto.**
+- **speed: <SPEED>, parallel: <MAX_PARALLEL>.** Write `BLITZ=<BLITZ>` and `MAX_PARALLEL=<MAX_PARALLEL>` into the build sprint's facts.env. With `BLITZ=1` this is a blitz sprint: follow the skill's blitz wiring (every ticket queued with its real blockers) and its "Blitz mode" section.
 - **test: <BUILD_TEST>.** If it names a dev stack, find the repo's dev-environment skill and its boot command yourself and write both into PLAN.md.
 - **Workspace: <WS>/build**, not `~/.claude/night-sprint/<SLUG>/`. Claude Code guards writes under `~/.claude`, and this conductor is a background session that cannot answer that prompt.
 - **SLUG=<SLUG>**, `REPO_PATH=<REPO_PATH>`, `BASE=<BASE>`. The worktree and the branch are night-sprint's usual ones.
