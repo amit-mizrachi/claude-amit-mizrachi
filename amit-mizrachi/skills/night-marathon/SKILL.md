@@ -11,7 +11,7 @@ argument-hint: "<feature description> [repo: <path>] [mode: autonomous|review] [
 One feature, three stages, and **no questions**. From the moment the skill is invoked it asks the user nothing: every setting comes from the invocation or a default (step 2), and the brief is shown, not approved.
 
 1. **Research** - a `night-sprint` in research mode answers what the plan needs to know, from the repo and the allowed sources, with citations.
-2. **Plan** - its last stage drafts the plan, asks Codex (`gpt-6-astra`, medium effort) to review it when the codex-bridge MCP server is connected, settles the final recommendations with that second opinion, then publishes a plan artifact: UI mockups built from the repo's real tokens and components, and only the decisions worth a human's time, each with a recommendation and a **Pick this** radio. The page copies the picks as text.
+2. **Plan** - its last stage drafts the plan, asks Codex (`gpt-6-astra`, medium effort) to review the whole plan when the codex-bridge MCP server is connected - its decisions and the blind spots nobody knew to decide - settles the final plan with that second opinion, then publishes a plan artifact: UI mockups built from the repo's real tokens and components, and only the decisions worth a human's time, each with a recommendation and a **Pick this** radio. The page copies the picks as text.
 3. **Build** - a code `night-sprint` runs `to-spec` and `to-tickets` on the chosen plan and delivers one PR.
 
 **Between stages 2 and 3 the mode decides.** `autonomous` (default): the conductor takes every recommended option and starts the build. `review` (only when the invocation names it): the conductor stops, sends the artifact link, and waits until the user pastes their copied picks into it. That wait is the user's own choice at invocation, never a question this skill raises.
@@ -167,3 +167,4 @@ Do not watch the run from this session. The conductors own it.
 | "The build conductor can use `~/.claude/night-sprint/<slug>/` like a normal sprint." | It is a background session; a write there stops on a prompt. It uses `<WS>/build`. |
 | "`to-tickets` found a GitHub tracker config, publishing issues is fine." | Nothing is posted at night. Spec and tickets stay local in the workspace. |
 | "Codex disagrees, so its option wins." | It is a second opinion, not a vote. The plan stage confirms what Codex cites before it changes a recommendation, and records every agree, change and keep in PLAN.md. |
+| "Codex says the plan missed something, so it goes on the page." | A blind spot is a lead, not a fact. The plan stage confirms it in the code first, then files it where it belongs: a decision only if it passes the filter, otherwise decided for you, a build step or a risk. |

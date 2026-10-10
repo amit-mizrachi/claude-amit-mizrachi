@@ -206,10 +206,13 @@ without asking` list, shows it, and starts. Then:
    `repo:<path>:<line> @<sha>`. When the feature has UI, one question is always the UI kit:
    the token files, the component packages, and the screens the new UI must look like.
 2. **Plan.** The research sprint's last stage drafts the plan, then - when `codex-bridge` is
-   connected - asks Codex (`gpt-6-astra`, medium effort, read only) to review it: a pick and its
-   reasoning for every decision, any decision the plan is missing, and the biggest risk. The
-   stage settles the final recommendations with that second opinion, confirming what Codex cites
-   before it changes one, and records each agree, change and keep in `PLAN.md` and on the page.
+   connected - asks Codex (`gpt-6-astra`, medium effort, read only) to review the whole plan: a
+   pick and its reasoning for every decision, what is wrong in the scope, UI and build outline,
+   the **blind spots** the plan never considered (decisions nobody knew had to be made, such as
+   existing data, other consumers, permissions, rollout), and the biggest risk. The stage settles
+   the final plan with that second opinion, confirming what Codex cites in the code before it
+   changes anything, files each confirmed blind spot as a decision, a decided-for-you line, a
+   build step or a risk, and records each agree, change and keep in `PLAN.md` and on the page.
    If `codex` is missing or not logged in, there is no second opinion, the brief says so, and
    the run goes on. An account without `gpt-6-astra` falls back to its default Codex model. Then it publishes a **short,
    UI-first** artifact instead of a findings page: mockups drawn from the repo's real tokens and components, in their real page
