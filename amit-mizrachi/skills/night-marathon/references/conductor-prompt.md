@@ -1,6 +1,6 @@
 night-marathon <SLUG>: CONDUCTOR
 
-<USER> approved the brief in <WS>/BRIEF.md. Run mode: **<MARATHON_MODE>**.
+<USER> started this run and is not answering. The brief is <WS>/BRIEF.md; settings under `Decided without asking` are final. Run mode: **<MARATHON_MODE>**.
 - autonomous: you never ask anything, at any step. The build starts from your own recommendations.
 - review: you ask nothing until STEP 6. At STEP 6 you stop and wait for <USER>'s picks - the ONE point in the run where a human answers.
 Outside STEP 6, never call AskUserQuestion and never ask a question in text. When something is ambiguous, decide, write the decision in <WS>/LOG.md, and keep going. ASCII only, no em/en dashes.

@@ -1,6 +1,6 @@
 ---
 name: night-sprint
-description: Delivers a whole feature overnight through autonomous sessions run strictly one after another, all on ONE branch landing as ONE pull request. A conductor session writes no code - it sets the sprint up, then a deterministic runner launches each ticket, advances the chain, revives what dies and waits out spending limits, escalating only what needs judgement. Each implementer watches its own context window and hands its ticket to a fresh session before it fills. Gets or builds a ticket breakdown first (via a spec and a ticket-splitting skill), decides whether to review once at the end or at checkpoints, runs each review as a FIND step plus a FIX step with only the review lanes that diff actually earns, optionally runs a test session that boots the stack or runs evals, and hands CI to a detached watcher session that fixes red checks on its own, so no sprint session (and nobody) waits on CI. Also runs in research mode (`mode: research`), where each ticket is a research question answered from cited sources and the sprint ends in one published artifact instead of a PR. Use when the user says "night sprint", "sprint this feature", "build this overnight", "run this while I sleep", "ticket after ticket", or wants a feature taken end to end unattended in a single PR.
+description: Delivers a whole feature overnight through autonomous sessions run strictly one after another, and asks the user nothing once it is invoked, all on ONE branch landing as ONE pull request. A conductor session writes no code - it sets the sprint up, then a deterministic runner launches each ticket, advances the chain, revives what dies and waits out spending limits, escalating only what needs judgement. Each implementer watches its own context window and hands its ticket to a fresh session before it fills. Gets or builds a ticket breakdown first (via a spec and a ticket-splitting skill), decides whether to review once at the end or at checkpoints, runs each review as a FIND step plus a FIX step with only the review lanes that diff actually earns, optionally runs a test session that boots the stack or runs evals, and hands CI to a detached watcher session that fixes red checks on its own, so no sprint session (and nobody) waits on CI. Also runs in research mode (`mode: research`), where each ticket is a research question answered from cited sources and the sprint ends in one published artifact instead of a PR. Use when the user says "night sprint", "sprint this feature", "build this overnight", "run this while I sleep", "ticket after ticket", or wants a feature taken end to end unattended in a single PR.
 argument-hint: "<feature | spec path | ticket dir | issue URL> [test: none|dev-stack|evals|<command>] [permission: auto|<mode>] [approval: delegated] [mode: research]"
 ---
 
@@ -57,30 +57,33 @@ Decide that deliberately rather than discovering it in the morning.
 
 ## Kickoff (conductor, when the skill fires)
 
-0. **Started by another skill?** If the invocation or your prompt says `approval: delegated`,
-   the calling skill (for example `night-marathon`) already ran the approval gate with the user and
-   no human can answer now. Then ask nothing at any step: take `permission:` and `test:` from the
-   invocation (`auto` if `permission:` is absent), run the spec and ticket-splitting skills
-   headless and tell them the caller owns the approval gate, and write every call you would
-   have asked about into `LOG.md`. The no-unseen-plan rule in step 2 is met by the caller.
-1. **Ask the two things you cannot infer - FIRST.** One `AskUserQuestion`, before you read a
-   ticket or check a verify command. Kickoff takes a while and the user drifts away during it.
-   Skip any question the invocation already answered (`permission:`, `test:`).
-   - **Permission mode**: **`auto` is the default and what to use unless the user says
-     otherwise.** Record it in `PERMISSION_MODE`. `acceptEdits` still prompts on shell commands
-     and a background session cannot answer a prompt, so it stalls in `blocked` all night.
-     `bypassPermissions` needs a one-time interactive disclaimer you cannot accept for the user;
-     if they want it, hand them the interactive command **now**, while they are at the keyboard.
-   - **Test session?** If the invocation said (`test: none|dev-stack|evals|<cmd>`), use it. Else
-     ask: none, boot the stack via your repo's dev-environment skill and walk the golden path,
-     run evals, or a custom command. If they pick the stack, get the skill name and boot command
-     now and write both into `PLAN.md`.
+0. **Ask nothing - from the moment the skill fires.** Never call `AskUserQuestion` and never ask
+   a question in text, at kickoff or after it. Every setting comes from the invocation or a
+   default below; every judgement call you would have asked about goes into `LOG.md` under
+   `## Decided without asking` and into the kickoff summary, so the user can read it later and
+   stop the sprint if a call was wrong. The feature is the invocation's text, else the
+   conversation that led here; with neither, stop and say what is missing - a failed kickoff,
+   not a question. `approval: delegated` (a calling skill such as `night-marathon` started you)
+   changes nothing here; it only says the caller may already have written the tickets.
+1. **Settle permission mode and the test session - FIRST, without asking.** Kickoff takes a while, so
+   fix these before you read a ticket or check a verify command.
+   - **Permission mode**: `permission:` from the invocation, else **`auto`**. Record it in
+     `PERMISSION_MODE`. `acceptEdits` still prompts on shell commands and a background session
+     cannot answer a prompt, so it stalls in `blocked` all night. `bypassPermissions` needs a
+     one-time interactive disclaimer nobody can accept for the user: if the invocation names it
+     and `T01` then stalls on that disclaimer, switch `PERMISSION_MODE` to `auto`, relaunch, and
+     log the switch.
+   - **Test session**: `test: none|dev-stack|evals|<cmd>` from the invocation, else **`none`**.
+     For the stack, find your repo's dev-environment skill and its boot command yourself and
+     write both into `PLAN.md`; if you cannot find them, fall back to `none` and log it.
 2. **Get the tickets.** The sprint needs a plan already cut into tickets in dependency order.
    Tickets exist (a `.scratch/<slug>/issues/` dir, tracker issues, a plan with numbered slices)?
-   Read them all. None? Run the spec skill on the feature, then the ticket-splitting skill, and
-   take the user through their approval gates now. **Never start a sprint against a plan the user
-   has not seen.** Copy the final tickets into `tickets/<NN>-<slug>.md` so the sprint has a
-   frozen local copy even if the tracker changes overnight.
+   Read them all. None? Run the spec skill on the feature, then the ticket-splitting skill,
+   **headless**: tell both that you own the approval gate and no human can answer, so they ask
+   nothing and return their output unapproved. Do not show the plan to the user for approval;
+   name the tickets in the kickoff summary instead. Copy the final tickets into
+   `tickets/<NN>-<slug>.md` so the sprint has a frozen local copy even if the tracker changes
+   overnight.
 3. **Ground the run, into `facts.env`.** One `KEY=VALUE` per line, and this file is what the
    renderer fills every prompt from:
 
@@ -674,7 +677,8 @@ never bypass hooks with `--no-verify`.
 |---|---|
 | "Tickets 3 and 4 are independent, I'll run both." | Serial is the contract - it is what removes conflicts and integration. Concurrency is `orchestrating-parallel-delivery`. |
 | "I'll just implement this small ticket myself." | The conductor writes no product code. Your context is the scarcest resource of the night. |
-| "No plan yet, I'll figure out tickets as I go." | Get a spec and a ticket breakdown approved first. An unapproved sprint builds the wrong thing 9 times. |
+| "No plan yet, I'll figure out tickets as I go." | Cut a spec and a ticket breakdown first, headless, and name the tickets in the kickoff summary. A sprint with no breakdown builds the wrong thing 9 times. |
+| "I'll just check this one setting with the user before I start." | The sprint asks nothing once invoked. Take it from the invocation or the default, log it under `Decided without asking`, and go. A question at kickoff is a sprint that has not started when the user comes back. |
 | "Run all six review lanes, it is more thorough." | It is five reviewers reading the same code to report nothing. Correctness always; the rest only where the diff gives them something to find. |
 | "The reviewer found a one-line fix, it can just make it." | Then it is not a finder, and the next fat review dies mid-triage exactly the way the split was built to stop. |
 | "The fixer should re-run the review to check nothing was missed." | That refills its window with specialist reports and puts it back in the failure mode the split removed. The manifest is the input. Reject an item in a line if it is wrong. |
@@ -697,7 +701,7 @@ never bypass hooks with `--no-verify`.
 | "A session is past its line and has not handed off - I'll do it for it." | You cannot. There is no way to message a running session, and the scripts that faked it forked sessions into duplicates. It is a log line, not a lever. |
 | "The window is 1M, close enough to leave `CONTEXT_WINDOW` at the default." | Then every session relays after its first big read and the night goes on handoffs. It cannot be inferred from a transcript. |
 | "`acceptEdits` is the safe default for an unattended run." | It is the mode that stalls: it still prompts on shell commands, and a background session cannot answer. Use `auto`. |
-| "They picked `bypassPermissions`; I'll sort the disclaimer out at launch." | By then they are asleep. It needs a real terminal. Ask at step 1. |
+| "They named `bypassPermissions`; I'll ask them to accept the disclaimer." | Asking is off the table. If `T01` stalls on the disclaimer, switch to `auto`, relaunch, and log it. |
 | "I'll write the prompts by hand, it's more precise." | 22 prompts and 29,266 words once came out of one kickoff, mostly retyped facts. `render.sh` fills them from `facts.env` and fails on an unfilled slot. You author the judgement only. |
 | "I'll put the key's value in the PR body so it's easy to find." | Never. Not the PR, not `LOG.md`, not a prompt file. |
 

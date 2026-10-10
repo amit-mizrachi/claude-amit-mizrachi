@@ -1,6 +1,6 @@
 # <RESEARCH_TITLE> - research sprint plan
 
-> <USER> approved the brief and is not answering now. Every session decides for itself, cites
+> <USER> started this run and is not answering now. Every session decides for itself, cites
 > its evidence, commits, hands off. No session asks a question. No session writes to a connector.
 
 ## Facts

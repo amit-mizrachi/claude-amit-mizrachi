@@ -47,6 +47,10 @@ rules, no merge conflicts, no integration step.
 You are the conductor and you write no product code. You set the sprint up, launch the first
 ticket, arm the runner, and then handle only what a script cannot decide.
 
+**It asks you nothing once invoked.** Permission mode (`auto`), the test session (`none`) and the
+ticket breakdown come from the invocation or a default; every call it would have asked about is
+logged under `Decided without asking` in `LOG.md` and named in the kickoff summary.
+
 The parts that make it survive an unattended night:
 
 - **The watcher is a runner, not a narrator.** It advances the chain, revives dead sessions and
@@ -184,9 +188,11 @@ and an account where `auto` permission mode is available. A plain claude.ai chat
 
 ### `night-marathon`
 
-Takes a feature from an idea to one PR, with **one approval** at the start. In your session it
-asks for the feature, the mode, how to test the build, which connectors may hold earlier talk
-about it, and how deep to research. It writes a brief; you approve it. Then:
+Takes a feature from an idea to one PR, and **asks you nothing** once invoked. The mode
+(`autonomous`), the build test (`none`), the extra connectors (every one that may hold earlier
+talk about the feature, read only) and the depth (`standard`) come from the invocation
+(`mode:`, `test:`, `sources:`, `depth:`) or those defaults. It writes a brief with a `Decided
+without asking` list, shows it, and starts. Then:
 
 1. **Research.** A `night-sprint` in research mode answers what the plan needs to know. The
    repo is a source, read from a detached snapshot of `origin/<base>` and cited as
@@ -212,7 +218,7 @@ Two modes decide what happens between 2 and 3:
 
 - **`autonomous`** (default) - the conductor takes every recommended option and starts the build.
   You get the plan link, then the PR.
-- **`review`** - the conductor stops and sends you the plan link. Pick on the page, press **Copy
+- **`review`** (only when you invoke with `mode: review`) - the conductor stops and sends you the plan link. Pick on the page, press **Copy
   decisions**, `claude attach` to the conductor and paste. Picking is the approval; the build
   then runs without asking.
 
@@ -225,7 +231,7 @@ alone. Every launch, death and revive is logged in `<workspace>/phases/state/EVE
 reports name the time each one cost.
 
 `night-sprint` gained what this needs: a kickoff with `approval: delegated`, where a calling
-skill has already run the approval gate and nothing is asked, and `repo:` source locators in the
+skill may already have written the tickets, and `repo:` source locators in the
 research citation check.
 
 ### `codex-bridge` (MCP server)

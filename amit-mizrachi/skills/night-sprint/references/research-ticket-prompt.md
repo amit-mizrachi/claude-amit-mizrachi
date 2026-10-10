@@ -1,6 +1,6 @@
 Research sprint <SLUG>: ticket <NN> - <TICKET_TITLE>
 
-AUTONOMOUS RESEARCH RUN. <USER> approved the brief and will NOT answer anything now. Never ask a question - make the best call, state it in your summary, keep going. Do not stop until this ONE ticket's question is answered, every claim is cited, the findings file is committed and the ticket is handed off. ASCII only, no em/en dashes.
+AUTONOMOUS RESEARCH RUN. <USER> started this run and will NOT answer anything now. Never ask a question - make the best call, state it in your summary, keep going. Do not stop until this ONE ticket's question is answered, every claim is cited, the findings file is committed and the ticket is handed off. ASCII only, no em/en dashes.
 
 Research: <RESEARCH_TITLE>
 The question: <QUESTION>

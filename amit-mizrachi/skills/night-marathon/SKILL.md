@@ -1,22 +1,24 @@
 ---
 name: night-marathon
-description: "Takes a feature from an idea to one pull request with no supervision between the stages. It researches what the plan needs from the code and the allowed sources, publishes a short plan artifact with realistic UI mockups drawn from the repo's own design system and a pick list of the few decisions that matter, then builds the chosen plan overnight as one PR. Two modes: autonomous (the default - the recommended options are built without stopping) and review (the run stops at the plan artifact until the user pastes their picks into the conductor session). Use when the user says \"night marathon\", \"feature e2e\", \"feature end to end\", \"research, plan and build this\", \"take this feature all the way\", or wants a feature planned with mockups and then built while they are away."
-argument-hint: "<feature description> [mode: autonomous|review] [test: none|dev-stack|evals|<command>]"
+description: "Takes a feature from an idea to one pull request with no supervision between the stages, and asks the user nothing once it is invoked. It researches what the plan needs from the code and the allowed sources, publishes a short plan artifact with realistic UI mockups drawn from the repo's own design system and a pick list of the few decisions that matter, then builds the chosen plan overnight as one PR. Two modes: autonomous (the default - the recommended options are built without stopping) and review (only when the invocation says `mode: review` - the run stops at the plan artifact until the user pastes their picks into the conductor session). Use when the user says \"night marathon\", \"feature e2e\", \"feature end to end\", \"research, plan and build this\", \"take this feature all the way\", or wants a feature planned with mockups and then built while they are away."
+argument-hint: "<feature description> [repo: <path>] [mode: autonomous|review] [test: none|dev-stack|evals|<command>] [depth: quick|standard|deep] [sources: <connector>, ...]"
 ---
 
 # Night Marathon
 
 ## Overview
 
-One feature, three stages, one approval at the start:
+One feature, three stages, and **no questions**. From the moment the skill is invoked it asks the user nothing: every setting comes from the invocation or a default (step 2), and the brief is shown, not approved.
 
 1. **Research** - a `night-sprint` in research mode answers what the plan needs to know, from the repo and the allowed sources, with citations.
 2. **Plan** - its last stage drafts the plan, asks Codex (`gpt-6-astra`, medium effort) to review it when the codex-bridge MCP server is connected, settles the final recommendations with that second opinion, then publishes a plan artifact: UI mockups built from the repo's real tokens and components, and only the decisions worth a human's time, each with a recommendation and a **Pick this** radio. The page copies the picks as text.
 3. **Build** - a code `night-sprint` runs `to-spec` and `to-tickets` on the chosen plan and delivers one PR.
 
-**Between stages 2 and 3 the mode decides.** `autonomous` (default): the conductor takes every recommended option and starts the build. `review`: the conductor stops, sends the artifact link, and waits until the user pastes their copied picks into it.
+**Between stages 2 and 3 the mode decides.** `autonomous` (default): the conductor takes every recommended option and starts the build. `review` (only when the invocation names it): the conductor stops, sends the artifact link, and waits until the user pastes their copied picks into it. That wait is the user's own choice at invocation, never a question this skill raises.
 
-You run the front door, in the user's session: the checks, the interview, the brief, the one approval, the launch. Then you stop. Background sessions do the rest.
+You run the front door, in the user's session: the checks, the settings, the brief, the launch. Then you stop. Background sessions do the rest.
+
+**Never call `AskUserQuestion` and never ask a question in text, at any step.** When something is unclear, decide, write the decision into `BRIEF.md` under `## Decided without asking`, and go on. The user reads the brief after launch and can stop the run if a call was wrong; a question asked now is a run that has not started when they come back.
 
 This skill builds on `night-sprint`, `to-spec`, `to-tickets` and `next-prompt`, which ship next to it. It changes none of their rules; the conductor prompt in `references/` tells them where the hand-offs are.
 
@@ -26,24 +28,26 @@ This skill builds on `night-sprint`, `to-spec`, `to-tickets` and `next-prompt`, 
 
 `NM` = this skill's base directory, `NS` = `<NM>/../night-sprint`, both absolute. Confirm `NS/references/research-mode.md` and `NM/references/conductor-prompt.md` exist.
 
-The repo is the git top level of the working directory (`git rev-parse --show-toplevel`). Not in a repo? Ask for its path in plain text. `BASE` is the default branch: `git -C <repo> symbolic-ref --short refs/remotes/origin/HEAD`, without the `origin/`.
+The repo is `repo:` from the invocation, else the git top level of the working directory (`git rev-parse --show-toplevel`), else the one repo the conversation is plainly about. None of these? Stop and say so (below). `BASE` is the default branch: `git -C <repo> symbolic-ref --short refs/remotes/origin/HEAD`, without the `origin/`.
 
-Anything missing: stop and say exactly what. Do not interview for a run that cannot start.
+Anything missing: stop and say exactly what, with the invocation that would work. That is a failed launch, not a question: do not wait for an answer.
 
 Codex is optional. ToolSearch `codex_status` and call the tool whose name ends in `codex-bridge__codex_status` (this plugin ships the server). A result starting `ready: yes` means the plan stage gets a second opinion. No tool, or `ready: no`, means it runs without one: never stop the run over it, and say which in the brief, with the status result's `fix:` line when there is one.
 
-## 2. Interview - short
+## 2. Settings - from the invocation, never asked
 
-No feature in the arguments? Ask for it in plain text and wait. Have it? Do not ask again.
+The feature is the invocation's text. No feature there? Take it from the conversation that led here. Still none? Stop and say so, as in step 1.
 
-Then ONE `AskUserQuestion`, skipping any question the arguments already answered:
+Take each setting from the invocation when it names one, else use the default. Do not ask about any of them.
 
-- **Mode** - **Autonomous (Recommended)**: "I pick the recommended plan and build it; you get the plan artifact and a PR." / **Review the plan first**: "The run stops at the plan artifact; you pick the decisions and paste them into the conductor, then it builds."
-- **Test the build** - None / Boot the dev stack and walk the golden path / Run evals / a custom command. These map to night-sprint's `test:` values.
-- **Extra sources** (`multiSelect`) - the repo and the web are always in. Offer up to four connectors from your tool list (`mcp__claude_ai_<Name>__*`, `mcp__<server>__*`) that could hold earlier talk about this feature: Slack, Monday, Figma, Drive. Skip the question if none fit.
-- **Depth** - Quick: 3 research questions. Standard (Recommended): 5. Deep: 8.
+| Setting | Invocation | Default |
+|---|---|---|
+| **Mode** | `mode: autonomous\|review` | `autonomous` - the recommended plan is built |
+| **Test the build** | `test: none\|dev-stack\|evals\|<command>` (night-sprint's `test:` values) | `none` |
+| **Extra sources** | `sources: <connector>, ...` | every connector in your tool list (`mcp__claude_ai_<Name>__*`, `mcp__<server>__*`) that could hold earlier talk about this feature - Slack, Monday, Figma, Drive - at most four. All are read only. The repo and the web are always in |
+| **Depth** | `depth: quick\|standard\|deep` | `standard` - 5 research questions (quick 3, deep 8) |
 
-## 3. The brief - the only approval
+## 3. The brief - shown, not approved
 
 Slug: the feature in kebab case, at most 40 characters, plus `-<YYYYMMDD>`. Workspace `WS` = `~/claude-research/<slug>/`, adding `-2`, `-3` if it exists. **Never under `~/.claude`**: Claude Code guards writes there, and a background session stops on that prompt with nobody to answer it.
 
@@ -68,17 +72,16 @@ Write `<WS>/BRIEF.md`:
     ## Out of scope
     - <what this will not build>
 
+    ## Decided without asking
+    - <each setting that came from a default, and each judgement call, one line each>
+
     ## Deliverables
     - A plan artifact: UI mockups from the repo's own components, the decisions that matter with a recommendation each, and a copy-your-picks bar.
     - One pull request implementing the chosen plan, in draft until CI is green. Never merged or deployed by the run.
 
-Show it in full and say the line that matches the mode:
-- autonomous: **"After you approve, I will not ask you anything else. You get the plan artifact link, then the PR."**
-- review: **"After you approve, the next thing you hear is the plan artifact link. Pick on the page and paste your picks into the conductor session; after that the build runs without asking."**
+Do not show it for approval. Go straight to step 4; the brief goes into the report in step 5.
 
-Then `AskUserQuestion`: "Start with this brief?" - **Approve and start** / **Change something**. On a change, revise, show it again, ask again.
-
-## 4. Start it - no more questions from here
+## 4. Start it
 
 1. **Snapshot the repo**, so research reads the code at one commit and never the user's own checkout:
 
@@ -135,9 +138,10 @@ If the launch or the runner fails - most often because `auto` mode is not availa
 
 ## 5. Tell the user, then stop
 
-Five lines, no more:
+Six lines, no more:
 
-- It is running. Autonomous: nothing more will be asked. Review: the next stop is the plan artifact.
+- It is running. Autonomous: nothing will be asked. Review: the next stop is the plan artifact.
+- The brief at `<WS>/BRIEF.md`, with its `Decided without asking` lines. To change a call, stop the run and invoke again with that setting named.
 - The workspace path, and `claude agents` / `claude attach <short id>` to look in. Every conductor launch, death and revive is logged in `<WS>/phases/state/EVENTS.log`. `night-watch` in any terminal draws the run's live progress, stage by stage.
 - What arrives: the plan artifact link (push notification and `<WS>/REPORT.md`), then the PR from the build session (`<WS>/build/REPORT.md`).
 - Review mode: on the page, pick, press **Copy decisions**, then `claude attach <short id>` and paste. The notification carries the id.
@@ -149,6 +153,7 @@ Do not watch the run from this session. The conductors own it.
 
 | Thought | Reality |
 |---|---|
+| "I'll just confirm the mode, the test or the brief before I launch." | The skill asks nothing once invoked. Take the setting from the invocation or the default, write the call under `Decided without asking`, and launch. A question at kickoff is a run that has not started when the user comes back. |
 | "I'll have research read the user's checkout, it is right there." | It is on some branch, maybe dirty, and it moves. The snapshot pins one commit, and the citations name it. |
 | "The mockup can use a generic look, the decisions are what matter." | A generic mockup is invented UI that the build then copies faithfully. The UI-kit ticket and the real-source rule exist for this. |
 | "Put every choice on the page, the user can skip the small ones." | The user asked for the few decisions that matter. The synth prompt's filter decides the rest and lists them in one collapsed line each. |

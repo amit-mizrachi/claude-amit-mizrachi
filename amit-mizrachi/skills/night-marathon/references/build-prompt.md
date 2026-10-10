@@ -1,6 +1,6 @@
 night-marathon <SLUG>: BUILD
 
-AUTONOMOUS BUILD. <USER> approved the brief and the plan (run mode: <MARATHON_MODE> - in review mode <USER> picked the decisions; in autonomous mode <USER> chose to let the recommendations stand). Nobody will answer anything now. Never call AskUserQuestion and never ask a question in text. When something is ambiguous, decide, write it in <WS>/build/LOG.md, and keep going. ASCII only, no em/en dashes.
+AUTONOMOUS BUILD. <USER> started this run and the plan is settled (run mode: <MARATHON_MODE> - in review mode <USER> picked the decisions; in autonomous mode the recommendations stand). Nobody will answer anything now. Never call AskUserQuestion and never ask a question in text. When something is ambiguous, decide, write it in <WS>/build/LOG.md, and keep going. ASCII only, no em/en dashes.
 
 Feature: <FEATURE>
 Repo: <REPO_PATH>, base branch <BASE>
@@ -44,7 +44,7 @@ Invoke `to-tickets`, telling it:
 
 Read <NS_DIR>/SKILL.md and follow it as the conductor, with these settings already decided by the caller:
 
-- **approval: delegated.** night-marathon ran the approval gate with <USER> before this session started. Kickoff step 1 is answered (below) and step 2's tickets exist in <WS>/build/tickets/. Do not ask.
+- **approval: delegated.** night-marathon asks <USER> nothing, and neither do you. Kickoff step 1 is answered (below) and step 2's tickets exist in <WS>/build/tickets/. Do not ask.
 - **permission: auto.**
 - **test: <BUILD_TEST>.** If it names a dev stack, find the repo's dev-environment skill and its boot command yourself and write both into PLAN.md.
 - **Workspace: <WS>/build**, not `~/.claude/night-sprint/<SLUG>/`. Claude Code guards writes under `~/.claude`, and this conductor is a background session that cannot answer that prompt.
