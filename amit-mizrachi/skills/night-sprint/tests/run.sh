@@ -41,7 +41,7 @@ check "org spend cap"                 "quota-spend"                 "$(c spend-l
 check "logged out"                    "auth logged-out"             "$(c logged-out.jsonl)"
 check "subscription disabled"         "auth subscription-disabled"  "$(c subscription-disabled.jsonl)"
 check "dropped connection"            "transient connection-closed" "$(c connection-closed.jsonl)"
-# The exact line that killed the shapes-platform build conductor on 2026-10-02.
+# The exact line that killed a platform build conductor on 2026-10-02.
 check "lost connection"               "transient connection-lost"   "$(c connection-lost.jsonl)"
 check "529 overloaded"                "transient overloaded"        "$(c overloaded.jsonl)"
 check "no error at all"               "none"                        "$(c clean.jsonl)"
@@ -212,7 +212,7 @@ echo "== render.sh fills every slot, or refuses =="
 RWS="$(mktemp -d)"
 cat > "$RWS/facts.env" <<'ENV'
 # comments and blank lines are ignored
-REPO=shapes-platform
+REPO=acme-platform
 VERIFY=pnpm nx affected -t typecheck test lint
 WS=/tmp/ws
 TAG=T01
@@ -222,7 +222,7 @@ printf 'Repo <REPO>, check with `<VERIFY>`, tag <TAG>, ws <WS>.\n' > "$RWS/t.md"
 out="$(bash "$REF/render.sh" "$RWS" "$RWS/t.md" "$RWS/out.txt" 2>&1)"; rc=$?
 check "a fully filled template renders, exit 0" "0" "$rc"
 check "every slot substituted" \
-  'Repo shapes-platform, check with `pnpm nx affected -t typecheck test lint`, tag T01, ws /tmp/ws.' \
+  'Repo acme-platform, check with `pnpm nx affected -t typecheck test lint`, tag T01, ws /tmp/ws.' \
   "$(cat "$RWS/out.txt")"
 
 # Longest-key-first matters: <TAG> must not eat the front of <TAG_SUFFIX>.
@@ -291,11 +291,11 @@ out="$(bash "$REF/bootstrap.sh" "$BWS" "$REF" 2>&1)"; rc=$?
 check "no facts.env: bootstrap refuses" "1" "$rc"
 
 cat > "$BWS/facts.env" <<ENV
-REPO=shapes-platform
+REPO=acme-platform
 REPO_PATH=/tmp/repo
 REPO_SLUG=owner/repo
 SLUG=testsprint
-USER=Amit
+USER=Sam
 WS=$BWS
 WORKTREE=/tmp/wt
 BRANCH=feat/x
@@ -607,7 +607,7 @@ research_facts() {
   cat > "$QWS/facts.env" <<ENV
 MODE=research
 SLUG=pricing-20261001
-USER=Amit
+USER=Sam
 WS=$QWS
 WORKTREE=$QWS/work
 BRANCH=research/pricing-20261001
@@ -664,7 +664,7 @@ REPO=r
 REPO_PATH=/tmp/repo
 REPO_SLUG=owner/repo
 SLUG=codesprint
-USER=Amit
+USER=Sam
 WS=$CWS
 WORKTREE=/tmp/wt
 BRANCH=feat/x
@@ -820,7 +820,7 @@ rm -rf "$QWS"
 
 echo
 echo "== phase chain: one runner over the conductors, and a dead conductor comes back =="
-# The night of 2026-10-02: the machina build conductor launched the platform build conductor
+# The night of 2026-10-02: the backend build conductor launched the platform build conductor
 # with a bare `claude --bg`, saw it busy, and ended. The new conductor died 2.5 minutes later on
 # "Connection lost mid-response", nothing watched it, and six hours went by. Each case below is
 # a piece of the run-level runner that now owns that hop and that death.
@@ -976,7 +976,7 @@ grep -q '^## RESUME - the earlier conductor session died' "$P/prompt-BUILD.txt" 
   && ok "the restarted conductor is told to resume at the step its LOG.md names" \
   || no "the restarted conductor is told to resume at the step its LOG.md names" "no RESUME block"
 
-# --- machina-api, 2026-10-02: will anything wake a conductor whose turn is closed?
+# --- an api sprint, 2026-10-02: will anything wake a conductor whose turn is closed?
 # Stand-in session processes. The harness runs every tool command (Monitor scripts, background
 # Bash) as a direct child of the session's process, through its shell snapshot, so an "armed"
 # stand-in has a child whose command line carries `shell-snapshots`. A "bare" one has a child too,
@@ -1124,7 +1124,7 @@ rm -rf "$PCW" "$PROJ"
 
 echo
 echo "== runner.sh: the runner lives on its own, the conductor only listens =="
-# machina-api, 2026-10-02: the build runner ran as the conductor's Monitor command, so it died at
+# An api sprint, 2026-10-02: the build runner ran as the conductor's Monitor command, so it died at
 # every 30-minute Monitor expiry and with the conductor. When the conductor was stopped at 14:53Z,
 # FIX-C2 lost its connection three minutes later and nothing resumed it for four hours.
 RN="$(mktemp -d)"; mkdir -p "$RN/state"
@@ -1218,7 +1218,7 @@ rm -rf "$RN"
 
 echo
 echo "== a runner whose cwd is deleted: unknown is not dead, and one tag keeps one session =="
-# The night of 2026-10-04 (machina-stage-c-production). The runner was started from the
+# The night of 2026-10-04 (stage-c-production). The runner was started from the
 # conductor's shell folder, inputs/stage-c-spec/issues. A peer re-copied the spec with `rm -rf` +
 # `cp -R` at 07:26, and from then on every `claude` call the runner made failed with "The current
 # working directory was deleted". agents_json turned that into `[]`, so a working session was

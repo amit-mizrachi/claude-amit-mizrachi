@@ -25,7 +25,7 @@
 # shellcheck shell=bash
 
 agents_json() {
-  # PATCHED (machina-feedback sprint, 2026-09-23): the WORKTREE argument is accepted and IGNORED.
+  # PATCHED (feedback-api sprint, 2026-09-23): the WORKTREE argument is accepted and IGNORED.
   # `claude agents --cwd <wt>` has returned `[]` on this harness, and has also returned ONE
   # UNRELATED row - a non-empty answer the old fallback trusted, which made the runner call the
   # sprint's own live sessions dead. Every caller already matches rows by name or session id, so

@@ -380,6 +380,53 @@ Nothing below is required. Where a skill is missing, the caller degrades and say
 whatever your repo uses; the sprint reads the names out of its own prompt files, which you fill
 in at kickoff.
 
+## Using it at your company
+
+Nothing in the plugin names a company, a repo, a tracker or a connector. It was built on one
+team's monorepo, but every place that team shows up is a value filled in per run, not code. To
+adopt it, you configure your repo, not the plugin.
+
+**What each run fills in.** `night-sprint`'s conductor writes `facts.env` at kickoff from the
+repo it is pointed at, and `bootstrap.sh` refuses to start while any required fact is empty:
+
+| Fact | What it is for your team |
+|---|---|
+| `REPO`, `REPO_PATH`, `REPO_SLUG` | the repo name, its local path and its `owner/name` on GitHub |
+| `BASE` | the branch PRs target (`main`, `develop`, ...) |
+| `TOOLCHAIN` | how to get the right runtime, e.g. `source ~/.nvm/nvm.sh && nvm use 22` or `uv sync` |
+| `VERIFY` | what PR CI runs, e.g. `pnpm nx affected -t typecheck test lint` or `cargo test` - recorded for the CI watcher, never run locally |
+| `FORMAT_CHECK` | the formatter or lint gate CI runs, e.g. `pnpm format:check` or `ruff format --check` |
+| `CONVENTIONS` | where the repo's coding conventions live, e.g. `AGENTS.md` |
+| `USER` | the first name the morning report and prompts address |
+
+The conductor finds these in the repo at kickoff: its agent docs, package scripts and CI config.
+Write your CI and format commands down in `AGENTS.md` or `CLAUDE.md` and it does not have to guess.
+
+**What you point it at.** These are names in the kickoff, not dependencies:
+
+- **Review skills.** `night-sprint` names its review and address-review skills by role, and the
+  conductor writes your real skill names into `PLAN.md`. Without a review skill the sprint still
+  builds and opens the PR, but nothing reviews the diff.
+- **A dev-stack or eval command.** Only for `test: dev-stack` or `test: evals`. Say which skill
+  or command boots your stack or runs your evals; the TEST session reads it from `PLAN.md`.
+- **Your tracker.** `to-spec` and `to-tickets` honour `docs/agents/issue-tracker.md` (GitHub,
+  Linear, ...) when your repo has one, and use local markdown under `.scratch/` when it does not.
+  `night-marathon` never posts to a tracker at night either way.
+- **Your connectors.** `product-research` and `night-marathon` offer the connectors that are in
+  your tool list (Slack, Drive, Figma, your ticketing tool, ...), read only. Nothing assumes a
+  particular one.
+
+**What stays the same everywhere, on purpose.** These rules are the design, not one team's
+taste, and `references/rationale.md` has the incident behind each one:
+
+- The full test suite never runs locally. Sessions run static checks; CI runs the suite and the
+  CI watcher fixes what is red. A repo with no CI on PRs gets no test signal from a sprint.
+- Sessions never merge and never deploy. The PR is the hand-off.
+- The default permission mode is `auto`, because a background session cannot answer a prompt.
+
+**What is macOS-specific.** The `caffeinate` hook does nothing off macOS. The runner scripts carry
+fallbacks for GNU tools (`date -d`, `setsid`), but they run day to day on macOS.
+
 ## Local development
 
 Clone it and point Claude at the working copy instead of the published marketplace:
