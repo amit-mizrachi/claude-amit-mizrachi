@@ -509,7 +509,7 @@ for r in rows:
     fi
   fi
 
-  # PATCHED (machina-feedback sprint, 2026-09-23): the SWEEP 0 race. `open_n` only counts tags
+  # PATCHED (feedback-api sprint, 2026-09-23): the SWEEP 0 race. `open_n` only counts tags
   # that already have a .session file, so the gap between a status landing and its successor's
   # .session being written (launch.sh resolves the id AFTER the claim, a relay launches its own
   # continuation) read as "nothing running" and the runner exited with work outstanding. Before

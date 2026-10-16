@@ -64,7 +64,7 @@ the same six tools twice: `claude mcp remove codex-bridge --scope user`.
 Plain language is enough:
 
 - "Ask Codex with gpt-5.6-pro at max effort whether this migration is safe."
-- "Start a background Codex session on ~/Documents/development/shapes-platform to
+- "Start a background Codex session on ~/code/my-app to
   refactor the sync worker, workspace-write, high effort."
 - "Check on that Codex run."
 - "Tell Codex to also update the tests."

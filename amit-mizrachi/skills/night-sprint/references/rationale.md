@@ -397,7 +397,7 @@ The suite grew from 81 to 105 assertions, including a `claude` mock (`tests/mock
 the recovery and session-tracking paths can be driven offline. Findings 5, 7 and 8 were all
 invisible to a reading of the diff and only showed up when someone ran the path in isolation.
 
-## Two runner bugs that kept coming back (fixed 2026-09-23, machina-feedback kickoff)
+## Two runner bugs that kept coming back (fixed 2026-09-23, feedback-api kickoff)
 
 **`claude agents --cwd` is not a filter you can trust.** Over many sprints it returned `[]` for a
 worktree that had live sessions in it, and at least once returned ONE UNRELATED row. The earlier
@@ -488,7 +488,7 @@ Two things not implemented from the audit, deliberately left for a separate chan
   open is measuring what that saved - tokens and wall time per sprint - against the cost of
   red tests found late.
 
-Artifacts behind all of the above: `~/Documents/night-sprint-audit-2026-09-19/` - `report.md`,
+Artifacts behind all of the above were kept locally, outside this repo: `report.md`,
 `report.html`, `sessions.csv`, `summary.json`.
 
 ## Finished sessions are removed, not only stopped (2026-10-01)
@@ -514,9 +514,9 @@ also removes a session that is listed but has already exited. The busy-turn guar
 
 ## Nothing watched the conductors (2026-10-02)
 
-A night-marathon run with two PRs chained three conductors: research, then the shapes-machina
-build, then the shapes-platform build. Each hop was a bare `claude --bg` from the conductor that
-was finishing. At 00:53Z the machina build conductor launched the platform build, read `busy` from
+A night-marathon run with two PRs chained three conductors: research, then the backend repo
+build, then the platform repo build. Each hop was a bare `claude --bg` from the conductor that was
+finishing. At 00:53Z the backend build conductor launched the platform build, read `busy` from
 `claude agents` six seconds later, wrote the id down, stopped its own runner and ended at 00:53:55.
 At 00:56:00 the new conductor died on `API Error: Connection lost mid-response` (`server_error`),
 2.5 minutes into reading its inputs. That is a transient failure, and a resume fixes it. But
@@ -560,9 +560,9 @@ conductor.
 The classifier also learned the exact text: `Connection lost` had fallen through to
 `transient unknown`. It now reads `transient connection-lost`, with that night's line as a fixture.
 
-## The build runner died with its conductor (2026-10-02, machina-api)
+## The build runner died with its conductor (2026-10-02, an api sprint)
 
-The machina-api BUILD conductor was abandoned at 14:53Z. It was healthy every time it was
+The api sprint BUILD conductor was abandoned at 14:53Z. It was healthy every time it was
 "revived", and abandoning it stopped the build for four hours. Four things went wrong together.
 
 **The waiting check could not see a Monitor wait.** A conductor arms its Monitor and ends its turn.
@@ -648,7 +648,7 @@ bot permission, an outage that outlasts a rerun), and then it says what a human 
 **Also.** `accept.sh` found the PR with a bare `gh pr view`, which resolves nothing on the watcher's
 detached HEAD; the watcher had to check out a local branch by hand. It now asks by `<WS>/BRANCH`.
 
-## A deleted cwd put three sessions on one tag (2026-10-04, machina-stage-c-production)
+## A deleted cwd put three sessions on one tag (2026-10-04, stage-c-production)
 
 The conductor ran `cd inputs/stage-c-spec/issues` at 07:11Z and started the runner from that shell
 at 07:14Z. At 07:26Z a peer session refreshed the spec with `rm -rf inputs/stage-c-spec && cp -R`.
