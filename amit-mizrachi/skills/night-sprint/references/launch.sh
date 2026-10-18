@@ -133,6 +133,23 @@ fi
 # relayed before it changed anything hands its successor nothing but a list of files to re-read.
 git -C "$WT" rev-parse HEAD > "$STATE/$TAG.headsha" 2>/dev/null || true
 
+# A folder the run created must be trusted, or `claude --bg` refuses it ("Workspace not trusted")
+# and the tag never starts - every product-research run stalled on T01 this way. That is the
+# workspace itself, anything under it (a research sprint's <WS>/work and its own trees), and its
+# direct parent (a night-marathon conductor runs in <WS>, its phase chain lives in <WS>/phases).
+# The user's repo is never one of these: they opened it in Claude Code themselves.
+# A folder already trusted costs one read. If marking fails, say so and launch anyway: the CLI
+# then decides exactly as it did before this step existed, and a refusal takes the failure path.
+ws_real="$(cd "$WS" && pwd -P)"
+wt_real="$(cd "$WT" 2>/dev/null && pwd -P)"
+case "$wt_real" in
+  "$ws_real"|"$ws_real"/*|"$(dirname "$ws_real")")
+    if [ -f "$WS/trust.sh" ] && ! out="$(bash "$WS/trust.sh" "$WT" 2>&1)"; then
+      echo "launch: warning - could not mark $WT trusted, launching anyway: $out" >&2
+      note "warning: could not mark $WT trusted"
+    fi ;;
+esac
+
 echo "launch: claimed $TAG, starting session '$NAME' in $WT"
 ( cd "$WT" && claude --bg -n "$NAME" --permission-mode "$MODE" "$(cat "$PROMPT")" ) \
   > "$STATE/$TAG.launch.log" 2>&1

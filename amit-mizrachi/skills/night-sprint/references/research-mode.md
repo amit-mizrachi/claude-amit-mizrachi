@@ -65,8 +65,10 @@ into the workspace. So:
        CEILING_USED=60
 
 4. **Bootstrap**, exactly as SKILL.md says. With `MODE=research` it checks the research fact
-   set, creates `<WS>/work` as a local repo on `<BRANCH>`, and pre-answers the runner's one-time
-   PR ask, so `NEEDS-PR` never fires.
+   set, creates `<WS>/work` as a local repo on `<BRANCH>`, marks it trusted in Claude Code's
+   config (`trust.sh` - a new git root is never covered by a parent folder's trust, and
+   `claude --bg` refuses an untrusted folder), and pre-answers the runner's one-time PR ask, so
+   `NEEDS-PR` never fires.
 5. **Render** every prompt now, with `render.sh`:
 
    | Tag | Template | `vars-<TAG>.env` sets |

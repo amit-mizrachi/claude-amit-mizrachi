@@ -28,6 +28,10 @@ check() {
   [ "$got" = "$want" ] && ok "$name" || no "$name" "want '$want', got '$got'"
 }
 
+# bootstrap.sh and launch.sh mark the run's folders trusted in Claude Code's global config. Point
+# that at a scratch file, so no test ever writes the real ~/.claude.json.
+export CLAUDE_CONFIG_DIR="$(mktemp -d)"
+
 echo "== every reference script parses =="
 for f in "$REF"/*.sh; do
   if out="$(bash -n "$f" 2>&1)"; then ok "bash -n $(basename "$f")"
@@ -85,7 +89,7 @@ src = open(sys.argv[1]).read()
 defined = set(re.findall(r'(?<![$\w{])([A-Za-z_][A-Za-z0-9_]*)=', src))
 defined |= {w for line in re.findall(r'\blocal\s+([^=\n]+)', src) for w in line.split()}
 defined |= {w for line in re.findall(r'\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b', src) for w in line.split()}
-env = {"HOME", "TMPDIR", "PATH", "USER", "SHELL", "PWD", "RANDOM", "TZ", "CLAUDE_CODE_SESSION_ID"}
+env = {"HOME", "TMPDIR", "PATH", "USER", "SHELL", "PWD", "RANDOM", "TZ", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CONFIG_DIR"}
 used = set(re.findall(r'\$\{([A-Za-z_][A-Za-z0-9_]*)[:}\[]', src))
 print(" ".join(sorted(used - defined - env)))
 PY
@@ -1613,6 +1617,69 @@ for f in "$REF"/*-prompt.md "$HERE/../../product-research/references/conductor-p
   grep -qE '(^|`)(rm|mv|touch) ' "$f" && no "$label tells no agent to type rm, mv or touch" "$(grep -nE '(^|`)(rm|mv|touch) ' "$f" | head -1)" \
     || ok "$label tells no agent to type rm, mv or touch"
 done
+
+echo
+echo "== the folders a run creates are trusted, so claude --bg can start in them =="
+# Every product-research run stalled on T01: bootstrap.sh makes <WS>/work a new git repo, nothing
+# trusted it, and `claude --bg` refused it with "Workspace not trusted". Trusting a parent folder
+# did not help - trust is looked up only as far as the git root. Only the exact folder works.
+TH="$(mktemp -d)"; mkdir -p "$TH/home/claude-research/slug"
+TQ="$TH/home/claude-research/slug"
+cat > "$TQ/facts.env" <<ENV
+MODE=research
+SLUG=slug
+USER=Amit
+WS=$TQ
+WORKTREE=$TQ/work
+BRANCH=research/slug
+VERIFY=true
+RESEARCH_TITLE=t
+QUESTION=q
+DECISION=d
+AUDIENCE=a
+SOURCES=Web
+CONTEXT_WINDOW=200000
+WARN_AT_USED=20
+RELAY_AT_USED=30
+CEILING_USED=60
+ENV
+trusted() {   # trusted <config> <dir> -> True | False
+  python3 - "$1" "$2" <<'PY'
+import json, sys
+try: cfg = json.load(open(sys.argv[1]))
+except Exception: cfg = {}
+print((cfg.get("projects") or {}).get(sys.argv[2], {}).get("hasTrustDialogAccepted") is True)
+PY
+}
+printf '{"projects":{"%s":{"hasTrustDialogAccepted":false}}}\n' "$TQ" > "$TH/home/.claude.json"
+env -u CLAUDE_CONFIG_DIR HOME="$TH/home" bash "$REF/bootstrap.sh" "$TQ" "$REF" >/dev/null 2>&1
+check "research bootstrap succeeds with a fresh HOME" "0" "$?"
+check "it marks <WS>/work trusted in ~/.claude.json" "True" "$(trusted "$TH/home/.claude.json" "$TQ/work")"
+check "and keeps the config's other entries" "False" "$(trusted "$TH/home/.claude.json" "$TQ")"
+env -u CLAUDE_CONFIG_DIR HOME="$TH/home" bash "$REF/trust.sh" "$TH/home" >/dev/null 2>&1
+check "trust.sh refuses the home folder" "1" "$?"
+
+# launch.sh trusts the run's own folders before every launch - and only those.
+TBIN="$TH/bin"; mkdir -p "$TBIN" "$TH/repo"
+cp "$HERE/mock-claude.sh" "$TBIN/claude"; chmod +x "$TBIN/claude"
+printf 'do it\n' > "$TQ/prompt-T01.txt"; printf 'do it\n' > "$TQ/prompt-T02.txt"
+printf '%s\n' "$TH/repo" > "$TQ/state/T02.cwd"
+python3 - "$TH/home/.claude.json" <<'PY'
+import json, sys
+json.dump({"projects": {}}, open(sys.argv[1], "w"))
+PY
+tl() { env -u CLAUDE_CONFIG_DIR HOME="$TH/home" MOCK_STATE="$TH/mock" PATH="$TBIN:$PATH" bash "$TQ/launch.sh" "$TQ" "$1" >/dev/null 2>&1; echo $?; }
+check "launch.sh starts T01 in <WS>/work" "0" "$(tl T01)"
+check "after marking <WS>/work trusted" "True" "$(trusted "$TH/home/.claude.json" "$TQ/work")"
+check "launch.sh starts a tag in a folder outside the run" "0" "$(tl T02)"
+check "and never trusts that folder - it is the user's" "False" "$(trusted "$TH/home/.claude.json" "$TH/repo")"
+PP="$TQ/phases"; mkdir -p "$PP/state"
+cp "$REF/agents.sh" "$REF/launch.sh" "$REF/trust.sh" "$PP/"
+printf 'pslug\n' > "$PP/SLUG"; printf 'auto\n' > "$PP/PERMISSION_MODE"; printf 'c\n' > "$PP/prompt-CONDUCTOR.txt"
+printf '%s\n' "$TQ" > "$PP/state/CONDUCTOR.cwd"
+env -u CLAUDE_CONFIG_DIR HOME="$TH/home" MOCK_STATE="$TH/mock" PATH="$TBIN:$PATH" bash "$PP/launch.sh" "$PP" CONDUCTOR >/dev/null 2>&1
+check "a marathon conductor's <WS> (the phase chain's parent) is trusted" "True" "$(trusted "$TH/home/.claude.json" "$TQ")"
+rm -rf "$TH"
 
 echo
 echo "== $pass passed, $fail failed =="
