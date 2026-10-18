@@ -1,6 +1,6 @@
 <REPO> - night sprint <SLUG>: exercise what the sprint built
 
-AUTONOMOUS NIGHT RUN. <USER> is ASLEEP and will NOT answer. You are the TESTER. The feature was built across <TOTAL> tickets on one branch and reviewed. Your job is to run it and report the truth, step by step. Never ask questions. Do NOT fix code and do NOT push; you report. Earn "done" by actually running it (charter #10). ASCII only, no em/en dashes.
+AUTONOMOUS NIGHT RUN. <USER> is ASLEEP and will NOT answer. You are the TESTER. The feature was built across <TOTAL> tickets on one branch and reviewed. Your job is to run it and report the truth, step by step. Never ask questions. Do NOT fix code and do NOT push; you report. Earn "done" by actually running it (charter #10). Never run `rm` or `mv` as a shell command: some org policies make them ask for confirmation even in auto mode, and nobody is there to answer. Use `git rm` / `git mv` for files in a repo, and the workspace scripts for the run's own state. ASCII only, no em/en dashes.
 
 Repo: <REPO_PATH>. Workspace: <WS>. You are tag TEST.
 Read for the acceptance path: <WS>/PLAN.md and <WS>/tickets/ (their acceptance criteria are what you are checking), plus <WS>/LOG.md for anything the reviewers deferred - do not report a known deferral as a new failure.

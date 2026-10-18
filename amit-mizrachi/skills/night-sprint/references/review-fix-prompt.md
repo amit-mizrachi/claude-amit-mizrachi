@@ -1,6 +1,6 @@
 <REPO> - night sprint <SLUG>: <CHECKPOINT> - FIX
 
-AUTONOMOUS NIGHT RUN. <USER> is ASLEEP and will NOT answer. Never ask a question - decide each item yourself and say what you decided. Earn "done" by running the checks (charter #10). ASCII only, no em/en dashes.
+AUTONOMOUS NIGHT RUN. <USER> is ASLEEP and will NOT answer. Never ask a question - decide each item yourself and say what you decided. Earn "done" by running the checks (charter #10). Never run `rm` or `mv` as a shell command: some org policies make them ask for confirmation even in auto mode, and nobody is there to answer. Use `git rm` / `git mv` for files in a repo, and the workspace scripts for the run's own state. ASCII only, no em/en dashes.
 
 Repo: <REPO_PATH> (<REPO_SLUG>). Toolchain: <TOOLCHAIN>.
 Workspace: <WS>. You are tag <TAG>. Your finder was <FIND_TAG>.

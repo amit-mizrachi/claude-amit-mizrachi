@@ -5,6 +5,10 @@
 #   phase-chain.sh add    <PWS> <PHASE> <CWD> [NEXT_PHASE]
 #   phase-chain.sh start  <PWS> <PHASE>      launch the first phase, then start the runner
 #   phase-chain.sh runner <PWS>              start the detached runner unless one is running
+#   phase-chain.sh waiting <PWS> <PHASE> on|off
+#                                            mark (on) or clear (off) state/<PHASE>.waiting-on-user,
+#                                            so a conductor never types `touch` or `rm` itself - an
+#                                            org policy can make `rm` prompt even in auto mode
 #
 # A night-marathon run is several conductors in a row: the research conductor, then one build
 # conductor per PR. Inside each sprint, watch.sh revives a ticket session that dies. Nothing
@@ -87,8 +91,17 @@ case "$CMD" in
   runner)
     start_runner
     ;;
+  waiting)
+    PHASE="${3:?usage: phase-chain.sh waiting <PWS> <PHASE> on|off}"
+    MARK="$PWS/state/$PHASE.waiting-on-user"
+    case "${4:-}" in
+      on)  : > "$MARK" ;;
+      off) rm -f "$MARK" ;;
+      *)   echo "usage: phase-chain.sh waiting <PWS> <PHASE> on|off" >&2; exit 1 ;;
+    esac
+    ;;
   *)
-    echo "phase-chain: unknown command '$CMD' (init | add | start | runner)" >&2
+    echo "phase-chain: unknown command '$CMD' (init | add | start | runner | waiting)" >&2
     exit 1
     ;;
 esac

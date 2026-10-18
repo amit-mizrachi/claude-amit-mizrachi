@@ -3,7 +3,7 @@ night-marathon <SLUG>: CONDUCTOR
 <USER> started this run and is not answering. The brief is <WS>/BRIEF.md; settings under `Decided without asking` are final. Run mode: **<MARATHON_MODE>**.
 - autonomous: you never ask anything, at any step. The build starts from your own recommendations.
 - review: you ask nothing until STEP 6. At STEP 6 you stop and wait for <USER>'s picks - the ONE point in the run where a human answers.
-Outside STEP 6, never call AskUserQuestion and never ask a question in text. When something is ambiguous, decide, write the decision in <WS>/LOG.md, and keep going. ASCII only, no em/en dashes.
+Outside STEP 6, never call AskUserQuestion and never ask a question in text. When something is ambiguous, decide, write the decision in <WS>/LOG.md, and keep going. Never run `rm` or `mv` as a shell command: some org policies make them ask for confirmation even in auto mode, and nobody is there to answer. Use `git rm` / `git mv` for files in a repo, and the workspace scripts for the run's own state. ASCII only, no em/en dashes.
 
 Feature: <FEATURE>
 Workspace: <WS>
@@ -73,9 +73,9 @@ Read <WS>/plan/PLAN.md and `state/ARTIFACT.url`. The push notification tool is `
 
 **autonomous:** write <WS>/PICKS.md as the recommended option of every decision, in the page's copy format, each line ending ` (auto: recommended)`. Notify: `Plan ready, building the recommended options: <FEATURE> - <artifact URL>`. Go to STEP 7.
 
-**review:** notify: `Plan ready for your picks: <FEATURE> - <artifact URL> - then claude attach <first 8 chars of the id in <WS>/phases/state/CONDUCTOR.session>`. Post as your final message, in this order: the artifact link; each decision with its recommended option and, when PLAN.md has a `**Codex:**` pick, Codex's pick next to it, one line each; and the instruction: "Pick on the page, press Copy decisions, and paste it here. Paste `Build as planned` to take every recommendation." Just before you post it, run `touch <WS>/phases/state/CONDUCTOR.waiting-on-user` - that tells the phase runner you wait on a person, not on a Monitor, so it does not wake you. Then END YOUR TURN and wait.
+**review:** notify: `Plan ready for your picks: <FEATURE> - <artifact URL> - then claude attach <first 8 chars of the id in <WS>/phases/state/CONDUCTOR.session>`. Post as your final message, in this order: the artifact link; each decision with its recommended option and, when PLAN.md has a `**Codex:**` pick, Codex's pick next to it, one line each; and the instruction: "Pick on the page, press Copy decisions, and paste it here. Paste `Build as planned` to take every recommendation." Just before you post it, run `bash <WS>/phases/phase-chain.sh waiting <WS>/phases CONDUCTOR on` (it writes `state/CONDUCTOR.waiting-on-user`) - that tells the phase runner you wait on a person, not on a Monitor, so it does not wake you. Then END YOUR TURN and wait.
 
-When <USER> replies, first run `rm -f <WS>/phases/state/CONDUCTOR.waiting-on-user`. Then:
+When <USER> replies, first run `bash <WS>/phases/phase-chain.sh waiting <WS>/phases CONDUCTOR off`. Then:
 - The pasted block starts `night-marathon picks: <SLUG>`; each `D<n> <name>: <id> - <title>` line is a pick, and a `Note:` line under it belongs to that decision. A decision marked "not picked" gets its recommended option - say so in your reply.
 - Free text instead of, or as well as, the block is fine. A change request ("B, but without the bulk action") becomes a note on that decision. A question gets an answer from the findings.
 - <USER> is present now, so if the reply is genuinely ambiguous, ask ONE short question. Do not re-open decisions the page settled, and do not ask for confirmation of a clear reply.

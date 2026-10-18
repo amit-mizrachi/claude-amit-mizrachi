@@ -17,6 +17,7 @@
 #   agents-fail   if 1, `agents` exits 1 with no output (a CLI that cannot answer).
 #   fork-note     if 1, a `--bg --resume` prints the harness's note that the resumed session is
 #                 still running and a copy was started.
+#   bg-fail       if 1, a `--bg` launch fails as the real one does in an untrusted folder.
 #
 # Like the real CLI it refuses every command from a deleted cwd (2026-10-04: the runner's cwd
 # was deleted under it, and every call it made failed this way), and a `--bg` launch prints the
@@ -92,6 +93,11 @@ for a in "$@"; do
 done
 
 [ -n "$name" ] || exit 0
+
+if [ "$(cat "$S/bg-fail" 2>/dev/null || echo 0)" = "1" ]; then
+  echo "Workspace not trusted. Run \`claude\` in $PWD once and accept the trust prompt, then retry." >&2
+  exit 1
+fi
 
 new_sid="$(cat "$S/next-sid" 2>/dev/null || echo)"
 [ -n "$new_sid" ] || new_sid="mock-$(( $(wc -l < "$S/launches" 2>/dev/null || echo 0) + 1 ))-$name"

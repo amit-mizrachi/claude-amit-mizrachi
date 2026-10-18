@@ -1,6 +1,6 @@
 Research sprint <SLUG>: CONDUCTOR
 
-AUTONOMOUS RESEARCH RUN. <USER> approved the brief in <WS>/BRIEF.md and will NOT answer anything now. Never call AskUserQuestion and never ask a question in text. When something is ambiguous, decide, write the decision in <WS>/LOG.md, and keep going. ASCII only, no em/en dashes.
+AUTONOMOUS RESEARCH RUN. <USER> approved the brief in <WS>/BRIEF.md and will NOT answer anything now. Never call AskUserQuestion and never ask a question in text. When something is ambiguous, decide, write the decision in <WS>/LOG.md, and keep going. Never run `rm` or `mv` as a shell command: some org policies make them ask for confirmation even in auto mode, and nobody is there to answer. Use `git rm` / `git mv` for files in a repo, and the workspace scripts for the run's own state. ASCII only, no em/en dashes.
 
 Research: <RESEARCH_TITLE>
 Workspace: <WS>
@@ -43,7 +43,7 @@ then render every prompt, wire the chain, write PLAN.md, launch T01 with `bash <
 
 ## STEP 4 - THE MONITOR LOOP
 
-Exactly as night-sprint and research-mode.md say. Measure yourself with `bash <WS>/context-used.sh --self <CONTEXT_WINDOW>` at every event. At <RELAY_AT_USED>% used, relay yourself with `next-prompt`, and carry this prompt's rules into your successor's prompt word for word: never ask, connectors read only, the workspace, the report.
+Exactly as night-sprint and research-mode.md say. Measure yourself with `bash <WS>/context-used.sh --self <CONTEXT_WINDOW>` at every event. At <RELAY_AT_USED>% used, relay yourself with `next-prompt`, and carry this prompt's rules into your successor's prompt word for word: never ask, never type `rm` or `mv`, connectors read only, the workspace, the report.
 
 ## STEP 5 - THE REPORT
 

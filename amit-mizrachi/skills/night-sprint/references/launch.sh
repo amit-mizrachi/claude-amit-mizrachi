@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # night-sprint launcher - atomically claims a tag, starts its session, records the id.
 #
-#   launch.sh <WORKSPACE> <TAG>
+#   launch.sh <WORKSPACE> <TAG> [--reclaim]
 #
 # Both the conductor and the previous ticket's session may try to start the next
 # ticket at the same moment. `mkdir` is atomic on POSIX, so exactly one of them
@@ -35,6 +35,11 @@
 #   state/EVENTS.log    - one durable line per launch, for the morning ledger
 #
 # Refuses (exit 4) while state/PAUSED exists - see the check below.
+#
+# A launch that fails writes `BLOCKED: could not ...` and RELEASES the claim, so retrying is just
+# running launch.sh again: the retry wins the claim and clears that status itself. Nothing else is
+# needed, and nobody types `rm` - an org policy can make `rm` ask for confirmation even in auto
+# mode, and at 3am nobody answers it.
 
 set -uo pipefail
 
@@ -71,12 +76,30 @@ MODE="$(tr -d '[:space:]' < "$WS/PERMISSION_MODE" 2>/dev/null || echo auto)"
 SLUG="$(tr -d '[:space:]' < "$WS/SLUG" 2>/dev/null || echo sprint)"
 NAME="ns-$SLUG-$TAG"
 
+# --- STRANDED: a claim with no session and no status (the launch died between the two). Only the
+#     conductor passes --reclaim, and never for a tag with a session - that one is revive.sh's.
+if [ "${3:-}" = "--reclaim" ]; then
+  if [ -s "$STATE/$TAG.session" ]; then
+    echo "launch: refusing --reclaim - $TAG has a session ($(head -1 "$STATE/$TAG.session")); revive it instead" >&2
+    exit 1
+  fi
+  rmdir "$STATE/claim-$TAG" 2>/dev/null && note "reclaim: released a stale claim"
+fi
+
 # --- the claim. Exactly one caller gets past this line. ---
 if ! mkdir "$STATE/claim-$TAG" 2>/dev/null; then
   echo "launch: $TAG already claimed by another session - nothing to do"
   note "no-op: already claimed"
   exit 0
 fi
+
+# A retry after a failed launch: the status that failure wrote is launch.sh's own, not a session's
+# result, so clear it - left in place, the runner would read the tag as finished while it runs.
+case "$(head -1 "$STATE/$TAG.status" 2>/dev/null)" in
+  "BLOCKED: could not start session"*|"BLOCKED: could not create its worktree"*)
+    rm -f "$STATE/$TAG.status"
+    note "retry: cleared the earlier launch failure" ;;
+esac
 
 # --- a tree of its own, for a blitz ticket or a review snapshot. Only the claimer gets here. ---
 if [ ! -f "$STATE/$TAG.cwd" ] && { [ -f "$STATE/$TAG.isolate" ] || [ -f "$STATE/$TAG.snapshot" ]; }; then
@@ -96,7 +119,8 @@ if [ ! -f "$STATE/$TAG.cwd" ] && { [ -f "$STATE/$TAG.isolate" ] || [ -f "$STATE/
   if ! git -C "$OWN" rev-parse --git-dir >/dev/null 2>&1; then
     echo "launch: could not create $TAG's own worktree at $OWN: $out" >&2
     echo "BLOCKED: could not create its worktree at $OWN" > "$STATE/$TAG.status"
-    note "FAILED worktree $OWN: $out"
+    rmdir "$STATE/claim-$TAG" 2>/dev/null
+    note "FAILED worktree $OWN: $out - claim released"
     exit 1
   fi
   printf '%s\n' "$OWN" > "$STATE/$TAG.cwd"
@@ -115,8 +139,10 @@ echo "launch: claimed $TAG, starting session '$NAME' in $WT"
 rc=$?
 if [ $rc -ne 0 ]; then
   echo "launch: FAILED to start $TAG (rc=$rc). See $STATE/$TAG.launch.log" >&2
+  echo "        Fix the cause, then retry with: bash $WS/launch.sh $WS $TAG" >&2
   echo "BLOCKED: could not start session (rc=$rc)" > "$STATE/$TAG.status"
-  note "FAILED rc=$rc"
+  rmdir "$STATE/claim-$TAG" 2>/dev/null
+  note "FAILED rc=$rc - claim released"
   exit $rc
 fi
 

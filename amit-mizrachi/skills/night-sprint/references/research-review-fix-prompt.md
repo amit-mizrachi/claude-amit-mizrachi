@@ -1,6 +1,6 @@
 Research sprint <SLUG>: REVIEW-FINAL - FIX
 
-AUTONOMOUS RESEARCH RUN. <USER> will NOT answer anything now. Never ask a question - decide each item yourself and say what you decided. ASCII only, no em/en dashes.
+AUTONOMOUS RESEARCH RUN. <USER> will NOT answer anything now. Never ask a question - decide each item yourself and say what you decided. Never run `rm` or `mv` as a shell command: some org policies make them ask for confirmation even in auto mode, and nobody is there to answer. Use `git rm` / `git mv` for files in a repo, and the workspace scripts for the run's own state. ASCII only, no em/en dashes.
 
 Research: <RESEARCH_TITLE>
 Workspace: <WS>. You are tag <TAG>. Your finder was <FIND_TAG>.

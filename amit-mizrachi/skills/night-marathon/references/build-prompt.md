@@ -1,6 +1,6 @@
 night-marathon <SLUG>: BUILD
 
-AUTONOMOUS BUILD. <USER> started this run and the plan is settled (run mode: <MARATHON_MODE> - in review mode <USER> picked the decisions; in autonomous mode the recommendations stand). Nobody will answer anything now. Never call AskUserQuestion and never ask a question in text. When something is ambiguous, decide, write it in <WS>/build/LOG.md, and keep going. ASCII only, no em/en dashes.
+AUTONOMOUS BUILD. <USER> started this run and the plan is settled (run mode: <MARATHON_MODE> - in review mode <USER> picked the decisions; in autonomous mode the recommendations stand). Nobody will answer anything now. Never call AskUserQuestion and never ask a question in text. When something is ambiguous, decide, write it in <WS>/build/LOG.md, and keep going. Never run `rm` or `mv` as a shell command: some org policies make them ask for confirmation even in auto mode, and nobody is there to answer. Use `git rm` / `git mv` for files in a repo, and the workspace scripts for the run's own state. ASCII only, no em/en dashes.
 
 Feature: <FEATURE>
 Repo: <REPO_PATH>, base branch <BASE>

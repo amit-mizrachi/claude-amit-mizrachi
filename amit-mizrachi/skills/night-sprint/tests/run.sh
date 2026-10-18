@@ -1353,7 +1353,7 @@ done
 grep -q 'phase-chain.sh init <WS>/phases <NS>/references <SLUG> <CONTEXT_WINDOW>' "$NMD/SKILL.md" \
   && ok "night-marathon passes the context window to the phase chain" \
   || no "night-marathon passes the context window to the phase chain" "init has no window"
-grep -q 'CONDUCTOR.waiting-on-user' "$NMD/references/conductor-prompt.md" \
+grep -q 'phase-chain.sh waiting <WS>/phases CONDUCTOR on' "$NMD/references/conductor-prompt.md" \
   && ok "the review gate marks its wait on a person" \
   || no "the review gate marks its wait on a person" "no waiting-on-user marker"
 
@@ -1557,6 +1557,62 @@ grep -q 'BLOCKED is for exactly two cases' "$REF/ci-watch-prompt.md" \
 grep -qF 'gh pr view ${BRANCH:+"$BRANCH"}' "$REF/accept.sh" \
   && ok "accept.sh finds the PR by branch, so a detached watcher worktree works" \
   || no "accept.sh finds the PR by branch, so a detached watcher worktree works" "bare gh pr view"
+
+echo
+echo "== a failed launch is retried with launch.sh alone - nobody types rm or mv =="
+# 2026-10-17: T01 failed to launch, launch.sh kept its claim, and the conductor's retry
+# `rm -f state/claim-T01 state/T01.status; bash launch.sh ...` hung on an org policy that makes
+# `rm` ask for confirmation even in auto mode. Nobody was awake to answer it.
+LR="$(mktemp -d)"; LBIN="$LR/bin"; mkdir -p "$LBIN" "$LR/ws/state" "$LR/wt"
+cp "$HERE/mock-claude.sh" "$LBIN/claude"; chmod +x "$LBIN/claude"
+cp "$REF/agents.sh" "$REF/launch.sh" "$LR/ws/"
+printf '%s\n' "$LR/wt" > "$LR/ws/WORKTREE"
+printf 'lslug\n'       > "$LR/ws/SLUG"
+printf 'auto\n'        > "$LR/ws/PERMISSION_MODE"
+printf 'dummy\n'       > "$LR/ws/prompt-T01.txt"
+lr_launch() { MOCK_STATE="$LR/mock" PATH="$LBIN:$PATH" bash "$LR/ws/launch.sh" "$LR/ws" T01 "$@" >/dev/null 2>&1; echo $?; }
+mkdir -p "$LR/mock"; printf '1\n' > "$LR/mock/bg-fail"
+check "a launch the CLI refuses fails" "1" "$(lr_launch)"
+case "$(head -1 "$LR/ws/state/T01.status" 2>/dev/null)" in
+  "BLOCKED: could not start session"*) ok "it records the failure as BLOCKED" ;;
+  *) no "it records the failure as BLOCKED" "status: $(cat "$LR/ws/state/T01.status" 2>/dev/null)" ;;
+esac
+[ ! -d "$LR/ws/state/claim-T01" ] && ok "and releases its claim" || no "and releases its claim" "claim-T01 still there"
+rm -f "$LR/mock/bg-fail"
+check "a plain launch.sh retries it" "0" "$(lr_launch)"
+[ ! -f "$LR/ws/state/T01.status" ] && ok "the retry clears the launch failure, so the runner sees it running" \
+  || no "the retry clears the launch failure, so the runner sees it running" "$(cat "$LR/ws/state/T01.status")"
+[ -s "$LR/ws/state/T01.session" ] && ok "the retry records its session" || no "the retry records its session" "no T01.session"
+printf 'DONE\n' > "$LR/ws/state/T01.status"; rm -rf "$LR/ws/state/claim-T01"
+lr_launch >/dev/null
+check "a session's own result is never cleared" "DONE" "$(cat "$LR/ws/state/T01.status")"
+# STRANDED: a claim with no session and no status.
+rm -f "$LR/ws/state/T01.status" "$LR/ws/state/T01.session"; mkdir -p "$LR/ws/state/claim-T01"
+before="$(wc -l < "$LR/mock/launches" | tr -d ' ')"
+lr_launch >/dev/null
+check "a plain launch.sh still respects a claim" "$before" "$(wc -l < "$LR/mock/launches" | tr -d ' ')"
+check "--reclaim takes a stranded claim over" "0" "$(lr_launch --reclaim)"
+check "and launches it" "$((before + 1))" "$(wc -l < "$LR/mock/launches" | tr -d ' ')"
+check "--reclaim refuses a tag that has a session" "1" "$(lr_launch --reclaim)"
+rm -rf "$LR"
+
+PW="$(mktemp -d)"; mkdir -p "$PW/state"
+bash "$REF/phase-chain.sh" waiting "$PW" CONDUCTOR on
+[ -f "$PW/state/CONDUCTOR.waiting-on-user" ] && ok "phase-chain.sh waiting on marks the wait" \
+  || no "phase-chain.sh waiting on marks the wait" "no marker"
+bash "$REF/phase-chain.sh" waiting "$PW" CONDUCTOR off
+[ ! -f "$PW/state/CONDUCTOR.waiting-on-user" ] && ok "phase-chain.sh waiting off clears it" \
+  || no "phase-chain.sh waiting off clears it" "marker still there"
+rm -rf "$PW"
+
+for f in "$REF"/*-prompt.md "$HERE/../../product-research/references/conductor-prompt.md" \
+         "$HERE/../../night-marathon/references/"*-prompt.md; do
+  label="$(basename "$(cd "$(dirname "$f")/.." && pwd)")/$(basename "$f")"
+  grep -q 'Never run `rm` or `mv` as a shell command' "$f" && ok "$label forbids typing rm and mv" \
+    || no "$label forbids typing rm and mv" "no such rule"
+  grep -qE '(^|`)(rm|mv|touch) ' "$f" && no "$label tells no agent to type rm, mv or touch" "$(grep -nE '(^|`)(rm|mv|touch) ' "$f" | head -1)" \
+    || ok "$label tells no agent to type rm, mv or touch"
+done
 
 echo
 echo "== $pass passed, $fail failed =="
