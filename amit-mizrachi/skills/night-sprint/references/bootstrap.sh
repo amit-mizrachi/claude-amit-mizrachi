@@ -28,7 +28,7 @@ mkdir -p "$WS/state" "$WS/tickets"
 
 # --- the scripts the sprint runs. agents.sh is sourced by five of them; classify-error.sh is
 #     what makes recovery correct rather than merely persistent.
-SCRIPTS="agents.sh launch.sh advance.sh watch.sh runner.sh revive.sh close.sh classify-error.sh context-used.sh schedule.sh land.sh accept.sh ci-watch.sh render.sh research-check.sh"
+SCRIPTS="agents.sh launch.sh advance.sh watch.sh runner.sh revive.sh close.sh classify-error.sh context-used.sh schedule.sh land.sh accept.sh ci-watch.sh render.sh research-check.sh trust.sh"
 # --- the templates. continuation-prompt.md stays a template on purpose: each session that
 #     hands off fills its own copy for its successor.
 TEMPLATES="continuation-prompt.md implementer-prompt.md review-find-prompt.md review-fix-prompt.md test-prompt.md plan-template.md ci-watch-prompt.md"
@@ -134,6 +134,11 @@ if [ "$(tr -d '[:space:]' < "$WS/MODE")" = "research" ]; then
       && git -C "$WT" commit -q --allow-empty -m "research workspace" \
       || { echo "bootstrap: FAILED - could not create the research repo at $WT" >&2; exit 1; }
   fi
+  # `claude --bg` refuses an untrusted folder, and <WS>/work is a new git root on every run, so no
+  # parent folder's trust covers it. Without this T01 never starts. launch.sh checks again before
+  # every launch. A failure is a loud warning, not a stop: the launch then fails or succeeds
+  # exactly as it did before this step existed, and launch.sh tries once more.
+  bash "$WS/trust.sh" "$WT" || echo "bootstrap: WARNING - could not mark $WT trusted; T01 may fail with 'Workspace not trusted'" >&2
   : > "$WS/state/.pr-asked"
 fi
 

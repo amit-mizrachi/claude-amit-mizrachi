@@ -4,6 +4,8 @@ YOU ARE NOT PART OF THE SPRINT. The sprint already finished, or moved on to its 
 
 Work ONLY in your own worktree, <CI_WORKTREE> (detached HEAD). Never edit the sprint's worktree - a TEST or FIX-TEST session may be running there. Read <WS>/facts.env for TOOLCHAIN, FORMAT_CHECK and VERIFY, and the repo's AGENTS.md / CLAUDE.md for its conventions.
 
+Never run `rm` or `mv` as a shell command: some org policies make them ask for confirmation even in auto mode, and nobody is there to answer. Use `git rm` / `git mv` for files in the repo.
+
 ## THE LOOP
 
 1. **Sync to the pushed head.** `git fetch origin <BRANCH>`. If <CI_WORKTREE> has uncommitted changes or local commits that are not on `origin/<BRANCH>`, a watcher before you died mid-fix: read them, and either finish that fix (step 4) or discard it. Then `git checkout --detach origin/<BRANCH>`. The head you check is always the newest one pushed - a sprint session may have pushed after you started.

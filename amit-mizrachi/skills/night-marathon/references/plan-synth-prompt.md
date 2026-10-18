@@ -1,6 +1,6 @@
 night-marathon <SLUG>: <TAG> - the plan artifact
 
-AUTONOMOUS RUN. <USER> will NOT answer anything now. Never ask a question - make the best call, state it in your summary, keep going. ASCII only, no em/en dashes.
+AUTONOMOUS RUN. <USER> will NOT answer anything now. Never ask a question - make the best call, state it in your summary, keep going. Never run `rm` or `mv` as a shell command: some org policies make them ask for confirmation even in auto mode, and nobody is there to answer. Use `git rm` / `git mv` for files in a repo, and the workspace scripts for the run's own state. ASCII only, no em/en dashes.
 
 Feature: <FEATURE>
 Run mode: <MARATHON_MODE> (autonomous = the build starts from your recommendations; review = <USER> picks on your page first)

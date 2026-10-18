@@ -1,6 +1,6 @@
 Research sprint <SLUG>: ticket <NN> - <TICKET_TITLE>
 
-AUTONOMOUS RESEARCH RUN. <USER> started this run and will NOT answer anything now. Never ask a question - make the best call, state it in your summary, keep going. Do not stop until this ONE ticket's question is answered, every claim is cited, the findings file is committed and the ticket is handed off. ASCII only, no em/en dashes.
+AUTONOMOUS RESEARCH RUN. <USER> started this run and will NOT answer anything now. Never ask a question - make the best call, state it in your summary, keep going. Do not stop until this ONE ticket's question is answered, every claim is cited, the findings file is committed and the ticket is handed off. Never run `rm` or `mv` as a shell command: some org policies make them ask for confirmation even in auto mode, and nobody is there to answer. Use `git rm` / `git mv` for files in a repo, and the workspace scripts for the run's own state. ASCII only, no em/en dashes.
 
 Research: <RESEARCH_TITLE>
 The question: <QUESTION>

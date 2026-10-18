@@ -79,6 +79,9 @@ Decide that deliberately rather than discovering it in the morning.
    conversation that led here; with neither, stop and say what is missing - a failed kickoff,
    not a question. `approval: delegated` (a calling skill such as `night-marathon` started you)
    changes nothing here; it only says the caller may already have written the tickets.
+   Never run `rm` or `mv` as a shell command either, at kickoff or after it: some org policies
+   make them ask for confirmation even in auto mode, and nobody is there to answer. Every state
+   change goes through a workspace script (`launch.sh` retries a failed launch on its own).
 1. **Settle speed, permission mode and the test session - FIRST, without asking.** Kickoff takes a
    while, so fix these before you read a ticket or check a verify command.
    - **Speed**: `speed: blitz` in the invocation (or "blitz" in its words) sets `BLITZ=1` in
@@ -394,7 +397,7 @@ waits and closing finished sessions itself, and logs all of them to `state/EVENT
 | `HELD <tag>` | A successor was not launched because the sprint is paused. It launches when the pause clears. Nothing to do. |
 | `REVIVE-REFUSED <tag>` | The reviver would not touch it - usually because it is still working. Read `state/EVENTS.log` and decide. |
 | `NEEDS-PR` | Open the **draft** PR. Early CI and early bot review are why it opens after the first ticket rather than at the end. |
-| `STRANDED <tags>` | A successor is wired (or a tag claimed) but no session and no status appeared for five sweeps. Something failed to launch it: check `state/<tag>.launch.log` and `EVENTS.log`, then launch it with `launch.sh` (remove a stale `state/claim-<tag>` first only if no session exists). |
+| `STRANDED <tags>` | A successor is wired (or a tag claimed) but no session and no status appeared for five sweeps. Something failed to launch it: check `state/<tag>.launch.log` and `EVENTS.log`, then launch it with `launch.sh <WS> <tag> --reclaim`, which drops the stale claim and refuses if the tag has a session. A tag whose launch failed (`BLOCKED: could not ...`) needs no flag: plain `launch.sh` retries it. |
 | `UNCLOSED <tags>` | The runner's last pass could not remove these finished sessions from the agent list. The work is not affected. Name them in the morning report so the user can `claude rm <id>` them. |
 | `SWEEP 0 tags= all-sessions-terminal` | The runner **exited** and has removed every finished session - nothing but you is on the agent list. Your follower exits with it. Tags left? Launch the next, `runner.sh start`, and **re-arm the follower**. Sprint complete? Write the morning report. Never leave the sprint with no running runner and work outstanding. |
 | `RUNNER-RESTARTED` | The runner had died mid-run (killed, a restart of the machine) and the follower started it again. Nothing to do. Name it in the morning report. |
