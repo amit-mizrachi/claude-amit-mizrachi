@@ -24,7 +24,8 @@
 | Relay at | `<30>`% of the window USED - the session hands its tag to a fresh one |
 | Ceiling | `<60>`% used - the relay is held until a session has produced work, but never past this |
 | Review cadence | `<final only | checkpoints after T<NN>, T<NN>, plus final>` - and why. Each review is a FIND step and a FIX step |
-| Review lanes | `<correctness, plus the lanes this feature's risk actually earns>` - correctness always; security / architecture / observability / reuse / simplification only where the diff gives them something to find. Never all six by default |
+| Review skill | `<nightsprint:code-review, or the team's own review skill>` - the FIND step runs this one; the FIX step replies on external threads with `<nightsprint:address-review, or the team's own>` |
+| Review lanes | `<correctness, plus the lanes this feature's risk actually earns>` - correctness always; security / architecture / observability / performance / reuse / simplification only where the diff gives them something to find. Never every lane by default |
 | Test session | `<none | dev-stack | evals | custom: <cmd>>` - chosen by the user |
 | How to boot the stack | `<the dev-environment skill name and/or the exact boot command>` - only for `dev-stack`; the TEST session reads it from here |
 

@@ -1,5 +1,5 @@
 {
-  "name": "amit-mizrachi",
+  "name": "nightsprint",
   "description": "Claude Code plugins for unattended, company-agnostic work - session handoff, spec and ticket cutting, overnight feature delivery, product research, feature research-plan-build, wayfinder charting, a Codex MCP bridge, and machine-awake hooks.",
   "owner": {
     "name": "Amit Mizrachi",
@@ -7,9 +7,9 @@
   },
   "plugins": [
     {
-      "name": "amit-mizrachi",
-      "source": "./amit-mizrachi",
-      "description": "Claude Code skills: next-prompt, night-sprint, product-research, night-marathon, to-spec, to-tickets, mywayfinder, the codex-bridge MCP server, plus a sliding 8h macOS caffeinate hook."
+      "name": "nightsprint",
+      "source": "./nightsprint",
+      "description": "Claude Code skills: next-prompt, night-sprint, product-research, night-marathon, to-spec, to-tickets, code-review, address-review, test-browser, mywayfinder, the codex-bridge MCP server, plus a sliding 8h macOS caffeinate hook."
     }
   ]
 }

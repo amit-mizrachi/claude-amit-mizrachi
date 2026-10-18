@@ -25,6 +25,9 @@ ours_or_free() {
   [ -L "$target" ] || return 1
   dest="$(readlink "$target")"
   case "$dest" in
+    */nightsprint/bin/night-watch|*/nightsprint/*/bin/night-watch) return 0 ;;
+    # The plugin was called amit-mizrachi before 2.0.0. A link to that copy is ours too, so the
+    # first session after the rename moves it to this copy instead of leaving it behind.
     */amit-mizrachi/bin/night-watch|*/amit-mizrachi/*/bin/night-watch) return 0 ;;
   esac
   [ -e "$target" ] || return 0

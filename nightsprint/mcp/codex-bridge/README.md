@@ -9,9 +9,9 @@ them over yourself with `codex resume <session_id>`.
 
 ## Install
 
-It ships with the `amit-mizrachi` plugin and registers itself from the plugin's `.mcp.json`
+It ships with the `nightsprint` plugin and registers itself from the plugin's `.mcp.json`
 (`python3 ${CLAUDE_PLUGIN_ROOT}/mcp/codex-bridge/server.py`). Install the plugin, start a new
-session, and `/mcp` shows `plugin:amit-mizrachi:codex-bridge`.
+session, and `/mcp` shows `plugin:nightsprint:codex-bridge`.
 
 It needs `python3` (3.9+, no packages - the one macOS ships is enough) and the `codex` CLI,
 logged in once:

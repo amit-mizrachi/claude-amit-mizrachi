@@ -1449,14 +1449,18 @@ rm -rf "$NWR"
 echo
 echo "== the SessionStart hook links night-watch onto PATH, and never over somebody else's file =="
 LH="$HERE/../../../hooks/link-night-watch.sh"
-FH="$(mktemp -d)"; mkdir -p "$FH/.local/bin" "$FH/plug/amit-mizrachi/bin"
-cp "$NW" "$FH/plug/amit-mizrachi/bin/night-watch"
-run_hook() { HOME="$FH" PATH="$FH/.local/bin:/usr/bin:/bin" CLAUDE_PLUGIN_ROOT="$FH/plug/amit-mizrachi" bash "$LH"; }
+FH="$(mktemp -d)"; mkdir -p "$FH/.local/bin" "$FH/plug/nightsprint/bin"
+cp "$NW" "$FH/plug/nightsprint/bin/night-watch"
+run_hook() { HOME="$FH" PATH="$FH/.local/bin:/usr/bin:/bin" CLAUDE_PLUGIN_ROOT="$FH/plug/nightsprint" bash "$LH"; }
 out="$(run_hook)"
 check "it prints nothing (SessionStart stdout is context)" "" "$out"
-check "it links into the first bin dir on PATH" "$FH/plug/amit-mizrachi/bin/night-watch" "$(readlink "$FH/.local/bin/night-watch")"
+check "it links into the first bin dir on PATH" "$FH/plug/nightsprint/bin/night-watch" "$(readlink "$FH/.local/bin/night-watch")"
 ln -sfn "$FH/gone/amit-mizrachi/bin/night-watch" "$FH/.local/bin/night-watch"; run_hook
-check "it re-points a link left by an old plugin version" "$FH/plug/amit-mizrachi/bin/night-watch" "$(readlink "$FH/.local/bin/night-watch")"
+check "it re-points a link left by an old plugin version" "$FH/plug/nightsprint/bin/night-watch" "$(readlink "$FH/.local/bin/night-watch")"
+# Before 2.0.0 the plugin was called amit-mizrachi, and its copy can still be installed.
+mkdir -p "$FH/old/amit-mizrachi/1.18.0/bin"; cp "$NW" "$FH/old/amit-mizrachi/1.18.0/bin/night-watch"
+ln -sfn "$FH/old/amit-mizrachi/1.18.0/bin/night-watch" "$FH/.local/bin/night-watch"; run_hook
+check "it moves a live link from the pre-rename plugin" "$FH/plug/nightsprint/bin/night-watch" "$(readlink "$FH/.local/bin/night-watch")"
 rm "$FH/.local/bin/night-watch"; printf 'mine\n' > "$FH/.local/bin/night-watch"; run_hook
 check "it leaves a real file of the same name alone" "mine" "$(command cat "$FH/.local/bin/night-watch")"
 rm -rf "$FH"

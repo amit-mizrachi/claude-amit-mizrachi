@@ -9,7 +9,7 @@ Read for the acceptance path: <WS>/PLAN.md and <WS>/tickets/ (their acceptance c
 
 HOW TO EXERCISE IT - <pick exactly one at kickoff and delete the rest>:
 
-<A. LOCAL DEV STACK. Boot the stack against this worktree the way PLAN.md says to - the dev-environment skill it names, or the boot command it gives. Wait for it to serve before testing: a stack still coming up looks identical to a broken one, so retry for a few minutes before concluding it is down. If the change is UX-facing, drive a real browser with the `test-browser` skill and capture a screenshot per step. If it is API or CLI, exercise it directly with curl or the real entrypoint.>
+<A. LOCAL DEV STACK. Boot the stack against this worktree the way PLAN.md says to - the dev-environment skill it names, or the boot command it gives. Wait for it to serve before testing: a stack still coming up looks identical to a broken one, so retry for a few minutes before concluding it is down. If the change is UX-facing, drive a real browser with the `nightsprint:test-browser` skill (or the browser skill PLAN.md names) and capture a screenshot per step. If it is API or CLI, exercise it directly with curl or the real entrypoint.>
 
 <B. EVALS. Run the eval suite as PLAN.md specifies and report the run id, the pass rate, and every case that regressed against the baseline. Do NOT start an eval run the user has not already approved in PLAN.md - evals are never run without permission.>
 

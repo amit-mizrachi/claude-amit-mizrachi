@@ -36,7 +36,7 @@ SCOPE: <SCOPE>. Review it as one body of work.
 
 ## STEP 1 - REVIEW, WITH THE LANES THIS DIFF ACTUALLY NEEDS
 
-Run the `code-review` skill. **Correctness is always on.** Then add a lane only if the diff gives it something to find:
+Run the review skill PLAN.md's `Review skill` row names - `nightsprint:code-review`, which ships with this plugin, unless the kickoff chose the team's own - and pass it the lanes below. **Correctness is always on.** Then add a lane only if the diff gives it something to find:
 
 | Lane | Add it when the diff |
 |---|---|
@@ -44,6 +44,7 @@ Run the `code-review` skill. **Correctness is always on.** Then add a lane only 
 | security | touches authn or authz, parses untrusted input, handles a secret or token, crosses a network or process boundary, builds a query or a path from user data, changes CORS or origin checks |
 | architecture | changes a contract, schema, public interface, deployment topology or cross-service call - anything later code has to build on |
 | observability | adds or changes logging, spans, metrics, alerts, or an error-handling path |
+| performance | adds a query, a loop over data that grows, I/O on a hot path, a cache, or a large payload |
 | reuse / extraction | adds general-purpose logic that looks like it belongs in a shared package, or reimplements something a shared package already exports |
 | simplification | is the FINAL review, or is large enough that its shape is in question |
 | prompt-reviewer (separate, not part of the squad) | changes a prompt, skill, agent definition or template |
@@ -73,7 +74,7 @@ One block per FIX finding, in severity order, exactly these fields:
     ID:        F<n>
     AT:        <the short sha you reviewed - `git rev-parse --short HEAD`>
     SEVERITY:  BLOCKER | HIGH | MEDIUM | LOW
-    LANE:      correctness | security | architecture | observability | reuse | simplification
+    LANE:      correctness | security | architecture | observability | performance | reuse | simplification | prompt
     WHERE:     <file>:<line>
     ISSUE:     <what is wrong, in one sentence>
     EVIDENCE:  <the failure path, or the unmet acceptance criterion - why this is real>

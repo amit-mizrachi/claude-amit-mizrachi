@@ -35,7 +35,7 @@ Severity order: BLOCKER, HIGH, MEDIUM, LOW. If you run low on window, that order
 - **Reject it** in one line with the reason if it is wrong, or a style preference fighting this repo's conventions, or scope this sprint deliberately excluded. A reasoned rejection is a legitimate outcome; a silent one is not.
 - **Defer it** if it is real but bigger than this sprint. One line to <WS>/state/FOLLOWUPS.md: `<severity> | <file> | <what is wrong> | <why deferred>`.
 
-**External threads are different from internal findings, and the difference is explicit.** Every bot, CI and human comment gets a REPLY on its thread saying what happened - `Fixed in <sha>` or `Skipped: <reason>` - because somebody outside this sprint is waiting on it. Internal findings from the manifest need no thread; your summary is their record. Use `address-review` for the external threads only, and only if there are any.
+**External threads are different from internal findings, and the difference is explicit.** Every bot, CI and human comment gets a REPLY on its thread saying what happened - `Fixed in <sha>` or `Skipped: <reason>` - because somebody outside this sprint is waiting on it. Internal findings from the manifest need no thread; your summary is their record. Use the address-review skill PLAN.md names (`nightsprint:address-review` unless the kickoff chose another) for the external threads only, and only if there are any.
 
 Permissions or access-control changes always need a human (charter #9). Do not self-approve one: reply that it needs a human, and record it as a manual step below.
 

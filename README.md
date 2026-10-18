@@ -1,22 +1,42 @@
-# amit-mizrachi
+# nightsprint
 
-Seven [Claude Code](https://claude.com/claude-code) skills for running work you are not
+Ten [Claude Code](https://claude.com/claude-code) skills for running work you are not
 sitting and watching - handing a session off, turning a feature into a spec and tickets, taking
-it through the night, researching a product question end to end, taking a feature from idea to
-plan to PR, and keeping a big effort's map legible - plus `codex-bridge`, an MCP server that lets
-Claude ask OpenAI Codex for a second opinion, `night-watch`, a live terminal board of every
-sprint and marathon in flight, and the macOS hook that stops your machine sleeping through it.
+it through the night, reviewing it through the lanes it earns and answering its PR comments,
+testing it in a real browser, researching a product question end to end, taking a feature from
+idea to plan to PR, and keeping a big effort's map legible - plus `codex-bridge`, an MCP server
+that lets Claude ask OpenAI Codex for a second opinion, `night-watch`, a live terminal board of
+every sprint and marathon in flight, and the macOS hook that stops your machine sleeping through it.
 
 ## Install
 
 ```
 /plugin marketplace add amit-mizrachi/claude-amit-mizrachi
-/plugin install amit-mizrachi@amit-mizrachi
+/plugin install nightsprint@nightsprint
 ```
 
-Start a new session (or `/clear`). The skills then appear as `amit-mizrachi:next-prompt`,
-`amit-mizrachi:night-sprint`, `amit-mizrachi:product-research`, `amit-mizrachi:to-spec`,
-`amit-mizrachi:to-tickets`, `amit-mizrachi:night-marathon`, and `amit-mizrachi:mywayfinder`.
+Start a new session (or `/clear`). The skills then appear as `nightsprint:next-prompt`,
+`nightsprint:night-sprint`, `nightsprint:product-research`, `nightsprint:night-marathon`,
+`nightsprint:to-spec`, `nightsprint:to-tickets`, `nightsprint:code-review`,
+`nightsprint:address-review`, `nightsprint:test-browser`, and `nightsprint:mywayfinder`.
+
+### Upgrading from `amit-mizrachi`
+
+Before 2.0.0 the plugin and its marketplace were called `amit-mizrachi`. The repo is the same, but
+the new name is a new plugin to Claude Code, so switch by hand. Let running sprints finish first:
+a sprint started on the old plugin keeps its own copies of the scripts, but its prompts name the
+old skills.
+
+```
+/plugin uninstall amit-mizrachi@amit-mizrachi
+/plugin marketplace remove amit-mizrachi
+/plugin marketplace add amit-mizrachi/claude-amit-mizrachi
+/plugin install nightsprint@nightsprint
+```
+
+Then rename what calls the old names: `amit-mizrachi:<skill>` is now `nightsprint:<skill>`, and the
+codex-bridge tools are now `mcp__plugin_nightsprint_codex-bridge__*`. The `night-watch` link on your
+PATH moves to the new copy by itself at the next session start.
 
 ## What's in it
 
@@ -251,14 +271,14 @@ Claude Code: `codex_ask` blocks for an answer, `codex_start` runs longer work in
 `codex_check` / `codex_reply` / `codex_list` / `codex_cancel` poll, continue, list and stop
 runs, and `codex_status` checks that `codex` is installed and logged in. Every run is a normal Codex session, so `codex resume <session_id>` takes it over in a
 terminal. It registers itself from the plugin's `.mcp.json` as
-`plugin:amit-mizrachi:codex-bridge`.
+`plugin:nightsprint:codex-bridge`.
 
 Needs `python3` 3.9+ (no packages) and the `codex` CLI, logged in once (`npm install -g
 @openai/codex`, then `codex login`). It finds `codex` in the usual install folders even when
 Claude Code's `PATH` misses them. Nothing else to set up: no key, no config. If you registered
 the bridge by hand before, remove that copy so the tools do not show up twice:
 `claude mcp remove codex-bridge --scope user`. Details in
-[`amit-mizrachi/mcp/codex-bridge/README.md`](amit-mizrachi/mcp/codex-bridge/README.md).
+[`nightsprint/mcp/codex-bridge/README.md`](nightsprint/mcp/codex-bridge/README.md).
 
 ### `to-spec` and `to-tickets`
 
@@ -284,6 +304,28 @@ Two changes from upstream:
   the repo's tracker config to `docs/agents/issue-tracker.md`. That is still honoured when it
   exists; when it does not, both fall back to local markdown under `.scratch/<feature-slug>/`,
   which is exactly where `night-sprint` looks for tickets.
+
+### `code-review`, `address-review` and `test-browser`
+
+The three skills a sprint calls on the way to a mergeable PR, bundled so it runs on a machine
+that has nothing else installed. Each is named by role in `night-sprint`'s plan, so a team with
+its own review or test skill names that one instead.
+
+- **`code-review`** reviews a change through only the lanes it earns: correctness always, plus
+  security, architecture, observability, performance, reuse, simplification or prompt where the
+  diff gives them something to find. Each lane is a bundled reviewer agent
+  (`nightsprint:security-reviewer` and so on) running in parallel. The skill then opens the code
+  at every cited line, drops what it cannot back with a failure path, merges duplicates and ranks
+  the rest, in the same fields as `night-sprint`'s findings manifest. `lanes: quad` runs the
+  four-way squad (correctness, security, architecture, simplification), and `lanes: full` runs
+  every code lane. It never edits code. When the session's rules say subagents need permission,
+  it runs the lanes one after another in the session instead.
+- **`address-review`** walks every reviewer comment on a PR, fixes or skips each one, and replies on
+  that thread with `Fixed in <sha>` or `Skipped: <reason>`. In a headless run it never stops to ask:
+  it takes the smaller, safer reading and says which.
+- **`test-browser`** drives a real browser through [`agent-browser`](https://github.com/vercel-labs/agent-browser)
+  to check a change users can see: the golden path, the empty, error and loading states, and the
+  console. Logged-in flows use a persistent profile somebody logged into once.
 
 ### `mywayfinder`
 
@@ -347,7 +389,7 @@ start one Claude Code session, then `night-watch` works everywhere.
 8-hour window**: your Mac stays awake until 8 hours pass with no Claude activity, then sleeps
 normally. The display still turns off and disks behave normally. Silent no-op off macOS.
 
-Change the window via `TIMEOUT_SECONDS` in `amit-mizrachi/hooks/caffeinate.sh`, or the scope
+Change the window via `TIMEOUT_SECONDS` in `nightsprint/hooks/caffeinate.sh`, or the scope
 via its flags:
 
 | Want | Flags |
@@ -365,9 +407,10 @@ Nothing below is required. Where a skill is missing, the caller degrades and say
 |---|---|---|
 | `wayfinder` | `mywayfinder` | the map itself (**required**) |
 | `to-spec`, `to-tickets` | `night-sprint` | cutting a feature into tickets when none exist yet - ships here |
-| a review skill (e.g. `code-review`) | `night-sprint` | the FIND half of each review pair |
-| `address-review` (or equivalent) | `night-sprint` | the FIX half of each review pair |
-| a dev-environment skill | `night-sprint` | the optional test session that boots the stack |
+| `code-review` (or your team's own) | `night-sprint` | the FIND half of each review pair - ships here |
+| `address-review` (or your team's own) | `night-sprint` | the FIX half of each review pair - ships here |
+| `test-browser` (or your team's own) | `night-sprint` | the TEST session checking a UX change - ships here |
+| a dev-environment skill or boot command | `night-sprint` | the optional test session that boots the stack |
 | `artifact-design` | `mywayfinder` | built into Claude Code |
 | `next-prompt` | `night-sprint` | the conductor relay - ships here |
 | `night-sprint`, `to-spec`, `to-tickets` | `product-research` | the whole run after the approval - all ship here |
@@ -376,9 +419,8 @@ Nothing below is required. Where a skill is missing, the caller degrades and say
 | `artifact-design`, `artifact-diagramming` | `night-marathon` | the plan page and its mockups - built into Claude Code |
 | `codex-bridge` MCP server | `night-marathon` | the optional second opinion on the plan - ships here |
 
-`night-sprint` also references review and dev-environment skills generically. Substitute
-whatever your repo uses; the sprint reads the names out of its own prompt files, which you fill
-in at kickoff.
+`night-sprint` names its review, browser and dev-environment skills by role. Substitute whatever
+your repo uses; the sprint reads the names out of `PLAN.md`, which the conductor fills in at kickoff.
 
 ## Using it at your company
 
@@ -404,9 +446,9 @@ Write your CI and format commands down in `AGENTS.md` or `CLAUDE.md` and it does
 
 **What you point it at.** These are names in the kickoff, not dependencies:
 
-- **Review skills.** `night-sprint` names its review and address-review skills by role, and the
-  conductor writes your real skill names into `PLAN.md`. Without a review skill the sprint still
-  builds and opens the PR, but nothing reviews the diff.
+- **Review and test skills.** `night-sprint` uses the bundled `code-review`, `address-review` and
+  `test-browser` unless the kickoff names your team's own, for example a review skill that also
+  checks your house conventions. The conductor writes the real names into `PLAN.md`.
 - **A dev-stack or eval command.** Only for `test: dev-stack` or `test: evals`. Say which skill
   or command boots your stack or runs your evals; the TEST session reads it from `PLAN.md`.
 - **Your tracker.** `to-spec` and `to-tickets` honour `docs/agents/issue-tracker.md` (GitHub,
@@ -437,14 +479,14 @@ git clone https://github.com/amit-mizrachi/claude-amit-mizrachi.git
 
 ```
 /plugin marketplace add ./claude-amit-mizrachi
-/plugin install amit-mizrachi@amit-mizrachi
+/plugin install nightsprint@nightsprint
 ```
 
 Validate before committing:
 
 ```
 claude plugin validate .
-claude plugin validate ./amit-mizrachi
+claude plugin validate ./nightsprint
 ```
 
 That validator earns its keep. It is what caught `night-sprint` shipping an unquoted
@@ -455,4 +497,4 @@ skill loaded with no `name` and no `description` and only ever fired when invoke
 
 MIT - see [LICENSE](LICENSE). `to-spec` and `to-tickets` are adapted from
 [`mattpocock/skills`](https://github.com/mattpocock/skills), also MIT - see
-[`amit-mizrachi/THIRD_PARTY_NOTICES.md`](amit-mizrachi/THIRD_PARTY_NOTICES.md).
+[`nightsprint/THIRD_PARTY_NOTICES.md`](nightsprint/THIRD_PARTY_NOTICES.md).
