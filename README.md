@@ -129,18 +129,18 @@ The parts that make it survive an unattended night:
   warning-only lint rule. So `accept.sh` compares the **pushed** head with what it checks and then
   reads the required checks GitHub actually ran, writing `state/ACCEPTANCE.verdict`; the tester
   writes `state/GOLDEN.verdict` separately. The morning report's headline comes from those two files.
-- **Nobody waits on CI.** The last session that pushes code hands CI to ONE detached watcher session
-  (`ci-watch.sh`) and advances at once. The watcher runs outside the chain, in its own worktree: it
-  waits for the required checks, fixes and pushes what is red - failures inherited from the base
-  branch included (three passes at most) - and takes the
-  PR out of draft on green. The report says `PENDING` and names the watcher when CI has not finished.
+- **The PR ends ready for review, and a CI ticket gets it green.** `FIX-FINAL` takes the PR out of
+  draft after its fixes are pushed, and hands on to `CI`, a ticket on the chain like any other: it
+  waits for the required checks at the pushed head, fixes and pushes what is red - failures
+  inherited from the base branch included (three passes at most) - and writes
+  `state/ACCEPTANCE.verdict`. The runner revives it if it dies, and the sprint ends after it.
 - **Finished sessions are removed.** Once a tag is terminal and the chain has moved past it, the
   runner stops its session and takes it off the agent list with `claude rm`. The shared worktree
   and the transcript are kept, so `claude --resume <sessionId>` still reopens it. At the end only
   the conductor, with the morning report, is left on the list.
 - **The full suite never runs locally.** Every session runs the static checks (format / lint,
   typecheck or compile); `FIX-FINAL` and `FIX-TEST` may add a few targeted test files for their
-  own fixes. The suite runs on the PR in CI, and the CI watcher fixes whatever is red, whichever
+  own fixes. The suite runs on the PR in CI, and the `CI` ticket fixes whatever is red, whichever
   ticket caused it.
 - **Prompts are rendered, not retyped.** `bootstrap.sh` assembles the workspace and fails loudly
   on a missing script or fact; `render.sh` fills each prompt from one `facts.env` and **refuses a

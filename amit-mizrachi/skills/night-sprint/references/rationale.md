@@ -741,3 +741,21 @@ open the code the feature touches before answering "none". The plan stage treats
 as a lead: it confirms it in the repo snapshot or the findings, cites it, and files it as a
 decision (only if it passes STEP 1's filter, same cap of 5), a decided-for-you line, a build step
 or a risk. Nothing confirmed is dropped silently; `## Second opinion` says where each one went.
+
+## The PR ended in draft with red CI, and nobody was fixing it (2026-10-20, mcp-tool-modes, 1.19.0)
+
+All four tickets landed, both reviews ran, FIX-FINAL fixed its one finding and ended DONE. The
+user woke to a draft PR with a red `test-apps` lane. FIX-FINAL had not run `ci-watch.sh`: the
+owner's global instructions say no session may launch a CI watcher, and an instruction file beats
+a skill. The watcher lived outside the chain on purpose, so nothing noticed it never started - not
+the runner, not the conductor - and the only session allowed to take the PR out of draft was the
+one that never existed.
+
+**Rule.** The PR ends ready for review: FIX-FINAL (or REVIEW-FINAL on the SKIP route) runs
+`gh pr ready` once the night's fixes are pushed. CI is a ticket on the chain, `CI` (and `CI2`
+after a FIX-TEST), rendered from `ci-prompt.md`: it waits for the checks with `accept.sh`, fixes
+what is red, and writes its status like any tag, so the runner launches it, revives it, and does
+not end the sprint before it has run. `ci-watch.sh` is gone. Ready before green is deliberate:
+some repos run their full test lanes only on a ready PR. An owner who forbids sessions that wait
+on CI must carve the `CI` ticket out of that rule in their own instructions; the skill does not
+override them.
