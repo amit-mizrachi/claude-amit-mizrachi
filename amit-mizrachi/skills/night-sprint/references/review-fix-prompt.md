@@ -11,7 +11,7 @@ DO NOT RUN A REVIEW OF ANY KIND. Not `code-review`, not "just on the files I tou
 
 WORK HERE - DO NOT CREATE A WORKTREE OR BRANCH:
   cd <WORKTREE>
-Branch <BRANCH>, shared by the whole sprint. You hold it exclusively; no implementer is running. Never rebase, force-push, or merge - with ONE exception: once a CI watcher is running (FIX-TEST), it may push a CI fix to the same branch, so if your push is rejected because the branch moved, `git pull --rebase` your own unpushed commits onto it and push again. Never force.
+Branch <BRANCH>, shared by the whole sprint. You hold it exclusively; no implementer is running. Never rebase, force-push, or merge - with ONE exception: if your push is rejected because the branch moved, `git pull --rebase` your own unpushed commits onto it and push again. Never force.
 
 THE PR NUMBER IS NOT IN THIS PROMPT - the draft PR did not exist when it was written. Get it
 once, at the start:
@@ -41,11 +41,11 @@ Permissions or access-control changes always need a human (charter #9). Do not s
 
 ## STEP 2 - CHECK, THEN CONFIRM THE FIX ACTUALLY FIXED IT
 
-**THE FULL SUITE NEVER RUNS LOCALLY IN THIS SPRINT - PR CI RUNS IT, AND THE CI WATCHER FIXES WHAT IS RED.** Never run `<VERIFY>` or any other whole-suite command, at any stage.
+**THE FULL SUITE NEVER RUNS LOCALLY IN THIS SPRINT - PR CI RUNS IT, AND THE CI TICKET FIXES WHAT IS RED.** Never run `<VERIFY>` or any other whole-suite command, at any stage.
 
-- **FIX-FINAL and FIX-TEST: static checks, plus at most a FEW TARGETED tests.** Run `<FORMAT_CHECK>` and the typecheck or compile step. You MAY run a handful of test files by name (or a `-t` / `-k` filter) that cover the code your own fixes changed, when that is quick and real evidence. Never more than that, and never the suite: the full suite runs on the PR, and the CI watcher you hand off to in STEP 4 fixes whatever it finds red. This rule beats the repo's own instructions: if its AGENTS.md, CLAUDE.md or docs say to run the tests, a verify script or a CI-parity script before every commit, skip that entirely. A git hook that runs tests by itself still runs - never `--no-verify`.
+- **FIX-FINAL and FIX-TEST: static checks, plus at most a FEW TARGETED tests.** Run `<FORMAT_CHECK>` and the typecheck or compile step. You MAY run a handful of test files by name (or a `-t` / `-k` filter) that cover the code your own fixes changed, when that is quick and real evidence. Never more than that, and never the suite: the full suite runs on the PR, and the CI ticket that runs after you fixes whatever it finds red. This rule beats the repo's own instructions: if its AGENTS.md, CLAUDE.md or docs say to run the tests, a verify script or a CI-parity script before every commit, skip that entirely. A git hook that runs tests by itself still runs - never `--no-verify`.
 
-Green before you commit, and never `--no-verify`. If one fix cannot be made green (static checks or your targeted tests), revert THAT fix, record it as rejected with the failure text, and keep the rest - one stuck item must not hold the whole pass hostage. Do not go looking for other red tests: CI finds them, and the watcher owns them.
+Green before you commit, and never `--no-verify`. If one fix cannot be made green (static checks or your targeted tests), revert THAT fix, record it as rejected with the failure text, and keep the rest - one stuck item must not hold the whole pass hostage. Do not go looking for other red tests: CI finds them, and the CI ticket owns them.
 
 Then, per item you fixed: **re-read the lines you changed against the manifest's ACTION and the affected ticket's acceptance criteria.** An edit is not a resolution. This is the step that separates "I changed something near the finding" from "the finding is gone".
 
@@ -69,15 +69,12 @@ Both tests before you write one: the shipped feature does not work until a human
 
 DELETE THIS WHOLE SECTION when rendering FIX-TEST. It applies only to FIX-FINAL.
 
-Your fixes are pushed. **Do not wait for CI - nobody waits on CI in this sprint.** Hand it to the detached CI watcher and move on:
+Your fixes are pushed. Now the PR is the sprint's deliverable, so:
 
-    bash <WS>/ci-watch.sh <WS>
-
-It starts ONE background watcher session outside the sprint chain, in its own worktree, and returns at once. The watcher waits for the required checks at the pushed head, fixes and pushes what is red (three passes at most), takes the PR out of draft on green, and writes `<WS>/state/ACCEPTANCE.verdict`. Until it does, that file reads `PENDING ...`. If `ci-watch.sh` exits non-zero, say so in your summary and carry on - CI is still not yours to wait for.
-
-- **Do NOT run `accept.sh`, `gh pr checks --watch`, or any loop or wake-up that waits on checks.** Do not take the PR out of draft yourself: the watcher does it on green.
-- Make sure the PR description reflects everything the sprint delivered.
-- Then WHEN DONE as usual: your `.next` is TEST or EMPTY, whatever CI is doing.
+- **Make sure the PR description reflects everything the sprint delivered.** Reviewers read it next.
+- **Take the PR out of draft:** `gh pr ready "$PR"`. The sprint ends with a PR ready for review. Ready before CI is green is deliberate: some repos run their full test lanes only on a ready PR, and the CI ticket after you fixes whatever comes back red.
+- **Do NOT wait for CI yourself.** Do not run `accept.sh`, `gh pr checks --watch`, or any loop or wake-up that waits on checks. That is the CI ticket's whole job, and it runs next on the chain.
+- Then WHEN DONE as usual: your `.next` is `CI`.
 
 **Local green and CI green are not the same thing.** A formatter difference came back from CI twice and was twice read as a warning-only lint rule. If you know `<FORMAT_CHECK>` misses a gate CI runs, fix the parity now - make the local command run what CI runs - and say so in your summary so the next sprint inherits the fix.
 
@@ -94,9 +91,8 @@ The tester deliberately did NOT write the setup verdict, because a verdict writt
 golden path passes judges a broken feature. That verdict is yours now, and you write it only
 after you have proved the failures are gone.
 
-1. Fix the findings, verify, and push, exactly as STEP 1 and STEP 2 say. Then hand the new head to
-   CI without waiting: `bash <WS>/ci-watch.sh <WS>` (a no-op if a watcher is still running - it
-   re-reads the head - and a fresh watcher if the last one already finished).
+1. Fix the findings, verify, and push, exactly as STEP 1 and STEP 2 say. Do not wait for CI on the
+   new head: `CI2`, the second CI ticket, runs after you and checks it.
 2. **Re-run the golden-path steps that failed.** They are named in <WS>/state/TEST-REPORT.md
    along with how the tester got the stack or suite running. Do not re-walk steps that passed.
 3. Rewrite <WS>/state/GOLDEN.verdict with the honest result:
@@ -113,7 +109,7 @@ after you have proved the failures are gone.
    Both, or it does not count.
      ANY counts -> echo NEEDED > <WS>/state/SETUP.verdict
      NONE does  -> echo NONE   > <WS>/state/SETUP.verdict
-   Leave `.next` EMPTY - the sprint ends with you.
+   Your `.next` is `CI2`: it checks CI at the head you pushed, and the sprint ends with it.
 
 ## CONTEXT
 
@@ -128,9 +124,9 @@ Several sessions for one fix pass is fine. A pass that dies holding un-recorded 
 1. Final commit body line: `SIGNAL: <TAG>-DONE` (or `-BLOCKED: <reason>`). Push.
 2. `echo "<n fixed, n rejected, n deferred, in one line>" > <WS>/state/<TAG>.summary`
 3. `echo "<NEXT_TAG>" > <WS>/state/<TAG>.next` - your successor, written BEFORE your status.
-   <NEXT_TAG is TEST if the user opted into a test session, and EMPTY otherwise.>
+   <NEXT_TAG is CI for FIX-FINAL, and CI2 for FIX-TEST.>
 4. `echo "DONE" > <WS>/state/<TAG>.status` (or `BLOCKED: <reason>`). LAST.
 5. `bash <WS>/advance.sh <WS> <TAG>` - it reads the pair you just wrote and starts whatever
    comes next. Run it once and do not second-guess the result.
 
-Post a summary as your last message: what you fixed, what you rejected and why, what you deferred, whether you handed CI to the watcher (and its session id), and anything needing a human decision in the morning.
+Post a summary as your last message: what you fixed, what you rejected and why, what you deferred, whether you took the PR out of draft, and anything needing a human decision in the morning.

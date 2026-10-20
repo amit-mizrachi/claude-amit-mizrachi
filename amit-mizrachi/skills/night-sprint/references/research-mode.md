@@ -21,7 +21,7 @@ fix route, Acceptance, The manual steps, The PR, and the morning report's items 
 | implementer per ticket | researcher per ticket, `research-ticket-prompt.md` | writes `findings/<NN>-<slug>.md` |
 | review lanes over the diff | ONE lane, **evidence**, `research-review-find-prompt.md` | re-opens the sources behind the claims |
 | one fixer at the end | always a fresh fixer, `research-review-fix-prompt.md`, or SKIP | the same as a code sprint: every finding is fixed once, at the end |
-| optional `TEST`, a detached CI watcher (`ci-watch.sh`) handles CI | `SYNTH` builds and publishes the artifact, runs `research-check.sh --final` | there is no CI; the artifact is the thing delivered |
+| `CI` fixes red checks, then optional `TEST` | `SYNTH` builds and publishes the artifact, runs `research-check.sh --final` | there is no CI; the artifact is the thing delivered |
 | permission mode and test session from the invocation, else `auto` and none | always `auto`, no test session | research has nothing to boot or test |
 | connectors as the work needs | connectors **READ ONLY**, always | nothing may post under the user's name at 3am |
 

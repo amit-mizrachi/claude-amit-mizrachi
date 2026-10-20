@@ -79,7 +79,7 @@ Write `<WS>/BRIEF.md`:
 
     ## Deliverables
     - A plan artifact: UI mockups from the repo's own components, the decisions that matter with a recommendation each, and a copy-your-picks bar.
-    - One pull request implementing the chosen plan, in draft until CI is green. Never merged or deployed by the run.
+    - One pull request implementing the chosen plan, ready for review at the end, with a CI ticket that fixes red checks. Never merged or deployed by the run.
 
 Do not show it for approval. Go straight to step 4; the brief goes into the report in step 5.
 

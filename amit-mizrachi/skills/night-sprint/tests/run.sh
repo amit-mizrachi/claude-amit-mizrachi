@@ -317,7 +317,7 @@ check "with facts.env: bootstrap succeeds" "0" "$rc"
 # agents.sh is sourced on the first line of four scripts. A workspace without it has a
 # launcher, a reviver, a runner and a closer that all fail before doing anything.
 for need in agents.sh launch.sh advance.sh watch.sh runner.sh revive.sh classify-error.sh \
-            context-used.sh schedule.sh land.sh accept.sh ci-watch.sh ci-watch-prompt.md render.sh continuation-prompt.md; do
+            context-used.sh schedule.sh land.sh accept.sh ci-prompt.md render.sh continuation-prompt.md; do
   [ -f "$BWS/$need" ] && ok "copied $need" || no "copied $need" "absent from $BWS"
 done
 check "PERMISSION_MODE defaults to auto" "auto" "$(cat "$BWS/PERMISSION_MODE")"
@@ -1465,102 +1465,73 @@ rm "$FH/.local/bin/night-watch"; printf 'mine\n' > "$FH/.local/bin/night-watch";
 check "it leaves a real file of the same name alone" "mine" "$(command cat "$FH/.local/bin/night-watch")"
 rm -rf "$FH"
 
-# --- CI is handed off, never waited on. ci-watch.sh starts ONE watcher outside the chain.
+# --- The PR ends ready, and a CI ticket on the chain gets it green. 2026-10-20: the detached
+# watcher (ci-watch.sh) lived outside the chain; FIX-FINAL did not start it, nothing noticed, and
+# the user woke to a draft PR with red CI and nobody fixing it.
 echo
-echo "== ci-watch.sh hands CI to a watcher and returns =="
-CW="$(mktemp -d)"
-CWB="$CW/bin"; mkdir -p "$CWB" "$CW/ws/state"
-cp "$HERE/mock-claude.sh" "$CWB/claude"; chmod +x "$CWB/claude"
-cat > "$CWB/gh" <<'GH'
-#!/usr/bin/env bash
-# mock gh: `pr view [N] --json number|headRefOid -q ...`
-case "$*" in
-  *number*)     cat "$MOCK_STATE/gh-pr" 2>/dev/null ;;
-  *headRefOid*) printf 'abc1234\n' ;;
-esac
-GH
-chmod +x "$CWB/gh"
-for f in agents.sh ci-watch.sh ci-watch-prompt.md; do cp "$REF/$f" "$CW/ws/$f"; done
-# A real (local) remote, so the watcher's worktree can be made from origin/<branch>.
-git init -q --bare "$CW/remote.git"
-git init -q -b feat/x "$CW/wt"
-git -C "$CW/wt" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
-git -C "$CW/wt" remote add origin "$CW/remote.git"
-git -C "$CW/wt" push -q origin feat/x
-printf '%s\n' "$CW/wt" > "$CW/ws/WORKTREE"
-printf 'feat/x\n' > "$CW/ws/BRANCH"
-printf 'cslug\n'  > "$CW/ws/SLUG"
-printf 'auto\n'   > "$CW/ws/PERMISSION_MODE"
-export MOCK_STATE="$CW/mock"; mkdir -p "$MOCK_STATE"; printf '[]' > "$MOCK_STATE/agents.json"
-cw() { PATH="$CWB:$PATH" bash "$CW/ws/ci-watch.sh" "$CW/ws" >/dev/null 2>&1; echo $?; }
-launches() { grep -c 'ns-cslug-ci-watch' "$MOCK_STATE/launches" 2>/dev/null || echo 0; }
-
-check "no PR yet: exit 2" "2" "$(cw)"
-check "no PR yet: nothing launched" "0" "$(launches)"
-
-printf '41\n' > "$MOCK_STATE/gh-pr"
-check "with a PR: exit 0" "0" "$(cw)"
-check "one watcher launched" "1" "$(launches)"
-case "$(cat "$CW/ws/state/ACCEPTANCE.verdict")" in
-  PENDING\ abc1234*) ok "ACCEPTANCE.verdict reads PENDING at the pushed head" ;;
-  *) no "ACCEPTANCE.verdict reads PENDING at the pushed head" "got: $(cat "$CW/ws/state/ACCEPTANCE.verdict")" ;;
-esac
-[ -d "$CW/wt-ci" ] && ok "the watcher gets its own worktree" || no "the watcher gets its own worktree" "no $CW/wt-ci"
-case "$(awk '{print $4}' "$MOCK_STATE/launches")" in
-  *wt-ci) ok "it runs in that worktree, not the sprint's" ;;
-  *) no "it runs in that worktree, not the sprint's" "ran in $(awk '{print $4}' "$MOCK_STATE/launches")" ;;
-esac
-if ls "$CW/ws/state/"*.session "$CW/ws/state/"*.status "$CW/ws/state/"claim-* >/dev/null 2>&1; then
-  no "nothing lands where watch.sh globs (state/*.session, *.status, claim-*)" "$(ls "$CW/ws/state")"
+echo "== the PR ends ready, and a CI ticket on the chain gets it green =="
+[ -f "$REF/ci-watch.sh" ] && no "the detached watcher is gone" "ci-watch.sh still ships" \
+  || ok "the detached watcher is gone"
+if grep -rl 'ci-watch' "$REF" 2>/dev/null | grep -qv 'rationale.md'; then
+  no "no template or script still calls ci-watch" "$(grep -rl 'ci-watch' "$REF" | grep -v rationale.md)"
 else
-  ok "nothing lands where watch.sh globs (state/*.session, *.status, claim-*)"
+  ok "no template or script still calls ci-watch"
 fi
-grep -q '<PR>\|<WS>\|<CI_WORKTREE>\|<BRANCH>' "$MOCK_STATE/last-prompt" \
-  && no "the watcher prompt is fully filled" "an unfilled slot remains" \
-  || ok "the watcher prompt is fully filled"
-
-# Alive: the harness lists it with a pid and not done -> a second call is a no-op.
-python3 - "$MOCK_STATE/agents.json" <<'PY'
-import json, sys
-rows = json.load(open(sys.argv[1]))
-for r in rows: r["pid"] = 4242
-json.dump(rows, open(sys.argv[1], "w"))
-PY
-check "second call while alive: exit 0" "0" "$(cw)"
-check "second call while alive: still one watcher" "1" "$(launches)"
-
-# Finished: a later push (FIX-TEST) gets a fresh watcher, and the old record is kept.
-echo DONE > "$CW/ws/state/ci-watch/status"
-check "after the watcher finished: exit 0" "0" "$(cw)"
-check "after the watcher finished: a fresh watcher" "2" "$(launches)"
-ls "$CW/ws/state/ci-watch/status."* >/dev/null 2>&1 && ok "the finished watcher's status is archived" \
-  || no "the finished watcher's status is archived" "$(ls "$CW/ws/state/ci-watch")"
-rm -rf "$CW"
-
-echo
-echo "== no sprint session waits on CI =="
-grep -q 'bash <WS>/ci-watch.sh <WS>' "$REF/review-fix-prompt.md" \
-  && ok "FIX-FINAL hands CI to the watcher" || no "FIX-FINAL hands CI to the watcher" "no ci-watch.sh call"
+grep -q 'gh pr ready "\$PR"' "$REF/review-fix-prompt.md" \
+  && ok "FIX-FINAL takes the PR out of draft" || no "FIX-FINAL takes the PR out of draft" "no gh pr ready"
+grep -q 'your `.next` is `CI`' "$REF/review-fix-prompt.md" \
+  && ok "FIX-FINAL hands on to the CI ticket" || no "FIX-FINAL hands on to the CI ticket" "no CI successor"
 grep -q '^    bash <WS>/accept.sh' "$REF/review-fix-prompt.md" \
-  && no "FIX-FINAL no longer blocks on accept.sh" "it still runs accept.sh" \
-  || ok "FIX-FINAL no longer blocks on accept.sh"
-grep -q 'ci-watch.sh' "$REF/review-find-prompt.md" \
-  && ok "a FINAL review that routes SKIP hands CI on" || no "a FINAL review that routes SKIP hands CI on" "no ci-watch.sh"
+  && no "FIX-FINAL does not block on accept.sh" "it still runs accept.sh" \
+  || ok "FIX-FINAL does not block on accept.sh"
+grep -q 'gh pr ready "\$PR"' "$REF/review-find-prompt.md" \
+  && ok "a FINAL review that routes SKIP takes the PR out of draft" \
+  || no "a FINAL review that routes SKIP takes the PR out of draft" "no gh pr ready"
 grep -q 'accept\.sh' "$REF/review-find-prompt.md" \
   && no "the finder never runs accept.sh" "it still does" || ok "the finder never runs accept.sh"
+grep -q 'bash <WS>/accept.sh <WS> 540$' "$REF/ci-prompt.md" \
+  && ok "the CI ticket reads CI in short waits, in the sprint worktree" \
+  || no "the CI ticket reads CI in short waits, in the sprint worktree" "no accept.sh call"
+grep -q 'bash <WS>/advance.sh <WS> <TAG>' "$REF/ci-prompt.md" \
+  && ok "the CI ticket advances the chain like any tag" || no "the CI ticket advances the chain like any tag" "no advance.sh"
+grep -q 'THE FULL SUITE NEVER RUNS LOCALLY IN THIS SPRINT' "$REF/ci-prompt.md" \
+  && ok "the CI ticket never runs the suite locally" || no "the CI ticket never runs the suite locally" "rule missing"
+
+# The CI prompt renders with nothing left over: TAG and NEXT_TAG from the vars file, the rest from facts.
+CR="$(mktemp -d)"
+cat > "$CR/facts.env" <<'ENV'
+REPO=repo
+REPO_PATH=/tmp/repo
+REPO_SLUG=owner/repo
+SLUG=cslug
+USER=Amit
+WS=/tmp/ws
+WORKTREE=/tmp/wt
+BRANCH=feat/x
+TOOLCHAIN=true
+VERIFY=pnpm test
+FORMAT_CHECK=pnpm format:check
+CONTEXT_WINDOW=1000000
+WARN_AT_USED=20
+RELAY_AT_USED=30
+ENV
+printf 'TAG=CI\nNEXT_TAG=\n' > "$CR/vars-CI.env"
+bash "$REF/render.sh" "$CR" "$REF/ci-prompt.md" "$CR/prompt-CI.txt" "$CR/vars-CI.env" >/dev/null 2>&1
+check "the CI prompt renders with no unfilled slot" "0" "$?"
+rm -rf "$CR"
 
 echo
-echo "== the CI watcher fixes red checks, inherited ones too =="
-grep -q 'red on the base branch too - gets ONE' "$REF/ci-watch-prompt.md" \
+echo "== the CI ticket fixes red checks, inherited ones too =="
+grep -q 'red on the base branch too - gets ONE' "$REF/ci-prompt.md" \
   && no "a base-branch failure is not a rerun-and-stop" "the old escape hatch is back" \
   || ok "a base-branch failure is not a rerun-and-stop"
-grep -q 'That includes a check that is red on the base branch too' "$REF/ci-watch-prompt.md" \
+grep -q 'That includes a check that is red on the base branch too' "$REF/ci-prompt.md" \
   && ok "a base-branch failure goes to the fix step" || no "a base-branch failure goes to the fix step" "no such rule"
-grep -q 'BLOCKED is for exactly two cases' "$REF/ci-watch-prompt.md" \
+grep -q 'BLOCKED is for exactly two cases' "$REF/ci-prompt.md" \
   && ok "BLOCKED is narrowed to two cases" || no "BLOCKED is narrowed to two cases" "no such rule"
 grep -qF 'gh pr view ${BRANCH:+"$BRANCH"}' "$REF/accept.sh" \
-  && ok "accept.sh finds the PR by branch, so a detached watcher worktree works" \
-  || no "accept.sh finds the PR by branch, so a detached watcher worktree works" "bare gh pr view"
+  && ok "accept.sh finds the PR by branch, so a detached worktree works" \
+  || no "accept.sh finds the PR by branch, so a detached worktree works" "bare gh pr view"
 
 echo
 echo "== a failed launch is retried with launch.sh alone - nobody types rm or mv =="
