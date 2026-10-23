@@ -7,7 +7,7 @@ import sys
 
 from . import STUDIO
 from .support import Sources, TempHome, validate
-from .test_readers import SID_A, agent
+from .test_readers import SID_A, SID_B, agent
 
 SERVER = os.path.join(STUDIO, "mcp_server.py")
 
@@ -110,6 +110,18 @@ class EveryNewTool(Sources):
         self.assertIsInstance(replies[7]["result"]["structuredContent"]["move_id"], int)
         self.assertEqual(replies[9]["result"]["structuredContent"]["item"]["project_id"], "inbox")
         self.assertTrue(replies[10]["result"]["structuredContent"]["archived_at"])
+
+    def test_status_lists_are_bounded_with_totals(self):
+        self.agents([agent(SID_A, "alpha", "/w/alpha"), agent(SID_B, "beta", "/w/beta")])
+        out = self.converse(self.call(1, "studio_status", {"project_id": "inbox", "limit": 1}),
+                            self.call(2, "studio_status", {"project_id": "inbox", "limit": 0}))
+        status = out[1]["result"]["structuredContent"]
+        self.assertEqual((len(status["sessions"]), status["totals"]["sessions"], status["truncated"]), (1, 2, True))
+        self.assertTrue(out[2]["result"]["isError"])
+
+    def test_an_unknown_tool_is_invalid_params(self):
+        out = self.converse(self.call(1, "nope", {}))
+        self.assertEqual(out[1]["error"]["code"], -32602)
 
     def test_a_stale_revision_is_a_tool_error_with_the_sdk_message(self):
         self.agents([agent(SID_A, "alpha", "/w/alpha")])

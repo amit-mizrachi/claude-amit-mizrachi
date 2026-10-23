@@ -225,6 +225,8 @@ class ProjectStatus:
     artifacts: List[Item]
     sub_projects: List[SubProject]
     sources: List[SourceState]
+    totals: Dict[str, int] = field(default_factory=dict)   # runs/sessions/prs/worktrees/artifacts before `limit`
+    truncated: bool = False                                  # some list was cut to `limit`
 
 
 @dataclass

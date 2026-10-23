@@ -37,7 +37,7 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 
 | `refresh(force=False)` | `RefreshResult` | Runs the due readers, stores what they said, reconciles. `sources` shows each reader's state. |
 | `find_items(query=None, kind=None, project_id=None, include_gone=False, limit=None, refresh=True)` | `ItemList` | Text match on title, key, name, cwd, branch; `project_id` includes its sub-projects. |
-| `project_status(project_id, refresh=True)` | `ProjectStatus` | Runs (status, reason, "T03 of 5", stage, PR, artifact) ranked needs-you > blocked > running > paused > latest; sessions, PRs, worktrees, artifacts; rolled up over sub-projects. |
+| `project_status(project_id, refresh=True, limit=None)` | `ProjectStatus` | Runs (status, reason, "T03 of 5", stage, PR, artifact) ranked needs-you > blocked > running > paused > latest; sessions, PRs, worktrees, artifacts; rolled up over sub-projects. `limit` caps each list; `totals` and `truncated` say what was cut. |
 | `add_item(kind, key, project_id, title=None)` | `MoveResult` | By hand (`placed_by = manual`). A known item is moved instead (`created` False). |
 | `move_item(item_id, project_id, expected_revision=None)` | `MoveResult` | By hand; a stale revision is refused; a run's auto-attached items follow (`followed`). |
 | `move(target_id, to_project_id, expected_revision=None)` | `MoveResult` | An item (`i_...`) or a project (`p_...`): the one call behind drop = move. A project's move gets a `move_id` too; `message` is the toast ("Moved to Project Studio"). |

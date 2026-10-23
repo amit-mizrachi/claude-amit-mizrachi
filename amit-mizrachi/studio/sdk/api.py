@@ -201,18 +201,24 @@ def find_items(query: Optional[str] = None, kind: Optional[str] = None, project_
     return ItemList(items=shown, total=total, truncated=truncated)
 
 
-def project_status(project_id: str, refresh: bool = True) -> ProjectStatus:
+def project_status(project_id: str, refresh: bool = True, limit: Optional[int] = None) -> ProjectStatus:
     """A project's night runs (each with status, reason, "T03 of 5" progress, stage, PR state and
     artifact), ranked needs-you > blocked > running > paused > latest, plus its sessions, PRs,
     worktrees and artifacts, all rolled up over its active sub-projects, the sub-projects with a
     run count, and every source's state. Refreshes due sources first unless `refresh` is False.
+    `limit` keeps at most that many of each list; `totals` counts them all and `truncated` says one was cut.
     """
+    limit = _limit(limit)
     _maybe_refresh(refresh)
     with store.read() as conn:
         found = items.status(conn, project_id)
     project, runs, sessions, prs, worktrees, artifacts, subs, sources = found
-    return ProjectStatus(project=project, runs=runs, sessions=sessions, prs=prs, worktrees=worktrees,
-                         artifacts=artifacts, sub_projects=subs, sources=sources)
+    lists = {"runs": runs, "sessions": sessions, "prs": prs, "worktrees": worktrees, "artifacts": artifacts}
+    paged = {name: _page(found, limit) for name, found in lists.items()}
+    return ProjectStatus(project=project, sub_projects=subs, sources=sources,
+                         totals={name: page[1] for name, page in paged.items()},
+                         truncated=any(page[2] for page in paged.values()),
+                         **{name: page[0] for name, page in paged.items()})
 
 
 def add_item(kind: str, key: str, project_id: str, title: Optional[str] = None) -> MoveResult:

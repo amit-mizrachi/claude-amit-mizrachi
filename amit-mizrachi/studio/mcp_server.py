@@ -82,7 +82,7 @@ MOVE_SCHEMA = {
     "properties": {
         "item": NULLABLE_ITEM,
         "project": NULLABLE_PROJECT,
-        "move_id": {"type": ["integer", "null"], "description": "Undo / learn-a-rule handle; null when nothing moved."},
+        "move_id": {"type": ["integer", "null"], "description": "The studio page's Undo / learn-a-rule handle; null when nothing moved."},
         "from_project_id": NULLABLE_TEXT,
         "to_project_id": NULLABLE_TEXT,
         "followed": {"type": "array", "items": {"type": "string"},
@@ -201,19 +201,27 @@ TOOLS = [
             "A project's night runs (status, reason, progress like \"T03 of 5\", stage, PR state, plan "
             "artifact) ranked needs-you > blocked > running > latest, plus its sessions, PRs, "
             "worktrees and artifacts, rolled up over its sub-projects, and each source's state (a "
-            "failed source keeps its last-good data and shows its error). Refreshes due sources first."
+            "failed source keeps its last-good data and shows its error). Refreshes due sources first. "
+            "Each list holds at most `limit` entries; `totals` counts them all and `truncated` says one was cut."
         ),
         "inputSchema": {"type": "object", "required": ["project_id"], "additionalProperties": False,
-                        "properties": {"project_id": PROJECT_ID}},
+                        "properties": {
+                            "project_id": PROJECT_ID,
+                            "limit": {"type": "integer", "minimum": 1, "maximum": LIST_MAX,
+                                      "description": "At most this many of each list, default %d, max %d."
+                                                     % (LIST_DEFAULT, LIST_MAX)}}},
         "outputSchema": {
             "type": "object",
-            "required": ["project", "runs", "sessions", "prs", "worktrees", "artifacts", "sub_projects", "sources"],
+            "required": ["project", "runs", "sessions", "prs", "worktrees", "artifacts", "sub_projects", "sources",
+                         "totals", "truncated"],
             "properties": {
                 "project": PROJECT_SCHEMA,
                 "runs": {"type": "array", "items": RUN_SCHEMA},
                 "sessions": ITEMS, "prs": ITEMS, "worktrees": ITEMS, "artifacts": ITEMS,
                 "sub_projects": {"type": "array", "items": {"type": "object", "required": ["project", "runs", "runs_active", "top_status"]}},
                 "sources": {"type": "array", "items": SOURCE_SCHEMA},
+                "totals": {"type": "object", "additionalProperties": {"type": "integer"}},
+                "truncated": {"type": "boolean"},
             },
         },
         "annotations": {"title": "Project status", "readOnlyHint": True, "destructiveHint": False,
@@ -247,7 +255,8 @@ TOOLS = [
         "title": "Move an item or a project",
         "description": (
             "Move an item (id i_...) into a project, or a project (id p_...) under another (null = top "
-            "level). Either returns move_id (for Undo); an item move is by hand and also returns the rule "
+            "level). Either returns move_id, the handle the studio page's Undo uses (to undo a move "
+            "here, move it back with studio_move); an item move is by hand and also returns the rule "
             "\"Always file items like this here\" would save; a run's auto-attached items follow it. Pass revision "
             "to refuse the move if the item changed since you read it. Cycles are refused."
         ),
@@ -282,7 +291,8 @@ TOOLS = [
         "title": "Remove an item from its project",
         "description": (
             "Take an item out of its project, back to the Inbox. It never deletes the session, run, PR "
-            "or folder itself. Returns move_id, so it can be undone."
+            "or folder itself. Returns move_id, the handle the studio page's Undo uses; to undo it here, "
+            "move the item back with studio_move."
         ),
         "inputSchema": {"type": "object", "required": ["item_id"], "additionalProperties": False,
                         "properties": {"item_id": ITEM_ID}},
@@ -340,7 +350,7 @@ def tool_find(args):
 
 
 def tool_status(args):
-    return api.project_status(args["project_id"])
+    return api.project_status(args["project_id"], limit=args.get("limit", LIST_DEFAULT))
 
 
 def tool_add(args):
@@ -414,10 +424,14 @@ def tool_error(text):
     return {"content": [{"type": "text", "text": text}], "isError": True}
 
 
+class InvalidParams(ValueError):
+    """A request the server can name as bad (JSON-RPC -32602), not an internal failure."""
+
+
 def call_tool(name, args):
     fn = HANDLERS.get(name)
     if not fn:
-        raise ValueError("unknown tool %r" % (name,))
+        raise InvalidParams("unknown tool %r" % (name,))
     problem = bad_args(name, args)
     if problem:
         return tool_error("invalid_input: " + problem)
@@ -483,6 +497,10 @@ def main():
         except LookupError as exc:
             if rid is not None:
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": str(exc)}})
+            continue
+        except InvalidParams as exc:
+            if rid is not None:
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32602, "message": str(exc)}})
             continue
         except Exception as exc:
             log("request failed: %r" % exc)
