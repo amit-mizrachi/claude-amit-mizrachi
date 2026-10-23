@@ -177,9 +177,9 @@ def refresh(force: bool = False) -> RefreshResult:
     return RefreshResult(reads=[{"source": s, "key": k, "ok": ok} for s, k, ok in reads], sources=sources, **counts)
 
 
-def _maybe_refresh(fresh):
+def _maybe_refresh(fresh, slow=True):
     if _flag(fresh, "refresh"):
-        scan.refresh(strict=False)
+        scan.refresh(strict=False, slow=slow)
 
 
 def find_items(query: Optional[str] = None, kind: Optional[str] = None, project_id: Optional[str] = None,
@@ -275,8 +275,9 @@ def remove_item(item_id: str) -> MoveResult:
 
 
 def inbox(limit: Optional[int] = None, refresh: bool = True) -> InboxList:
-    """Every unfiled item, newest first, each with a suggested project and the reason
-    ("same run as ...", "rule: ...", "repo shapes-platform: 4 items there"), or none."""
+    """Every unfiled item active in the last 14 days, newest first, each with a suggested project
+    and the reason ("same run as ...", "rule: ...", "repo shapes-platform: 4 items there"), or none.
+    Older unfiled items stay in the store: `find_items`, rules and moves still reach them."""
     limit = _limit(limit)
     _maybe_refresh(refresh)
     with store.read() as conn:
@@ -358,13 +359,14 @@ def home(refresh: bool = False) -> HomeState:
     """The studio's home page: one card per active top-level project (at most 3 runs of it and its
     sub-projects, ranked needs-you > blocked > running > latest, "+ n earlier runs", "2 inside",
     the newest PR state), cards ordered needs-you, blocked, running, then latest change; plus the
-    Inbox count, the PR source age, a banner per failed source (last-good states kept), `loading`
-    before the first scan and `first_run` when there is no project. Refreshes due sources first
-    only when `refresh` is True.
+    Inbox count (items active in the last 14 days), the PR source age, a banner per failed source
+    (last-good states kept), `first_run` when there is no project, and `reading` / `reading_text`
+    naming the sources still being read ("Still reading PRs..."). It answers from what the store
+    holds and never waits for a slow source: `refresh` True reads only the due fast ones first.
     """
-    _maybe_refresh(refresh)
+    _maybe_refresh(refresh, slow=False)
     with store.read() as conn:
-        return homepage.state(conn)
+        return homepage.state(conn, reading=scan.reading())
 
 
 def open_studio() -> StudioServer:

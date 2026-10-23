@@ -49,7 +49,7 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `list_rules(project_id=None)` / `delete_rule(rule_id)` | `RuleList` / `Rule` | Strongest signal first. |
 | `purge_gone(item_id=None)` | `PurgeResult` | Deletes gone items for good, only when asked. |
 | `attach_session(session_id, cwd, job_dir=None, entrypoint=None)` | `AttachResult` | The SessionStart hook: files a starting session by title > cwd > rule > Inbox over what the store holds, no reader run. Headless (`sdk*`) runs are skipped; a known session stays put. |
-| `home(refresh=False)` | `HomeState` | The studio's home page: cards in final order (needs-you, blocked, running, latest change), at most 3 runs per card with "+ n earlier runs", "2 inside", PR line, a banner per failed source (last-good states kept), `loading` before the first scan, `first_run` with no project. |
+| `home(refresh=False)` | `HomeState` | The studio's home page: cards in final order (needs-you, blocked, running, latest change), at most 3 runs per card with "+ n earlier runs", "2 inside", PR line, a banner per failed source (last-good states kept), `first_run` with no project, `reading` / `reading_text` ("Still reading PRs...") for sources still being read. Answers from the store and never waits for a slow source. |
 | `open_studio()` | `StudioServer` | Starts `studio/web.py` on 127.0.0.1 unless one of this code version runs (`started` False); asks an older one to stop first. Never opens a browser. `StartFailed` after 5 s (see `studio.log`). |
 | `studio_status()` | `StudioServer` | The running studio, or `running` False. |
 | `stop_studio()` | `StudioServer` | POST /shutdown with the token, waits up to 5 s. Never kills. |

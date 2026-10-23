@@ -121,8 +121,24 @@ class Hub(object):
             except queue.Full:   # a stuck page misses a frame; the next one is a full state again
                 pass
 
+    def refresh(self):
+        """Refresh every 2 s while a page is open, in its own thread, so a slow source never holds
+        back a state frame."""
+        while True:
+            if not self.clients:
+                self.wake.wait(POLL)
+                continue
+            try:
+                api.refresh()
+            except ReadOnlyStore:   # a newer SDK's store: show what it holds, refresh nothing
+                pass
+            except Exception as exc:   # one bad refresh must not end the live view
+                log("refresh failed: %r" % (exc,))
+            time.sleep(POLL)
+
     def run(self, httpd):
-        """Refresh and re-read the home state every 2 s while a page is open; stop when idle."""
+        """Re-read the home state every 2 s while a page is open and send it on a change; stop when idle."""
+        threading.Thread(target=self.refresh, daemon=True).start()
         while True:
             if not self.clients:
                 if time.time() - self.last > self.idle:
@@ -133,10 +149,6 @@ class Hub(object):
                 self.wake.clear()
                 continue
             try:
-                try:
-                    api.refresh()
-                except ReadOnlyStore:   # a newer SDK's store: show what it holds, refresh nothing
-                    pass
                 text, key = home_json()
             except Exception as exc:   # one bad poll must not end the live view
                 log("poll failed: %r" % (exc,))
