@@ -85,10 +85,16 @@ class Sources(TempHome):
         return self.write(os.path.join(self.claude_home, "projects", folder, sid + ".jsonl"),
                           "".join(json.dumps(r) + "\n" for r in rows))
 
-    def workspace(self, slug, facts=None, tags=(("T01", "DONE"), ("T02", "")), files=None):
+    def workspace(self, slug, facts=None, tags=(("T01", "DONE"), ("T02", "")), files=None, runner=True):
         """A night-sprint workspace under the root: a chain of tags, each with a status line,
-        "" for running (a claim dir), or None for pending."""
+        "" for running (a claim dir), or None for pending. `runner`: its watch.sh is alive
+        (a pid in state/runner.pid that the `ps` stub lists)."""
         ws = self.mkdir("roots", slug)
+        if runner:
+            pid = str(900000 + len(os.listdir(self.roots)))
+            self.write(os.path.join(ws, "state", "runner.pid"), pid + "\n")
+            with open(os.path.join(self.stub, "ps-extra"), "a") as out:
+                out.write("%s bash %s/watch.sh\n" % (pid, ws))
         env = dict({"SLUG": slug, "MODE": "code"}, **(facts or {}))
         self.write(os.path.join(ws, "facts.env"), "".join("%s=%s\n" % kv for kv in env.items()))
         for i, (tag, status) in enumerate(tags):

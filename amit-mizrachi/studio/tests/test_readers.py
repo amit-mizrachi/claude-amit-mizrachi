@@ -40,7 +40,7 @@ class Runs(Sources):
         self.assertEqual(studio["artifacts"][0]["url"], "https://claude.ai/artifact/L5PR6Uqk3agwJLWyo8abg5")
         self.assertTrue(studio["artifacts"][0]["plan"])
         deel = found["deel-time-away"]
-        self.assertEqual((deel["kind"], deel["status"]), ("night-sprint", "done"))
+        self.assertEqual((deel["kind"], deel["status"], deel["reason"]), ("night-sprint", "needs-you", "CI red"))
         self.assertEqual(deel["progress"]["text"], "T05 of 5")
         self.assertEqual(found["agents-in-shapes-v2"]["status"], "blocked")
         self.assertTrue(found["agents-in-shapes-v2"]["reason"])
@@ -51,6 +51,15 @@ class Runs(Sources):
         old = self.by_slug()["old-sprint"]
         self.assertEqual(old["status"], "unknown")
         self.assertIn("old format", old["reason"])
+
+    def test_a_started_sprint_with_no_runner_or_red_ci_needs_you_as_in_night_watch(self):
+        self.workspace("stopped-20261023", tags=(("T01", "DONE"), ("T02", ""), ("T03", None)), runner=False)
+        self.workspace("red-20261023", tags=(("T01", "DONE"), ("T02", "DONE")),
+                       files={"state/ACCEPTANCE.verdict": "FAIL at abc123\n"})
+        found = self.by_slug()
+        self.assertEqual((found["stopped-20261023"]["status"], found["stopped-20261023"]["reason"]),
+                         ("needs-you", "runner stopped"))
+        self.assertEqual((found["red-20261023"]["status"], found["red-20261023"]["reason"]), ("needs-you", "CI red"))
 
     def test_running_sprint_has_ticket_progress_and_per_ticket_branches_and_worktrees(self):
         self.workspace("x-20261023", facts={"BRANCH": "feat/x", "WORKTREE": "/w/x", "TOTAL": "5"},

@@ -39,8 +39,12 @@ def _sprint_status(sp):
     for stage in sp.stages:
         if stage.status == "blocked":
             return "blocked", re.sub(r"^BLOCKED:?\s*", "", stage.detail, flags=re.I) or "blocked"
+    if sp.acceptance == "FAIL":                    # night-watch's two other "needs you" alerts
+        return "needs-you", "CI red"
     if sp.finished:
         return "done", ""
+    if sp.started and not sp.runner:               # nothing advances, revives or resumes a pause
+        return "needs-you", "runner stopped"
     if sp.paused:
         return "paused", "waiting for capacity"
     return ("running", "") if sp.started else ("pending", "")
