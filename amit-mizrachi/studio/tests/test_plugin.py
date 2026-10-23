@@ -1,5 +1,6 @@
 """The plugin wiring: the .mcp.json entries, and build rule 1 (no SQL outside studio/sdk/)."""
 
+import ast
 import glob
 import json
 import os
@@ -43,3 +44,19 @@ class OneLayer(unittest.TestCase):
                 text = fh.read()
             for marker in self.MARKERS:
                 self.assertNotIn(marker, text, "%s holds %r - move it into studio/sdk/" % (path, marker))
+
+    def test_every_mcp_handler_is_one_sdk_call(self):
+        """Each studio_* handler is `return api.<function>(...)` and nothing else: no branch, loop or rule."""
+        with open(os.path.join(STUDIO, "mcp_server.py")) as fh:
+            tree = ast.parse(fh.read())
+        handlers = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name.startswith("tool_")]
+        self.assertGreaterEqual(len(handlers), 9)
+        for fn in handlers:
+            self.assertEqual(len(fn.body), 1, fn.name)
+            ret = fn.body[0]
+            self.assertIsInstance(ret, ast.Return, fn.name)
+            self.assertIsInstance(ret.value, ast.Call, fn.name)
+            self.assertEqual(ast.unparse(ret.value.func).split(".")[0], "api", fn.name)
+            calls = [n for n in ast.walk(ret) if isinstance(n, ast.Call) and ast.unparse(n.func).startswith("api.")]
+            self.assertEqual(len(calls), 1, fn.name)
+            self.assertFalse([n for n in ast.walk(fn) if isinstance(n, (ast.If, ast.For, ast.While, ast.IfExp))], fn.name)

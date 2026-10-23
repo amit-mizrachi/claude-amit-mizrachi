@@ -86,7 +86,8 @@ class Sources(TempHome):
                           "".join(json.dumps(r) + "\n" for r in rows))
 
     def workspace(self, slug, facts=None, tags=(("T01", "DONE"), ("T02", "")), files=None):
-        """A night-sprint workspace under the root: a chain of tags, each with a status (or running)."""
+        """A night-sprint workspace under the root: a chain of tags, each with a status line,
+        "" for running (a claim dir), or None for pending."""
         ws = self.mkdir("roots", slug)
         env = dict({"SLUG": slug, "MODE": "code"}, **(facts or {}))
         self.write(os.path.join(ws, "facts.env"), "".join("%s=%s\n" % kv for kv in env.items()))
@@ -95,7 +96,7 @@ class Sources(TempHome):
             self.write(os.path.join(ws, "state", tag + ".next"), nxt + "\n")
             if status:
                 self.write(os.path.join(ws, "state", tag + ".status"), status + "\n")
-            else:
+            elif status is not None:
                 self.mkdir("roots", slug, "state", "claim-" + tag)
         for rel, text in (files or {}).items():
             self.write(os.path.join(ws, rel), text)

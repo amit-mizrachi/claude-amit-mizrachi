@@ -34,7 +34,48 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `delete_project(project_id)` | `DeleteResult` | Empty projects only (no sub-projects, no items); otherwise archive. |
 | `export_json(dest=None)` | `Export` | The whole store minus the cache; written to `dest` (0600, atomic) when given. |
 
+| `refresh(force=False)` | `RefreshResult` | Runs the due readers, stores what they said, reconciles. `sources` shows each reader's state. |
+| `find_items(query=None, kind=None, project_id=None, include_gone=False, limit=None, refresh=True)` | `ItemList` | Text match on title, key, name, cwd, branch; `project_id` includes its sub-projects. |
+| `project_status(project_id, refresh=True)` | `ProjectStatus` | Runs (status, reason, "T03 of 5", stage, PR, artifact) ranked needs-you > blocked > running > paused > latest; sessions, PRs, worktrees, artifacts; rolled up over sub-projects. |
+| `add_item(kind, key, project_id, title=None)` | `MoveResult` | By hand (`placed_by = manual`). A known item is moved instead (`created` False). |
+| `move_item(item_id, project_id, expected_revision=None)` | `MoveResult` | By hand; a stale revision is refused; a run's auto-attached items follow (`followed`). |
+| `move(target_id, to_project_id, expected_revision=None)` | `MoveResult` | An item (`i_...`) or a project (`p_...`): the one call behind drop = move. |
+| `undo_move(move_id)` | `MoveResult` | Refused when the item moved since. |
+| `remove_item(item_id)` | `MoveResult` | Back to the Inbox, by hand. Never deletes the thing itself. |
+| `inbox(limit=None, refresh=True)` | `InboxList` | Each entry has a `suggestion` with its `reason`, or None. |
+| `accept_suggestion(item_id)` | `MoveResult` | Files an Inbox item where its suggestion says. |
+| `save_rule_from_move(move_id)` | `Rule` | From the item's strongest signal: workspace slug > repo + branch prefix > cwd prefix. |
+| `list_rules(project_id=None)` / `delete_rule(rule_id)` | `RuleList` / `Rule` | Strongest signal first. |
+| `purge_gone(item_id=None)` | `PurgeResult` | Deletes gone items for good, only when asked. |
+
 The Inbox can't be moved, archived, deleted, linked, or hold sub-projects.
+
+## Items, placement and the unknown-vs-gone rule
+
+Item kinds: `session-bg`, `session-interactive`, `night-sprint`, `night-marathon`, `artifact`,
+`pr`, `worktree`. Each has one home project and a stable `key` (session UUID, folder path, URL,
+`owner/repo#n`). Placement, strongest first (`sdk/reconcile.py`):
+manual > title (`ns-<slug>-<TAG>`, `state/<TAG>.session`) > cwd/worktree (cwd, `<WORKTREE>`,
+`<WORKTREE>-<TAG>`, `state/<TAG>.cwd`, `<BRANCH>` / `<BRANCH>--<TAG>` for PRs) > rule > Inbox.
+Archived projects get nothing new. A run's title/cwd-attached items follow it when it moves.
+
+A failed or partial read keeps the last-good data and records the error in the cache; only a
+complete read sets `gone_at`, and a gone item keeps its project. A failed `claude agents` read
+makes every bg session `status = "unknown"`. Headless `claude -p` runs never become items.
+
+## Readers and the cache
+
+| Source | Reader | TTL | Env override |
+|---|---|---|---|
+| workspaces (discover) | `readers/runs.py` | 60 s | `PROJECT_STUDIO_ROOTS`, else `NIGHT_WATCH_ROOTS` |
+| one live workspace's state files | `readers/runs.py` | 2 s | - |
+| `claude agents --json --all` | `readers/sessions.py` | 10 s | `claude` on PATH |
+| `jobs/*/state.json` | `readers/sessions.py` | 10 s | `PROJECT_STUDIO_CLAUDE_HOME` |
+| transcripts `projects/*/*.jsonl` | `readers/sessions.py` | 60 s | `PROJECT_STUDIO_CLAUDE_HOME` |
+| `git worktree list` per repo | `readers/git.py` | 60 s | `git` on PATH |
+| `gh pr list` per repo (open and closed) | `readers/git.py` | 5 min | `gh` on PATH |
+
+Results live in the store's `cache` table (`sdk/cache.py`), shared by every process.
 
 | Error | `code` | When |
 |---|---|---|
@@ -47,7 +88,7 @@ The Inbox can't be moved, archived, deleted, linked, or hold sub-projects.
 `is_inbox`, `archived_at`, `created_at`, `updated_at` (ISO 8601 UTC), `child_count`,
 `item_count`, `linked_ids`. Fields may be added; none is renamed or removed.
 
-## Readers
+## night-watch's readers
 
 `sdk.readers.workspace` reads night-sprint and night-marathon workspaces (`Sprint`,
 `walk_chain`, `tag_state`, `World`, ...). They moved here from `bin/night-watch`, which imports
