@@ -76,6 +76,11 @@ class Joins(object):
         return self.branches.get((repo, branch)) if repo and branch else None
 
 
+def session_title(name, cwd, short):
+    """A session's name, else "<cwd folder> session <short id>"."""
+    return name or "%s session %s" % (os.path.basename(cwd.rstrip("/")) or "a", short)
+
+
 def rule_pattern_for_slug(slug):
     """claude-project-studio-20261023 -> claude-project-studio-*: the same work, any date."""
     return DATE_SUFFIX.sub("-*", slug) if DATE_SUFFIX.search(slug) else slug
@@ -196,8 +201,7 @@ class Inventory(object):
             link = (ws, "cwd") if ws else None
         if link:
             signals["workspace"] = os.path.basename(link[0])
-        title = name or "%s session %s" % (os.path.basename(cwd.rstrip("/")) or "a", short)
-        return Found(kind, sid, title, data, "sessions", signals, link)
+        return Found(kind, sid, session_title(name, cwd, short), data, "sessions", signals, link)
 
     def _found_worktrees(self):
         out = []

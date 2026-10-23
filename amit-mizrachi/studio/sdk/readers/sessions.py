@@ -76,13 +76,30 @@ def jobs():
             continue
         if not isinstance(row, dict) or not row.get("sessionId"):
             continue
-        records.append({
-            "session_id": str(row["sessionId"]), "short": str(row.get("daemonShort") or name),
-            "name": str(row.get("name") or ""), "cwd": str(row.get("cwd") or ""),
-            "state": str(row.get("state") or ""), "detail": str(row.get("detail") or "")[:200],
-            "created_at": str(row.get("createdAt") or ""), "updated_at": str(row.get("updatedAt") or ""),
-        })
+        records.append(_job_record(row, name))
     return Read(True, records)
+
+
+def _job_record(row, short):
+    return {
+        "session_id": str(row["sessionId"]), "short": str(row.get("daemonShort") or short),
+        "name": str(row.get("name") or ""), "cwd": str(row.get("cwd") or ""),
+        "state": str(row.get("state") or ""), "detail": str(row.get("detail") or "")[:200],
+        "created_at": str(row.get("createdAt") or ""), "updated_at": str(row.get("updatedAt") or ""),
+    }
+
+
+def job_state(job_dir):
+    """One bg job's `state.json` (the `$CLAUDE_JOB_DIR` a bg session runs in) as a jobs() record,
+    or None when it is missing or unreadable."""
+    try:
+        with open(os.path.join(job_dir, "state.json")) as fh:
+            row = json.load(fh)
+    except (OSError, ValueError, TypeError):
+        return None
+    if not isinstance(row, dict) or not row.get("sessionId"):
+        return None
+    return _job_record(row, os.path.basename(job_dir.rstrip("/")))
 
 
 def transcript_head(path):

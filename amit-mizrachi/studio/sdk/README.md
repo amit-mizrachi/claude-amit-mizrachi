@@ -47,6 +47,7 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `save_rule_from_move(move_id)` | `Rule` | From the item's strongest signal: workspace slug > repo + branch prefix > cwd prefix. |
 | `list_rules(project_id=None)` / `delete_rule(rule_id)` | `RuleList` / `Rule` | Strongest signal first. |
 | `purge_gone(item_id=None)` | `PurgeResult` | Deletes gone items for good, only when asked. |
+| `attach_session(session_id, cwd, job_dir=None, entrypoint=None)` | `AttachResult` | The SessionStart hook: files a starting session by title > cwd > rule > Inbox over what the store holds, no reader run. Headless (`sdk*`) runs are skipped; a known session stays put. |
 
 The Inbox can't be moved, archived, deleted, linked, or hold sub-projects.
 
@@ -58,6 +59,11 @@ Item kinds: `session-bg`, `session-interactive`, `night-sprint`, `night-marathon
 manual > title (`ns-<slug>-<TAG>`, `state/<TAG>.session`) > cwd/worktree (cwd, `<WORKTREE>`,
 `<WORKTREE>-<TAG>`, `state/<TAG>.cwd`, `<BRANCH>` / `<BRANCH>--<TAG>` for PRs) > rule > Inbox.
 Archived projects get nothing new. A run's title/cwd-attached items follow it when it moves.
+
+New sessions do not wait for a scan: the plugin's SessionStart hook (`hooks/attach-session.sh` ->
+`studio/session_hook.py` -> `api.attach_session`, `sdk/attach.py`) files each one as it starts,
+silently, in a few seconds at most, exiting 0 on any failure. Until a read finds it, its row has
+no scope, so it can't be marked gone; after 10 minutes unseen it joins the "sessions" scope.
 
 A failed or partial read keeps the last-good data and records the error in the cache; only a
 complete read sets `gone_at`, and a gone item keeps its project. A failed `claude agents` read

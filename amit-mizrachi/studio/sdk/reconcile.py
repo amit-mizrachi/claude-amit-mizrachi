@@ -15,15 +15,19 @@ rule or a filed run now claims it; rule-placed items move only when a run claims
 Gone: only an item whose scope was read completely (`Inventory.ok_scopes`) and that the read
 did not hold gets `gone_at`. It keeps its project. Found again, it comes back. When
 `claude agents` failed, every bg session is UNKNOWN (`data.status = "unknown"`), never gone.
+A session the SessionStart hook attached (`sdk.attach`) has no scope until a read finds it; it
+counts as "sessions" only once ATTACH_GRACE_SECONDS have passed.
 """
 
 import json
+import time
 import uuid
 
 from . import model, rules, store
 
 WORKSPACE_KINDS = ("night-sprint", "night-marathon")
 AUTO_LINK = ("title", "cwd")
+ATTACH_GRACE_SECONDS = 600     # how long a hook-attached session may go unseen by every read
 
 
 def new_item_id():
@@ -110,10 +114,20 @@ def reconcile(conn, inventory):
     return counts
 
 
+def _attached_scope(row, data, now):
+    """A session the SessionStart hook attached that no read has found yet joins the "sessions"
+    scope only after ATTACH_GRACE_SECONDS, so a read made before its transcript existed can't
+    mark it gone, and one that never wrote a transcript does not stay "starting" for ever."""
+    if data.get("attached_by") != "session-start":
+        return None
+    cutoff = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - ATTACH_GRACE_SECONDS))
+    return "sessions" if (row["seen_at"] or "") < cutoff else None
+
+
 def _not_found(conn, row, inventory, stamp):
     """An item this scan did not find: gone only on a complete read; UNKNOWN when agents failed."""
     data = item_data(row)
-    scope = data.get("scope")
+    scope = data.get("scope") or _attached_scope(row, data, inventory.now)
     if not scope:
         return 0                                   # added by hand, outside every reader: never gone
     if scope in inventory.ok_scopes and row["key"] not in inventory.present.get(scope, ()):

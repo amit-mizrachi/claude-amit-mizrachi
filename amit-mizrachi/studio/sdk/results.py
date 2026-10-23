@@ -224,6 +224,16 @@ class ProjectStatus:
 
 
 @dataclass
+class AttachResult:
+    """What the SessionStart hook did with a starting session. `item` is None when it was skipped
+    (`skipped` says why: "headless"); `created` is False when the studio already knew it."""
+
+    item: Optional[Item]
+    created: bool
+    skipped: Optional[str] = None
+
+
+@dataclass
 class PurgeResult:
     ids: List[str]
     count: int

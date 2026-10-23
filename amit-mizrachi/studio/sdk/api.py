@@ -17,9 +17,9 @@ import os
 import tempfile
 from typing import Optional
 
-from . import items, model, refresh as scan, store
+from . import attach, items, model, refresh as scan, store
 from .errors import InvalidInput
-from .results import (DeleteResult, Export, InboxList, ItemList, LinkResult, MoveResult, Project,
+from .results import (AttachResult, DeleteResult, Export, InboxList, ItemList, LinkResult, MoveResult, Project,
                       ProjectList, ProjectStatus, PurgeResult, RefreshResult, Rule, RuleList)
 
 MAX_LIST_LIMIT = 1000
@@ -300,3 +300,33 @@ def purge_gone(item_id: Optional[str] = None) -> PurgeResult:
     with store.write() as conn:
         ids = items.purge(conn, item_id)
     return PurgeResult(ids=ids, count=len(ids))
+
+
+# ---------------------------------------------------------------- session start (ticket 03)
+
+def _optional_text(value, name):
+    if value is not None and not isinstance(value, str):
+        raise InvalidInput("%s must be text or null." % name)
+    return value or None
+
+
+def attach_session(session_id: str, cwd: str, job_dir: Optional[str] = None,
+                   entrypoint: Optional[str] = None) -> AttachResult:
+    """File a session as it starts (the SessionStart hook), so it shows in its project at once.
+
+    Same rules as the reconcile (title `ns-<slug>-<TAG>` > cwd/worktree > rule > Inbox), over the
+    runs and rules the store already holds; it runs no reader, so it stays fast. `job_dir` is the
+    session's `$CLAUDE_JOB_DIR` when it is a bg session (its `state.json` gives the name);
+    `entrypoint` is `$CLAUDE_CODE_ENTRYPOINT`: a headless `sdk*` run is skipped without opening the
+    store. A session the store already knows (a resume) stays where it is (`created` False).
+    """
+    if not isinstance(session_id, str) or not items.SESSION_KEY.match(session_id):
+        raise InvalidInput("session_id must be a full session id (a UUID).")
+    if not isinstance(cwd, str) or not os.path.isabs(cwd):
+        raise InvalidInput("cwd must be an absolute path.")
+    job_dir, entrypoint = _optional_text(job_dir, "job_dir"), _optional_text(entrypoint, "entrypoint")
+    if attach.headless(entrypoint):
+        return AttachResult(item=None, created=False, skipped="headless")
+    with store.write() as conn:
+        item, created = attach.attach(conn, session_id, cwd.rstrip("/") or "/", job_dir)
+    return AttachResult(item=item, created=created)
