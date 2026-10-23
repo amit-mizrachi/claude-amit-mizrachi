@@ -35,6 +35,7 @@ SESSION_KINDS = ("session-bg", "session-interactive")
 RECENT_SECONDS = 300
 OPEN_TIMEOUT = 10
 TARGETS = ("default", "plan", "pr")
+BUNDLE_EXTENSIONS = (".app", ".bundle", ".framework", ".prefpane", ".saver", ".workflow", ".action")   # `open` runs these
 VIEW_EXTENSIONS = (".html", ".htm", ".md", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".txt", ".json", ".log")
 
 
@@ -234,6 +235,8 @@ def open_argv(value, roots):
     if not _under(path, roots):
         raise Refused("%s is not under a folder the studio knows." % value)
     if os.path.isdir(path):
+        if path.lower().endswith(BUNDLE_EXTENSIONS):
+            return "reveal", ["open", "-R", path]
         return "folder", ["open", path]
     if path.lower().endswith(VIEW_EXTENSIONS):
         return "file", ["open", path]

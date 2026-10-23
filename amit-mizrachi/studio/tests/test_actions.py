@@ -178,6 +178,10 @@ class OpenTarget(Studio):
         self.assertEqual(actions.open_argv(script, [self.roots]), ("reveal", ["open", "-R", os.path.realpath(script)]))
         self.assertEqual(actions.open_argv(page, [self.roots]), ("file", ["open", os.path.realpath(page)]))
 
+    def test_a_bundle_folder_is_only_revealed_never_launched(self):
+        app = os.path.realpath(self.mkdir("roots", "dist", "X.app"))
+        self.assertEqual(actions.open_argv(app, [self.roots]), ("reveal", ["open", "-R", app]))
+
     def test_a_failed_open_is_reported_not_raised(self):
         ws = self.workspace("x-20261023")
         self.flag("open-fail")

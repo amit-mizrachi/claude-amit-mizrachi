@@ -3,12 +3,13 @@ rules from moves in the project view, and the studio's move routes over a real s
 
 import http.client
 import json
+import os
 
 from sdk import api, server
 from sdk.errors import Refused
 
 from .support import Sources, TempHome
-from .test_readers import SID_A, SID_B, agent
+from .test_readers import SID_A, SID_B, SID_C, agent
 
 CYCLE = "Can't move Project Studio into Studio MCP tools: it is inside Project Studio."
 
@@ -97,6 +98,16 @@ class Drawer(Sources):
         self.assertFalse(api.save_rule_from_move(again.move_id).created)
         self.assertEqual(api.undo_move(again.move_id).message, "Moved back to Inbox")
         self.assertEqual([r.id for r in api.list_rules().rules], [older.id])
+
+    def test_a_session_started_in_the_home_folder_teaches_no_rule(self):
+        self.agents([agent(SID_C, "homebody", os.path.expanduser("~"))])
+        api.refresh(force=True)
+        item = api.find_items(query="homebody", refresh=False).items[0]
+        moved = api.move_item(item.id, self.one.id)
+        self.assertIsNone(moved.rule_preview)
+        with self.assertRaises(Refused) as caught:
+            api.save_rule_from_move(moved.move_id)
+        self.assertEqual(str(caught.exception), "Nothing about homebody to learn a rule from.")
 
     def test_move_to_offers_every_project_but_its_own(self):
         offer = api.move_choices(self.by_key[SID_A].id)

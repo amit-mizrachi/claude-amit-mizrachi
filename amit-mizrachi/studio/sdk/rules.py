@@ -36,9 +36,14 @@ def for_signals(signals):
         return "workspace", rule_pattern_for_slug(signals["workspace"])
     if signals.get("repo") and signals.get("branch"):
         return "repo-branch", "%s %s" % (signals["repo"], _branch_pattern(signals["branch"]))
-    if signals.get("cwd"):
+    if signals.get("cwd") and not _too_wide(signals["cwd"]):
         return "cwd", signals["cwd"].rstrip("/") or "/"
     return None
+
+
+def _too_wide(cwd):
+    """"/" and the home folder hold every session: a cwd rule there would catch them all."""
+    return (cwd.rstrip("/") or "/") in ("/", os.path.expanduser("~").rstrip("/"))
 
 
 def parts(signal, pattern):
@@ -67,7 +72,7 @@ def matches(signal, pattern, signals):
                 and fnmatch.fnmatchcase(signals["branch"].split("--", 1)[0], branch))
     if signal == "cwd":
         cwd = signals.get("cwd") or ""
-        return bool(cwd) and (cwd == pattern or cwd.startswith(pattern.rstrip("/") + "/"))
+        return bool(cwd) and not _too_wide(pattern) and (cwd == pattern or cwd.startswith(pattern.rstrip("/") + "/"))
     return False
 
 
