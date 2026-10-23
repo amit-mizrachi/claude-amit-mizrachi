@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="studio-token" content="{{TOKEN}}">
+<title>Project Studio</title>
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/app.js"></script>
+</head>
+<body>
+<header class="top">
+  <b>Project Studio</b>
+  <span class="live off" id="live"><i></i><span id="live-text">Connecting...</span></span>
+  <span id="age"></span>
+  <span class="sp"></span>
+  <button class="btn" id="inbox" type="button">Inbox <span class="cnt" id="inbox-count">0</span></button>
+  <button class="btn" id="new" type="button">+ New project</button>
+  <button class="btn ghost" id="theme" type="button" title="Switch light and dark">Dark</button>
+</header>
+<main class="page">
+  <div class="h"><h1>Projects</h1><span class="m" id="caption"></span></div>
+  <div id="banners"></div>
+  <div id="body"></div>
+</main>
+</body>
+</html>

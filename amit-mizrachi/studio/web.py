@@ -1,0 +1,257 @@
+#!/usr/bin/env python3
+"""project-studio web - the studio's local web server, a thin adapter over the Project Studio SDK.
+
+Started by `sdk.api.open_studio()` (via `bin/project-studio` or the `studio_open` MCP tool), not by
+hand. It listens on 127.0.0.1 only (port `$PROJECT_STUDIO_PORT`, else a free one), writes
+`server.json` once it is bound, and stops by itself after `$PROJECT_STUDIO_IDLE` seconds (default
+1800) with no live page and no request.
+
+Each route is one SDK call:
+    GET  /               static/index.html with this server's token in a meta tag
+    GET  /static/<name>  app.css, app.js
+    GET  /state          api.home()
+    GET  /events         SSE: `event: state` with the full home state first, then on every change
+    POST /api/projects   {"name": ...} -> api.create_project
+    POST /api/refresh    api.refresh(force=True) (the banner's Retry)
+    POST /shutdown       stop
+Every request needs `Host: 127.0.0.1:<port>`; every POST needs the token (X-Studio-Token) and, when
+it sends one, this Origin. The guard and the lifecycle live in `sdk/server.py`, every rule the page
+shows in `sdk/home.py`.
+
+Zero dependencies. Python 3.9+.
+"""
+
+import html
+import json
+import os
+import queue
+import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+
+from sdk import api, server  # noqa: E402
+from sdk.errors import StudioError  # noqa: E402
+from sdk.results import to_dict  # noqa: E402
+
+STATIC = os.path.join(HERE, "static")
+STATIC_TYPES = {"app.css": "text/css; charset=utf-8", "app.js": "text/javascript; charset=utf-8"}
+POLL, KEEPALIVE = 2.0, 15.0
+MAX_BODY = 64 * 1024
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; "
+       "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+
+
+def log(msg):
+    sys.stderr.write("[project-studio web] %s %s\n" % (time.strftime("%H:%M:%S"), msg))
+    sys.stderr.flush()
+
+
+def home_json():
+    """The home state as JSON text, and the same without its timestamp (to tell a real change)."""
+    body = to_dict(api.home())
+    return json.dumps(body, sort_keys=True), json.dumps(dict(body, generated_at=""), sort_keys=True)
+
+
+class Hub(object):
+    """The live pages (SSE clients), the poll thread that feeds them, and the idle clock."""
+
+    def __init__(self, idle):
+        self.idle = idle
+        self.lock = threading.Lock()
+        self.clients = set()
+        self.last = time.time()
+        self.seen = None
+        self.wake = threading.Event()
+
+    def touch(self):
+        self.last = time.time()
+
+    def join(self):
+        q = queue.Queue(maxsize=8)
+        with self.lock:
+            self.clients.add(q)
+        self.wake.set()
+        return q
+
+    def leave(self, q):
+        with self.lock:
+            self.clients.discard(q)
+        self.touch()
+
+    def broadcast(self, text):
+        with self.lock:
+            clients = list(self.clients)
+        for q in clients:
+            try:
+                q.put_nowait(text)
+            except queue.Full:   # a stuck page misses a frame; the next one is a full state again
+                pass
+
+    def run(self, httpd):
+        """Refresh and re-read the home state every 2 s while a page is open; stop when idle."""
+        while True:
+            if not self.clients:
+                if time.time() - self.last > self.idle:
+                    log("idle for %d s, stopping" % self.idle)
+                    httpd.shutdown()
+                    return
+                self.wake.wait(POLL)
+                self.wake.clear()
+                continue
+            try:
+                api.refresh()
+                text, key = home_json()
+            except Exception as exc:   # one bad poll must not end the live view
+                log("poll failed: %r" % (exc,))
+            else:
+                if key != self.seen:
+                    self.seen = key
+                    self.broadcast(text)
+            time.sleep(POLL)
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "project-studio"
+
+    def log_message(self, fmt, *args):
+        log("%s %s" % (self.address_string(), fmt % args))
+
+    @property
+    def port(self):
+        return self.server.server_address[1]
+
+    def send(self, status, body, ctype="application/json", extra=None):
+        data = body if isinstance(body, bytes) else body.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        for key, value in (extra or {}).items():
+            self.send_header(key, value)
+        self.end_headers()
+        self.wfile.write(data)
+
+    def send_json(self, status, value):
+        self.send(status, json.dumps(value, sort_keys=True))
+
+    def problem(self, status, code, message):
+        self.send_json(status, {"code": code, "message": message})
+
+    def guarded(self, mutation):
+        self.server.hub.touch()
+        if not server.host_ok(self.headers.get("Host"), self.port):
+            self.problem(403, "forbidden", "Open the studio at http://127.0.0.1:%d/." % self.port)
+            return False
+        if mutation and not server.mutation_ok(self.headers.get(server.TOKEN_HEADER), self.headers.get("Origin"),
+                                               self.port, self.server.token):
+            self.problem(403, "forbidden", "This request did not come from the studio page.")
+            return False
+        return True
+
+    def call(self, fn):
+        try:
+            self.send_json(200, to_dict(fn()))
+        except StudioError as exc:
+            self.problem(400, exc.code, str(exc))
+        except Exception as exc:
+            log("%s failed: %r" % (self.path, exc))
+            self.problem(500, "error", "Project Studio error: %s" % exc)
+
+    def body(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > MAX_BODY:
+            raise ValueError("body too large")
+        value = json.loads(self.rfile.read(length) or b"{}")
+        if not isinstance(value, dict):
+            raise ValueError("body must be a JSON object")
+        return value
+
+    def do_GET(self):
+        if not self.guarded(False):
+            return
+        path = self.path.split("?", 1)[0]
+        if path == "/":
+            with open(os.path.join(STATIC, "index.html"), encoding="utf-8") as fh:
+                page = fh.read().replace("{{TOKEN}}", html.escape(self.server.token, quote=True))
+            self.send(200, page, "text/html; charset=utf-8", {"Content-Security-Policy": CSP})
+        elif path.startswith("/static/") and path[len("/static/"):] in STATIC_TYPES:
+            name = path[len("/static/"):]
+            with open(os.path.join(STATIC, name), "rb") as fh:
+                self.send(200, fh.read(), STATIC_TYPES[name])
+        elif path == "/state":
+            self.call(api.home)
+        elif path == "/events":
+            self.events()
+        else:
+            self.problem(404, "not_found", "No such page.")
+
+    def do_POST(self):
+        if not self.guarded(True):
+            return
+        try:
+            body = self.body()
+        except ValueError:
+            self.problem(400, "invalid_input", "The request body must be a JSON object of at most 64 KB.")
+            return
+        if self.path == "/api/projects":
+            self.call(lambda: api.create_project(body.get("name")))
+        elif self.path == "/api/refresh":
+            self.call(lambda: api.refresh(force=True))
+        elif self.path == "/shutdown":
+            self.send_json(200, {"stopping": True})
+            threading.Thread(target=self.server.shutdown, daemon=True).start()
+        else:
+            self.problem(404, "not_found", "No such action.")
+
+    def events(self):
+        q = self.server.hub.join()
+        try:
+            text, _ = home_json()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(("event: state\ndata: %s\n\n" % text).encode("utf-8"))
+            self.wfile.flush()
+            while True:
+                try:
+                    chunk = "event: state\ndata: %s\n\n" % q.get(timeout=KEEPALIVE)
+                except queue.Empty:
+                    chunk = ": keepalive\n\n"
+                self.wfile.write(chunk.encode("utf-8"))
+                self.wfile.flush()
+        except (OSError, ValueError):   # the page went away
+            pass
+        except StudioError as exc:
+            log("events failed: %s" % exc)
+        finally:
+            self.server.hub.leave(q)
+
+
+def main():
+    httpd = ThreadingHTTPServer(("127.0.0.1", server.listen_port()), Handler)
+    httpd.daemon_threads = True
+    httpd.token = server.new_token()
+    httpd.hub = Hub(server.idle_seconds())
+    pid, port = os.getpid(), httpd.server_address[1]
+    server.write_info(pid, port, server.code_version(), httpd.token)
+    log("listening on http://127.0.0.1:%d/ (pid %d)" % (port, pid))
+    threading.Thread(target=httpd.hub.run, args=(httpd,), daemon=True).start()
+    try:
+        httpd.serve_forever(poll_interval=0.5)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.clear_info(pid)
+        httpd.server_close()
+        log("stopped")
+
+
+if __name__ == "__main__":
+    main()

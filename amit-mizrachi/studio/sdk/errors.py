@@ -33,3 +33,9 @@ class ReadOnlyStore(StudioError):
     """The store was written by a newer SDK, so this SDK may only read it."""
 
     code = "read_only"
+
+
+class StartFailed(StudioError):
+    """The studio web server did not come up (its log says why)."""
+
+    code = "start_failed"

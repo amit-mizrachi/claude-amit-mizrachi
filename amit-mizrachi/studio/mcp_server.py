@@ -301,6 +301,24 @@ TOOLS = [
         "annotations": {"title": "Archive a project", "readOnlyHint": False, "destructiveHint": False,
                         "idempotentHint": True, "openWorldHint": False},
     },
+    {
+        "name": "studio_open",
+        "title": "Open the studio",
+        "description": (
+            "Make sure the Project Studio web page runs on this Mac and return its URL (127.0.0.1 only). "
+            "A running studio of the same version is reused; an older one is restarted. It does not open "
+            "a browser: give the user the URL, or tell them to run `project-studio` in a terminal."
+        ),
+        "inputSchema": {"type": "object", "additionalProperties": False, "properties": {}},
+        "outputSchema": {"type": "object", "required": ["url", "pid", "port", "version", "running", "started"],
+                         "properties": {"url": {"type": "string"}, "pid": {"type": "integer"},
+                                        "port": {"type": "integer"}, "version": {"type": "string"},
+                                        "running": {"type": "boolean"},
+                                        "started": {"type": "boolean",
+                                                    "description": "True when this call started it."}}},
+        "annotations": {"title": "Open the studio", "readOnlyHint": False, "destructiveHint": False,
+                        "idempotentHint": True, "openWorldHint": False},
+    },
 ]
 
 
@@ -343,6 +361,10 @@ def tool_archive(args):
     return api.archive_project(args["project_id"])
 
 
+def tool_open(args):
+    return api.open_studio()
+
+
 HANDLERS = {
     "studio_list": tool_list,
     "studio_create": tool_create,
@@ -353,6 +375,7 @@ HANDLERS = {
     "studio_link": tool_link,
     "studio_remove": tool_remove,
     "studio_archive": tool_archive,
+    "studio_open": tool_open,
 }
 SCHEMAS = {t["name"]: t["inputSchema"] for t in TOOLS}
 
@@ -422,7 +445,8 @@ def handle(req):
                 "Every Claude session, night sprint, night marathon, artifact, PR and worktree is an "
                 "item with one home project. studio_list lists projects, studio_status shows a "
                 "project's night runs and items, studio_find finds items, studio_create / studio_add / "
-                "studio_move / studio_link / studio_remove / studio_archive change the tree. Status "
+                "studio_move / studio_link / studio_remove / studio_archive change the tree. studio_open "
+                "starts the studio web page and returns its URL (give it to the user). Status "
                 "\"unknown\" means a source failed: never report such an item as gone. Messages in "
                 "tool errors are meant for the user as they are."
             ),

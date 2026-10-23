@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""project-studio - open the Project Studio (your projects, night runs and sessions) in a browser.
+
+    project-studio            same as `open`
+    project-studio open       start the studio if it is not running (or restart an older version), open it
+    project-studio status     say whether it runs, and where
+    project-studio stop       ask the running studio to stop
+
+The studio is a local web server on 127.0.0.1. It stops by itself after 30 minutes with no open
+page. Data lives in $PROJECT_STUDIO_HOME (default ~/.project-studio); the server log is studio.log there.
+"""
+
+import os
+import subprocess
+import sys
+
+STUDIO = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "studio")
+sys.path.insert(0, STUDIO)
+
+from sdk import api  # noqa: E402
+from sdk.errors import StudioError  # noqa: E402
+
+COMMANDS = ("open", "status", "stop")
+
+
+def say(result):
+    if result.running:
+        return "Project Studio %s at %s (pid %d)" % ("started" if result.started else "runs", result.url, result.pid)
+    return "Project Studio is not running."
+
+
+def main(argv):
+    command = argv[0] if argv else "open"
+    if command in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        return 0
+    if command not in COMMANDS or len(argv) > 1:
+        sys.stderr.write("usage: project-studio [open | status | stop]\n")
+        return 2
+    try:
+        result = {"open": api.open_studio, "status": api.studio_status, "stop": api.stop_studio}[command]()
+    except StudioError as exc:
+        sys.stderr.write("project-studio: %s\n" % exc)
+        return 1
+    print(say(result))
+    if command == "open" and sys.platform == "darwin":
+        subprocess.run(["open", result.url], check=False)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

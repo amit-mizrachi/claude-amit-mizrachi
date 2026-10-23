@@ -35,7 +35,8 @@ class McpServer(TempHome):
         self.assertEqual(out[1]["result"]["serverInfo"]["name"], "project-studio")
         tools = {t["name"]: t for t in out[2]["result"]["tools"]}
         self.assertEqual(set(tools), {"studio_list", "studio_create", "studio_find", "studio_status", "studio_add",
-                                      "studio_move", "studio_link", "studio_remove", "studio_archive"})
+                                      "studio_move", "studio_link", "studio_remove", "studio_archive",
+                                      "studio_open"})
         for tool in tools.values():
             self.assertFalse(tool["inputSchema"]["additionalProperties"])
             self.assertEqual(tool["outputSchema"]["type"], "object")

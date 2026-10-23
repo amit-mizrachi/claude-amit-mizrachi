@@ -17,10 +17,10 @@ import os
 import tempfile
 from typing import Optional
 
-from . import attach, home as homepage, items, model, refresh as scan, store
+from . import attach, home as homepage, items, model, refresh as scan, server, store
 from .errors import InvalidInput
 from .results import (AttachResult, DeleteResult, Export, HomeState, InboxList, ItemList, LinkResult, MoveResult, Project,
-                      ProjectList, ProjectStatus, PurgeResult, RefreshResult, Rule, RuleList)
+                      ProjectList, ProjectStatus, PurgeResult, RefreshResult, Rule, RuleList, StudioServer)
 
 MAX_LIST_LIMIT = 1000
 
@@ -345,3 +345,24 @@ def home(refresh: bool = False) -> HomeState:
     _maybe_refresh(refresh)
     with store.read() as conn:
         return homepage.state(conn)
+
+
+def open_studio() -> StudioServer:
+    """Make sure the studio web server runs, and return its URL. A live server of the same code
+    version is reused (`started` False); an older one is asked to stop and a new one starts
+    (`started` True). StartFailed when it does not come up within 5 s (see `studio.log` in the
+    data dir). It never opens a browser: `bin/project-studio` does that.
+    """
+    return server.open_studio()
+
+
+def studio_status() -> StudioServer:
+    """The running studio (`running` True, with its URL and pid), or `running` False."""
+    return server.studio_status()
+
+
+def stop_studio() -> StudioServer:
+    """Ask the running studio to stop (POST /shutdown with its token) and wait up to 5 s. It never
+    kills a process. `running` False afterwards means it stopped (or was not running).
+    """
+    return server.stop_studio()
