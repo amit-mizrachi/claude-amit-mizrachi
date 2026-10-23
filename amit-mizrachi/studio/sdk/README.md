@@ -14,7 +14,7 @@ Stdlib Python 3.9+, no packages. An adapter puts `studio/` on `sys.path` and imp
 - `schema_version` holds the schema version. An older store is copied to `backups/` and then
   migrated in one transaction. A store from a newer SDK opens read-only: reads work, writes
   raise `ReadOnlyStore`.
-- Schema v1: `projects`, `links`, `items`, `rules`, `moves`, `cache`, `schema_version`
+- Schema v2: `projects`, `links`, `items`, `rules`, `moves`, `cache`, `schema_version` (v2: projects carry a `revision`, and a `moves` row is an item's or a project's move)
   (see `store.py`). The Inbox is a seeded project with the fixed id `inbox`.
 
 ## The contract: `sdk.api`
@@ -40,12 +40,12 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `project_status(project_id, refresh=True)` | `ProjectStatus` | Runs (status, reason, "T03 of 5", stage, PR, artifact) ranked needs-you > blocked > running > paused > latest; sessions, PRs, worktrees, artifacts; rolled up over sub-projects. |
 | `add_item(kind, key, project_id, title=None)` | `MoveResult` | By hand (`placed_by = manual`). A known item is moved instead (`created` False). |
 | `move_item(item_id, project_id, expected_revision=None)` | `MoveResult` | By hand; a stale revision is refused; a run's auto-attached items follow (`followed`). |
-| `move(target_id, to_project_id, expected_revision=None)` | `MoveResult` | An item (`i_...`) or a project (`p_...`): the one call behind drop = move. |
-| `undo_move(move_id)` | `MoveResult` | Refused when the item moved since. |
+| `move(target_id, to_project_id, expected_revision=None)` | `MoveResult` | An item (`i_...`) or a project (`p_...`): the one call behind drop = move. A project's move gets a `move_id` too; `message` is the toast ("Moved to Project Studio"). |
+| `undo_move(move_id)` | `MoveResult` | An item's or a project's move. Refused ("Can't undo: <name> was moved again since.") when it moved since. |
 | `remove_item(item_id)` | `MoveResult` | Back to the Inbox, by hand. Never deletes the thing itself. |
 | `inbox(limit=None, refresh=True)` | `InboxList` | Each entry has a `suggestion` with its `reason`, or None. |
 | `accept_suggestion(item_id)` | `MoveResult` | Files an Inbox item where its suggestion says. |
-| `save_rule_from_move(move_id)` | `Rule` | From the item's strongest signal: workspace slug > repo + branch prefix > cwd prefix. |
+| `save_rule_from_move(move_id)` | `Rule` | From the item's strongest signal: workspace slug > repo + branch prefix > cwd prefix. Refused for a project's move. |
 | `list_rules(project_id=None)` / `delete_rule(rule_id)` | `RuleList` / `Rule` | Strongest signal first. |
 | `purge_gone(item_id=None)` | `PurgeResult` | Deletes gone items for good, only when asked. |
 | `attach_session(session_id, cwd, job_dir=None, entrypoint=None)` | `AttachResult` | The SessionStart hook: files a starting session by title > cwd > rule > Inbox over what the store holds, no reader run. Headless (`sdk*`) runs are skipped; a known session stays put. |
@@ -53,10 +53,12 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `open_studio()` | `StudioServer` | Starts `studio/web.py` on 127.0.0.1 unless one of this code version runs (`started` False); asks an older one to stop first. Never opens a browser. `StartFailed` after 5 s (see `studio.log`). |
 | `studio_status()` | `StudioServer` | The running studio, or `running` False. |
 | `stop_studio()` | `StudioServer` | POST /shutdown with the token, waits up to 5 s. Never kills. |
-| `project_view(project_id, refresh=False)` | `ProjectView` | The studio's `#/p/<id>`: breadcrumb, "Linked: ..." text, link choices, sub-project tiles, run panels (Open plan / Open PR / Open in Terminal when they apply), session rows (bg live, bg done, interactive, gone), "Everything else" folds (sessions too when none is active). |
+| `project_view(project_id, refresh=False)` | `ProjectView` | The studio's `#/p/<id>`: breadcrumb, "Linked: ..." text, link choices, sub-project tiles, run panels (Open plan / Open PR / Open in Terminal when they apply), session rows (bg live, bg done, interactive, gone), "Everything else" folds (sessions too when none is active), and the project's `rules` (each deletable). |
 | `terminal_command(item_id)` | `TerminalCommand` | A session (or a run's listed session): `claude attach <short>` when `claude agents` lists it, else `cd <cwd> && claude --resume <id>`; pattern-checked, shlex-quoted; `confirm` set when its transcript changed in the last 5 min. Runs nothing ("Copy command"). |
 | `open_in_terminal(item_id, confirmed=False)` | `TerminalOpen` | Writes `<data dir>/open/<item id>.command` (0700) and runs `open` on it; on failure `pbcopy` (`copied`). `needs_confirm` until `confirmed` when the guard asks. Never stops, kills or removes a session. |
 | `open_target(item_id, target="default")` | `OpenResult` | `open` on the item's own URL or path (`plan` / `pr` for a run): http(s) URLs, or paths under the known roots; folders in Finder, pages in their app, other files only revealed (`open -R`). |
+| `inbox_view(limit=200)` | `InboxView` | The studio's Inbox drawer: rows with name, kind and one fact ("interactive", "2 h"), the suggestion chip and its reason, whether Accept applies; the full count and the hint. Store only. |
+| `move_choices(target_id)` | `MoveChoices` | "Move to..." for an item (every active project but its own, the Inbox included) or "Set parent" for a project (the top level and every other active project), in tree order. |
 
 The Inbox can't be moved, archived, deleted, linked, or hold sub-projects.
 

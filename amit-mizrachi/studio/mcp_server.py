@@ -77,7 +77,8 @@ SOURCE_SCHEMA = {
 }
 MOVE_SCHEMA = {
     "type": "object",
-    "required": ["item", "project", "move_id", "from_project_id", "to_project_id", "followed", "rule_preview", "created"],
+    "required": ["item", "project", "move_id", "from_project_id", "to_project_id", "followed", "rule_preview", "created",
+                 "message"],
     "properties": {
         "item": NULLABLE_ITEM,
         "project": NULLABLE_PROJECT,
@@ -88,6 +89,7 @@ MOVE_SCHEMA = {
                      "description": "Auto-attached items that moved with a run."},
         "rule_preview": {"type": ["object", "null"]},
         "created": {"type": "boolean"},
+        "message": {"type": "string", "description": "What moved where: \"Moved to Project Studio\"."},
     },
 }
 RUN_SCHEMA = {
@@ -245,8 +247,8 @@ TOOLS = [
         "title": "Move an item or a project",
         "description": (
             "Move an item (id i_...) into a project, or a project (id p_...) under another (null = top "
-            "level). An item move is by hand and returns move_id (for Undo) and the rule \"Always file "
-            "items like this here\" would save; a run's auto-attached items follow it. Pass revision "
+            "level). Either returns move_id (for Undo); an item move is by hand and also returns the rule "
+            "\"Always file items like this here\" would save; a run's auto-attached items follow it. Pass revision "
             "to refuse the move if the item changed since you read it. Cycles are refused."
         ),
         "inputSchema": {

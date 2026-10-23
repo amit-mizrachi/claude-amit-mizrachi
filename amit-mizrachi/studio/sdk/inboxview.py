@@ -18,7 +18,7 @@ from .projectview import span
 from .reconcile import WORKSPACE_KINDS
 from .results import InboxRow, InboxView, MoveChoice, MoveChoices
 
-DOT, ARROW = " · ", "→ "
+DOT, ARROW = " \u00b7 ", "\u2192 "
 KIND_WORDS = {"session-bg": "bg session", "session-interactive": "interactive", "night-sprint": "night run",
               "night-marathon": "night run", "pr": "PR", "worktree": "worktree", "artifact": "artifact"}
 HINT = "Drag a row onto a card, or Accept the suggestion."

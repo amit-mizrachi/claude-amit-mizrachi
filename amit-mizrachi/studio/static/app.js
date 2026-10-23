@@ -537,6 +537,7 @@
     box.addEventListener("change", function () {
       box.disabled = true;
       var call = box.checked ? post("/api/rule", { move_id: r.move_id }).then(function (rule) { saved = rule; })
+        : !saved || !saved.created ? Promise.resolve(saved = null)   // a rule that was there before stays
         : post("/api/rule/delete", { rule_id: saved.id }).then(function () { saved = null; });
       call.catch(function (err) { box.checked = !box.checked; fail(err); }).then(function () {
         box.disabled = false;
@@ -579,7 +580,7 @@
   // DragGhost: a pill with the dragged name, used as the drag image.
   function ghost(name) {
     var node = $("ghost");
-    node.textContent = "☰ " + (name.length > 34 ? name.slice(0, 34) + "..." : name);
+    node.textContent = "\u2630 " + (name.length > 34 ? name.slice(0, 34) + "..." : name);
     return node;
   }
 
@@ -644,7 +645,7 @@
   function renderInbox(v) {
     var drawer = $("drawer");
     clear(drawer);
-    var close = button("✕", "ghost", function () { window.location.hash = "#/"; });
+    var close = button("\u2715", "ghost", function () { window.location.hash = "#/"; });
     close.setAttribute("aria-label", "Close the Inbox");
     add(drawer, add(el("h3", null, "Inbox"), el("span", "cnt", v.count), el("span", "sp"), close));
     v.rows.forEach(function (row) { drawer.appendChild(inboxRow(row)); });

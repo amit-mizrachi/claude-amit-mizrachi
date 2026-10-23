@@ -110,7 +110,7 @@ code{font-family:var(--mono);font-size:12px;background:rgba(127,127,127,.25);pad
 .card[draggable=true]{cursor:grab}
 .card.drop{background:var(--blue-3);outline:2px solid var(--blue-9);outline-offset:-1px}
 .card.drag{opacity:.5;border-style:dashed}
-.ghost{position:fixed;left:-1000px;top:-1000px;background:var(--bg);color:var(--text);border:1px solid var(--blue-9);border-radius:var(--radius-3);padding:4px 10px;font-size:var(--font-size-1);box-shadow:0 4px 12px rgba(0,0,0,.18);white-space:nowrap;pointer-events:none}
+.dragghost{position:fixed;left:-1000px;top:-1000px;background:var(--bg);color:var(--text);border:1px solid var(--blue-9);border-radius:var(--radius-3);padding:4px 10px;font-size:var(--font-size-1);box-shadow:0 4px 12px rgba(0,0,0,.18);white-space:nowrap;pointer-events:none}
 .scrim{position:fixed;inset:0;z-index:10;background:rgba(0,0,0,.3);display:flex;align-items:flex-start;justify-content:center;padding:12vh var(--space-4) 0}
 .dlg{width:100%;max-width:380px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-5);padding:var(--space-4);box-shadow:0 8px 28px rgba(0,0,0,.2)}
 .dlg h4{margin:0 0 var(--space-2);font-size:var(--font-size-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
