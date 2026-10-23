@@ -1,0 +1,3 @@
+# fake `ps -axo pid=,command=` output for the night-watch snapshot
+38742 bash /x/build/watch.sh /x/build
+1 /sbin/launchd
