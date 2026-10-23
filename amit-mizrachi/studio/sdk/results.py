@@ -239,6 +239,77 @@ class PurgeResult:
     count: int
 
 
+@dataclass
+class HomeRun:
+    """One run line on a home card. `glyph` is night-watch's; `bar` has one cell per ticket:
+    d done, r running, b blocked, w waiting on you, '' to do. `open_plan_url` is set only for a run
+    waiting on you that has a plan page."""
+
+    item_id: str
+    title: str
+    status: str
+    glyph: str
+    word: str
+    reason: str
+    progress: str
+    bar: List[str]
+    open_plan_url: str
+    pr: str
+    gone: bool
+
+
+@dataclass
+class HomeCard:
+    """One top-level project on the home page: at most 3 runs, "+ n earlier runs", "2 inside"."""
+
+    project: Project
+    runs: List[HomeRun]
+    more: str
+    inside: str
+    pr: str
+    attention: str                  # needs-you, blocked or ''
+    empty: str
+    changed_at: str
+
+
+@dataclass
+class HomeBanner:
+    """A failed source, as the home page's banner says it. The items keep their last-good state."""
+
+    source: str
+    key: str
+    text: str
+    error: str
+
+
+@dataclass
+class HomeState:
+    """The whole home page: the cards in order and the top bar's facts. `loading` is True until
+    the first scan; `first_run` is True when there is no project yet."""
+
+    cards: List[HomeCard]
+    caption: str
+    inbox_count: int
+    source_age: str
+    loading: bool
+    first_run: bool
+    first_run_text: str
+    banners: List[HomeBanner]
+    generated_at: str
+
+
+@dataclass
+class StudioServer:
+    """The running studio: where it listens and whether this call started it."""
+
+    url: str
+    pid: int
+    port: int
+    version: str
+    running: bool
+    started: bool = False
+
+
 def to_dict(value):
     """A JSON-ready dict (or list) for any SDK return value."""
     if isinstance(value, list):

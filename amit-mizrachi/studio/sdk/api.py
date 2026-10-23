@@ -17,9 +17,9 @@ import os
 import tempfile
 from typing import Optional
 
-from . import attach, items, model, refresh as scan, store
+from . import attach, home as homepage, items, model, refresh as scan, store
 from .errors import InvalidInput
-from .results import (AttachResult, DeleteResult, Export, InboxList, ItemList, LinkResult, MoveResult, Project,
+from .results import (AttachResult, DeleteResult, Export, HomeState, InboxList, ItemList, LinkResult, MoveResult, Project,
                       ProjectList, ProjectStatus, PurgeResult, RefreshResult, Rule, RuleList)
 
 MAX_LIST_LIMIT = 1000
@@ -330,3 +330,18 @@ def attach_session(session_id: str, cwd: str, job_dir: Optional[str] = None,
     with store.write() as conn:
         item, created = attach.attach(conn, session_id, cwd.rstrip("/") or "/", job_dir)
     return AttachResult(item=item, created=created)
+
+
+# ---------------------------------------------------------------- the studio (ticket 04)
+
+def home(refresh: bool = False) -> HomeState:
+    """The studio's home page: one card per active top-level project (at most 3 runs of it and its
+    sub-projects, ranked needs-you > blocked > running > latest, "+ n earlier runs", "2 inside",
+    the newest PR state), cards ordered needs-you, blocked, running, then latest change; plus the
+    Inbox count, the PR source age, a banner per failed source (last-good states kept), `loading`
+    before the first scan and `first_run` when there is no project. Refreshes due sources first
+    only when `refresh` is True.
+    """
+    _maybe_refresh(refresh)
+    with store.read() as conn:
+        return homepage.state(conn)

@@ -106,15 +106,17 @@ def _pr_of(run_id, prs):
     mine.sort(key=lambda p: p.data.get("state") != "open")
     p = mine[0].data
     return {"key": mine[0].key, "number": p.get("number"), "state": p.get("state"), "draft": bool(p.get("draft")),
-            "url": p.get("url"), "good_at": p.get("good_at")}
+            "url": p.get("url"), "good_at": p.get("good_at"), "checks": p.get("checks")}
 
 
-def _run(item, prs, artifacts):
+def to_run(item, prs, artifacts):
+    """A run item as a `Run`, with its newest PR and its plan artifact."""
     d = item.data
     arts = sorted((a for a in artifacts if a.workspace_item_id == item.id), key=lambda a: not a.data.get("plan"))
     pr = _pr_of(item.id, prs)
     if pr is None and d.get("pr_url"):
-        pr = {"key": "", "number": None, "state": "", "draft": False, "url": d["pr_url"], "good_at": None}
+        pr = {"key": "", "number": None, "state": "", "draft": False, "url": d["pr_url"], "good_at": None,
+              "checks": None}
     return Run(item_id=item.id, kind=item.kind, title=item.title, project_id=item.project_id,
                status=item.status or "unknown", reason=str(d.get("reason") or ""), progress=d.get("progress"),
                stage=str(d.get("stage") or ""), stages=d.get("stages") or [], pr=pr,
@@ -142,7 +144,7 @@ def status(conn, project_id):
         found.sort(key=lambda i: i.gone)
     prs, arts = by_kind.get("pr", []), by_kind.get("artifact", [])
     every_pr = [to_item(dict(r), tree) for r in conn.execute("SELECT * FROM items WHERE kind = 'pr'")]
-    runs = rank_runs([_run(i, every_pr, arts) for k in WORKSPACE_KINDS for i in by_kind.get(k, [])])
+    runs = rank_runs([to_run(i, every_pr, arts) for k in WORKSPACE_KINDS for i in by_kind.get(k, [])])
     subs = []
     for child in sorted(tree.children.get(project_id, []), key=lambda c: tree.rows[c]["name"].lower()):
         if tree.rows[child]["archived_at"]:

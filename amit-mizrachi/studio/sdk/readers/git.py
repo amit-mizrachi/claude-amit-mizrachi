@@ -10,7 +10,8 @@ import os
 from . import commands
 
 PR_LIMIT = 200
-PR_FIELDS = "number,title,headRefName,state,isDraft,url,updatedAt"
+PR_FIELDS = "number,title,headRefName,state,isDraft,url,updatedAt,statusCheckRollup"
+RED_CHECKS = ("FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE")
 
 
 class Read(object):
@@ -68,9 +69,18 @@ def prs(repo_slug):
                 "repo_slug": repo_slug, "number": row["number"], "title": str(row.get("title") or ""),
                 "branch": str(row.get("headRefName") or ""), "state": str(row.get("state") or "").lower(),
                 "draft": bool(row.get("isDraft")), "url": str(row.get("url") or ""),
-                "updated_at": str(row.get("updatedAt") or ""),
+                "updated_at": str(row.get("updatedAt") or ""), "checks": checks_of(row.get("statusCheckRollup")),
             })
     return Read(True, records, partial=len(rows) >= PR_LIMIT)
+
+
+def checks_of(rollup):
+    """{"total", "red", "pending"} over a PR's statusCheckRollup (check runs and commit statuses)."""
+    rows = [r for r in rollup or [] if isinstance(r, dict)]
+    red = sum(1 for r in rows if str(r.get("conclusion") or r.get("state") or "").upper() in RED_CHECKS)
+    pending = sum(1 for r in rows if str(r.get("status") or "").upper() not in ("", "COMPLETED")
+                  or str(r.get("state") or "").upper() in ("PENDING", "EXPECTED"))
+    return {"total": len(rows), "red": red, "pending": pending}
 
 
 def repo_of_path(path):
