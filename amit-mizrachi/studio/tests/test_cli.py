@@ -1,9 +1,14 @@
-"""The project-studio CLI's read commands, driven as a subprocess like a person at a terminal."""
+"""The project-studio CLI, driven as a subprocess like a person at a terminal.
+
+`open`, `pbcopy` and `claude` are stubbed on PATH (tests/stubs): nothing opens on this Mac.
+"""
 
 import json
 import os
+import pty
 import subprocess
 import sys
+import time
 
 from sdk import api
 from sdk.results import to_dict
@@ -16,10 +21,11 @@ BIN = os.path.join(PLUGIN, "bin", "project-studio")
 
 
 class Cli(Sources):
-    def run_cli(self, *argv):
-        """(exit code, stdout, stderr); the environment is TempHome's, so the store is the temp one."""
-        done = subprocess.run([sys.executable, BIN] + list(argv), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              universal_newlines=True, timeout=60)
+    def run_cli(self, *argv, stdin=subprocess.DEVNULL):
+        """(exit code, stdout, stderr); the environment is TempHome's, so the store is the temp one.
+        stdin is not a tty unless a test passes one."""
+        done = subprocess.run([sys.executable, BIN] + list(argv), stdin=stdin, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, universal_newlines=True, timeout=60)
         return done.returncode, done.stdout, done.stderr
 
     def ok(self, *argv):
@@ -213,3 +219,218 @@ class Cli(Sources):
         code, _, err = self.run_cli("list", "--limit", "0")
         self.assertEqual(code, 1)
         self.assertTrue(err.startswith("project-studio: invalid_input: "), err)
+
+
+class ChangeCommands(Cli):
+    def calls(self):
+        path = os.path.join(self.stub, "calls")
+        if not os.path.exists(path):
+            return []
+        with open(path) as fh:
+            return fh.read().splitlines()
+
+    def move_id(self, out):
+        """The move id from a move's text: "Move 3. Undo: project-studio undo 3"."""
+        line = [l for l in out.splitlines() if l.startswith("Move ")][0]
+        self.assertTrue(line.endswith("Undo: project-studio undo %s" % line.split()[1].rstrip(".")), line)
+        return int(line.split()[1].rstrip("."))
+
+    # ------------------------------------------------------------ projects
+
+    def test_create_rename_archive_in_text_and_json(self):
+        self.assertTrue(self.ok("create", "Alpha").startswith("Created Alpha  p_"))
+        made = self.json_ok("create", "Docs", "--under", "alpha", "--json")
+        self.assertEqual(made["path"], ["Alpha", "Docs"])
+        self.assertEqual(self.ok("rename", made["id"][:8], "Docs site"),
+                         "Renamed to Alpha / Docs site  %s\n" % made["id"])
+        self.assertEqual(self.json_ok("--json", "rename", "docs site", "Docs")["name"], "Docs")
+        self.assertTrue(self.ok("archive", "Docs").startswith("Archived Alpha / Docs"))
+        self.assertIsNotNone(self.json_ok("archive", made["id"], "--json")["archived_at"])
+        code, _, err = self.run_cli("create", "alpha")                 # a sibling has the name
+        self.assertEqual(code, 1)
+        self.assertTrue(err.startswith("project-studio: "), err)
+
+    def test_delete_without_yes_refuses_with_exit_2_and_says_what(self):
+        scratch = api.create_project("Scratch")
+        code, out, err = self.run_cli("delete", "scratch")
+        self.assertEqual((code, out), (2, ""))
+        self.assertTrue(err.startswith("project-studio: confirm_needed: "), err)
+        self.assertIn("Scratch (%s)" % scratch.id, err)
+        self.assertIn("--yes", err)
+        code, out, err = self.run_cli("delete", "scratch", "--json")
+        self.assertEqual((code, err), (2, ""))
+        self.assertEqual(json.loads(out)["error"]["code"], "confirm_needed")
+        self.assertIn(scratch.id, [p.id for p in api.list_projects().projects])
+        self.assertEqual(self.ok("delete", "scratch", "--yes"), "Deleted Scratch  %s\n" % scratch.id)
+        self.assertNotIn(scratch.id, [p.id for p in api.list_projects().projects])
+        other = api.create_project("Other")
+        self.assertEqual(self.json_ok("--json", "delete", other.id, "--yes"), {"id": other.id, "name": "Other"})
+
+    def test_nest_prints_the_move_id_and_undo_puts_it_back(self):
+        self.tree()
+        out = self.ok("nest", "Alpha", "--under", "Beta")
+        self.assertIn("Moved to Beta", out)
+        self.assertEqual(api.resolve_project("Alpha").path, ["Beta", "Alpha"])
+        self.assertIn("Moved back to the top level", self.ok("undo", str(self.move_id(out))))
+        self.assertEqual(api.resolve_project("Alpha").path, ["Alpha"])
+        moved = self.json_ok("nest", self.docs_a.id, "--top", "--json")
+        self.assertIsNone(moved["to_project_id"])
+        self.assertIsInstance(moved["move_id"], int)
+        code, _, err = self.run_cli("nest", "Alpha")                   # --under or --top is required
+        self.assertEqual(code, 2)
+        self.assertIn("usage:", err)
+
+    def test_link_twice_says_already_linked(self):
+        self.tree()
+        lo, hi = sorted((self.alpha.id, self.beta.id))
+        self.assertEqual(self.ok("link", "alpha", "beta"), "Linked %s and %s.\n" % (lo, hi))
+        self.assertEqual(self.json_ok("link", "beta", "alpha", "--json"), {"a_id": lo, "b_id": hi, "created": False})
+
+    # ------------------------------------------------------------ items and moves
+
+    def test_file_prints_the_move_id_and_undo_reverses_it(self):
+        self.tree()
+        a = self.sessions()[SID_A]
+        out = self.ok("file", a.id[:8], "alpha")
+        self.assertTrue(out.startswith("Moved to Alpha"), out)
+        self.assertIn("project-studio rule-save %d" % self.move_id(out), out)
+        self.assertEqual(api.resolve_item(a.id).project_id, self.alpha.id)
+        self.assertIn("Moved back to Inbox", self.ok("undo", str(self.move_id(out))))
+        self.assertEqual(api.resolve_item(a.id).project_id, "inbox")
+        moved = self.json_ok("--json", "file", a.id, "beta")
+        self.assertEqual((moved["to_project_id"], moved["item"]["id"]), (self.beta.id, a.id))
+        undone = self.json_ok("undo", str(moved["move_id"]), "--json")
+        self.assertEqual(undone["to_project_id"], "inbox")
+        code, _, err = self.run_cli("undo", str(moved["move_id"]))    # moved again since: refused
+        self.assertEqual(code, 1)
+        self.assertIn("project-studio: refused: Can't undo", err)
+        code, _, err = self.run_cli("file", a.id, "beta", "--revision", "1")
+        self.assertEqual(code, 1)
+        self.assertIn("project-studio: ", err)
+
+    def test_add_a_new_item_names_remove_and_add_of_a_known_one_is_a_move(self):
+        self.tree()
+        out = self.ok("add", "artifact", "https://claude.ai/artifact/abc", "alpha", "--title", "The plan")
+        self.assertTrue(out.startswith("Added The plan to Alpha  i_"), out)
+        item_id = out.split()[5]
+        self.assertIn("project-studio remove %s" % item_id, out)
+        again = self.ok("add", "artifact", "https://claude.ai/artifact/abc", "beta")
+        self.assertIn("Moved to Beta", again)
+        self.move_id(again)
+        added = self.json_ok("--json", "add", "pr", "acme/app#7", "beta")
+        self.assertTrue(added["created"])
+        self.assertEqual(added["item"]["project_id"], self.beta.id)
+
+    def test_remove_accept_rule_save_rules_and_rule_delete(self):
+        self.tree()
+        a = self.sessions()[SID_A]
+        filed = self.json_ok("file", a.id, "alpha", "--json")
+        saved = self.ok("rule-save", str(filed["move_id"]))
+        self.assertTrue(saved.startswith("Saved rule r_"), saved)
+        self.assertIn("-> Alpha", saved)
+        rule_id = saved.split()[2].rstrip(":")
+        self.assertFalse(self.json_ok("rule-save", str(filed["move_id"]), "--json")["created"])
+        self.assertIn("Already saved rule %s" % rule_id, self.ok("rule-save", str(filed["move_id"])))
+        removed = self.ok("remove", a.id)
+        self.assertIn("Moved to Inbox", removed)
+        self.move_id(removed)
+        accepted = self.ok("accept", a.id[:8])                        # the rule suggests Alpha
+        self.assertIn("Moved to Alpha", accepted)
+        self.move_id(accepted)
+        api.remove_item(a.id)
+        self.assertEqual(self.json_ok("--json", "accept", a.id)["to_project_id"], self.alpha.id)
+        self.assertEqual(self.json_ok("--json", "remove", a.id)["to_project_id"], "inbox")
+        self.assertEqual([r["id"] for r in self.json_ok("rules", "--json")["rules"]], [rule_id])
+        self.assertTrue(self.ok("rule-delete", rule_id).startswith("Deleted rule %s" % rule_id))
+        self.assertEqual(self.ok("rules"), "No rules yet.\n")
+        code, out, _ = self.run_cli("--json", "rule-delete", rule_id)
+        self.assertEqual(code, 1)
+        self.assertIn("error", json.loads(out))
+        code, _, err = self.run_cli("accept", self.sessions()[SID_B].id)   # no suggestion for it
+        self.assertEqual(code, 1)
+        self.assertIn("project-studio: refused: ", err)
+
+    def test_export_prints_or_writes_the_store_and_purge_counts(self):
+        self.tree()
+        document = json.loads(self.ok("export"))
+        self.assertEqual(document["format"], "project-studio-export")
+        dest = os.path.join(self.tmp, "out", "studio.json")
+        os.makedirs(os.path.dirname(dest))
+        self.assertEqual(self.ok("export", dest), "Wrote the store to %s\n" % dest)
+        with open(dest) as fh:
+            self.assertEqual(json.load(fh)["format"], "project-studio-export")
+        self.assertEqual(self.json_ok("export", "--json")["path"], None)
+        self.assertEqual(self.ok("purge"), "Purged 0 gone items.\n")
+        self.assertEqual(self.json_ok("--json", "purge"), {"count": 0, "ids": []})
+        a = self.sessions()[SID_A]
+        code, _, err = self.run_cli("purge", a.id)                     # not gone: refused
+        self.assertEqual(code, 1)
+        self.assertIn("project-studio: ", err)
+
+    # ------------------------------------------------------------ terminal, command, open-item
+
+    def session_to_open(self, fresh=False):
+        path = self.transcript(SID_B, self.mkdir("work"), kind="interactive", title="Plan it")
+        then = time.time() - (0 if fresh else 3600)
+        os.utime(path, (then, then))
+        api.refresh(force=True)
+        return {i.key: i for i in api.find_items(refresh=False).items}[SID_B]
+
+    def test_command_prints_only_the_command(self):
+        item = self.session_to_open()
+        out = self.ok("command", item.id[:8])
+        self.assertEqual(out, api.terminal_command(item.id).command + "\n")
+        self.assertEqual(len(out.splitlines()), 1)
+        self.assertEqual(self.json_ok("command", item.id, "--json")["mode"], "resume")
+        self.assertEqual([c for c in self.calls() if c.startswith("open ")], [])
+
+    def test_terminal_opens_with_the_open_stub(self):
+        item = self.session_to_open()
+        out = self.ok("terminal", item.id)
+        self.assertEqual(out.splitlines(), ["Opened in Terminal:", api.terminal_command(item.id).command])
+        command_file = os.path.join(self.home, "open", item.id + ".command")
+        self.assertIn("open %s" % command_file, self.calls())
+        self.assertTrue(self.json_ok("--json", "terminal", item.id)["opened"])
+
+    def test_terminal_without_a_tty_or_yes_refuses_when_it_needs_confirming(self):
+        item = self.session_to_open(fresh=True)
+        code, out, err = self.run_cli("terminal", item.id)
+        self.assertEqual((code, out), (2, ""))
+        self.assertTrue(err.startswith("project-studio: confirm_needed: "), err)
+        self.assertIn("--yes", err)
+        code, out, _ = self.run_cli("--json", "terminal", item.id)
+        self.assertEqual((code, json.loads(out)["error"]["code"]), (2, "confirm_needed"))
+        self.assertEqual([c for c in self.calls() if c.startswith("open ")], [])
+        self.assertIn("Opened in Terminal:", self.ok("terminal", item.id, "--yes"))
+        self.assertEqual(len([c for c in self.calls() if c.startswith("open ")]), 1)
+
+    def test_terminal_on_a_tty_asks_and_opens_only_on_y(self):
+        item = self.session_to_open(fresh=True)
+        for answer, code, opens in ((b"n\n", 2, 0), (b"y\n", 0, 1)):
+            master, slave = pty.openpty()
+            self.addCleanup(os.close, master)
+            os.write(master, answer)
+            got, _, err = self.run_cli("terminal", item.id, stdin=slave)
+            os.close(slave)
+            self.assertEqual(got, code, err)
+            self.assertIn("[y/N]", err)
+            self.assertEqual(len([c for c in self.calls() if c.startswith("open ")]), opens)
+
+    def test_open_item_opens_a_url_with_the_open_stub(self):
+        self.tree()
+        api.add_item("artifact", "https://claude.ai/artifact/abc", self.alpha.id)
+        item = api.find_items(kind="artifact", refresh=False).items[0]
+        self.assertEqual(self.ok("open-item", item.id[:8]), "Opened https://claude.ai/artifact/abc\n")
+        self.assertEqual(self.calls()[-1], "open https://claude.ai/artifact/abc")
+        opened = self.json_ok("--json", "open-item", item.id)
+        self.assertEqual((opened["how"], opened["opened"]), ("url", True))
+        code, _, err = self.run_cli("open-item", item.id, "--target", "plan")
+        self.assertEqual(code, 1)
+        self.assertIn("project-studio: ", err)
+
+    def test_help_lists_every_change_command(self):
+        text = self.ok("help")
+        for name in ("create", "rename", "archive", "delete", "nest", "link", "add", "file", "undo", "remove",
+                     "accept", "rule-save", "rule-delete", "export", "purge", "terminal", "command", "open-item"):
+            self.assertIn("  %s " % name, text)
+        self.assertIn("missing --yes", text)
