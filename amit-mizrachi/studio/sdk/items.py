@@ -115,17 +115,20 @@ def _pr_of(run_id, prs):
 
 def to_run(item, prs, artifacts):
     """A run item as a `Run`, with its newest PR and its plan artifact."""
+    from .home import _progress_text, pr_text   # home imports this module
     d = item.data
     arts = sorted((a for a in artifacts if a.workspace_item_id == item.id), key=lambda a: not a.data.get("plan"))
     pr = _pr_of(item.id, prs)
     if pr is None and d.get("pr_url"):
         pr = {"key": "", "number": None, "state": "", "draft": False, "url": d["pr_url"], "good_at": None,
               "checks": None}
-    return Run(item_id=item.id, kind=item.kind, title=item.title, project_id=item.project_id,
-               status=item.status or "unknown", reason=str(d.get("reason") or ""), progress=d.get("progress"),
-               stage=str(d.get("stage") or ""), stages=d.get("stages") or [], pr=pr,
-               artifact_url=arts[0].data.get("url", "") if arts else "", started_at=str(d.get("started_at") or ""),
-               updated_at=str(d.get("updated_at") or ""), gone=item.gone)
+    run = Run(item_id=item.id, kind=item.kind, title=item.title, project_id=item.project_id,
+              status=item.status or "unknown", reason=str(d.get("reason") or ""), progress=d.get("progress"),
+              stage=str(d.get("stage") or ""), stages=d.get("stages") or [], pr=pr,
+              artifact_url=arts[0].data.get("url", "") if arts else "", started_at=str(d.get("started_at") or ""),
+              updated_at=str(d.get("updated_at") or ""), gone=item.gone)
+    run.progress_text, run.pr_text = _progress_text(run), pr_text(pr)
+    return run
 
 
 def rank_runs(runs):
@@ -135,6 +138,7 @@ def rank_runs(runs):
 
 
 def status(conn, project_id):
+    from .projectview import tile_state   # projectview imports this module
     tree = model.Tree(conn)
     project = tree.project(project_id)
     homes = subtree(tree, project_id)
@@ -154,9 +158,9 @@ def status(conn, project_id):
         if tree.rows[child]["archived_at"]:
             continue
         mine = [r for r in runs if r.project_id in set(subtree(tree, child))]
-        subs.append(SubProject(project=tree.project(child), runs=len(mine),
-                               runs_active=sum(1 for r in mine if r.status in RUN_RANK),
-                               top_status=mine[0].status if mine else None))
+        active, top = sum(1 for r in mine if r.status in RUN_RANK), mine[0].status if mine else None
+        subs.append(SubProject(project=tree.project(child), runs=len(mine), runs_active=active, top_status=top,
+                               text=tile_state(len(mine), active, top)[1]))
     sessions = by_kind.get("session-bg", []) + by_kind.get("session-interactive", [])
     sessions.sort(key=_recency, reverse=True)
     sessions.sort(key=lambda i: i.gone)

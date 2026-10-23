@@ -111,6 +111,8 @@ RUN_SCHEMA = {
         "started_at": {"type": "string"},
         "updated_at": {"type": "string"},
         "gone": {"type": "boolean"},
+        "progress_text": {"type": "string", "description": "\"T03 of 5\", \"5 of 5\" once done, or \"\""},
+        "pr_text": {"type": "string", "description": "\"PR #12 draft - checks green\", or \"\""},
     },
 }
 ITEMS = {"type": "array", "items": ITEM_SCHEMA}
@@ -218,7 +220,8 @@ TOOLS = [
                 "project": PROJECT_SCHEMA,
                 "runs": {"type": "array", "items": RUN_SCHEMA},
                 "sessions": ITEMS, "prs": ITEMS, "worktrees": ITEMS, "artifacts": ITEMS,
-                "sub_projects": {"type": "array", "items": {"type": "object", "required": ["project", "runs", "runs_active", "top_status"]}},
+                "sub_projects": {"type": "array", "items": {"type": "object", "required": ["project", "runs", "runs_active", "top_status"],
+                                                                "properties": {"text": {"type": "string", "description": "\"no runs\", \"3 runs, 1 active\", \"2 runs done\""}}}},
                 "sources": {"type": "array", "items": SOURCE_SCHEMA},
                 "totals": {"type": "object", "additionalProperties": {"type": "integer"}},
                 "truncated": {"type": "boolean"},

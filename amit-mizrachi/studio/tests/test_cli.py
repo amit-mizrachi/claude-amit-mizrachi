@@ -111,10 +111,19 @@ class Cli(Sources):
         self.assertEqual(self.ok("stop"), "Project Studio is not running.\n")
         text = self.ok("status", "Alpha", "--no-refresh")
         self.assertTrue(text.startswith("Alpha  %s" % self.alpha.id), text)
-        self.assertIn("0 runs, 0 active", text)
+        self.assertIn("no runs", text)                     # the words list and show use, from the SDK
         status = self.json_ok("--json", "status", "alpha")
         self.assertEqual(status["project"]["id"], self.alpha.id)
         self.assertEqual(status["sub_projects"][0]["project"]["id"], self.docs_a.id)
+        self.assertEqual(status["sub_projects"][0]["text"], "no runs")
+        self.workspace("sprint-done", tags=(("T01", "DONE"), ("T02", "DONE")), runner=False)
+        api.refresh(force=True)
+        api.move_item(api.find_items(kind="night-sprint", refresh=False).items[0].id, self.docs_a.id)
+        text = self.ok("status", "Alpha", "--no-refresh")
+        self.assertIn("1 run done", text)                  # not "1 runs, 0 active"
+        self.assertIn("2 of 2", text)                      # a done run's progress, as home says it
+        run = self.json_ok("--json", "status", "Alpha", "--no-refresh")["runs"][0]
+        self.assertEqual((run["progress_text"], run["pr_text"]), ("2 of 2", ""))
         self.assertIn("No runs or items here yet.", self.ok("status", "Inbox"))
 
     def test_status_lists_inbox_sessions(self):

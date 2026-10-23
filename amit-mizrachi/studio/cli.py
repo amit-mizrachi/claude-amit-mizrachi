@@ -88,14 +88,6 @@ def path(project_path):
     return " / ".join(project_path)
 
 
-def pr_word(pr):
-    """'PR #12 open', 'PR #9 draft', or '' for a run's PR dict."""
-    if not pr or not pr.get("number"):
-        return ""
-    state = "draft" if pr.get("draft") and pr.get("state") == "open" else (pr.get("state") or "unknown")
-    return "PR #%s %s" % (pr["number"], state)
-
-
 # ---------------------------------------------------------------- text for each result
 
 def say(result):
@@ -135,10 +127,9 @@ def text_status(result):
     if isinstance(result, StudioServer):
         return text_server(result)
     head = ["%s  %s" % (path(result.project.path), result.project.id)]
-    lines = section("Runs", [[short(r.item_id), r.status, r.title, (r.progress or {}).get("text") or "", r.stage,
-                               r.reason, pr_word(r.pr)] for r in result.runs])
-    lines += section("Inside", [[short(s.project.id), s.project.name, "%d runs, %d active" % (s.runs, s.runs_active)]
-                                for s in result.sub_projects])
+    lines = section("Runs", [[short(r.item_id), r.status, r.title, r.progress_text, r.stage, r.reason, r.pr_text]
+                             for r in result.runs])
+    lines += section("Inside", [[short(s.project.id), s.project.name, s.text] for s in result.sub_projects])
     lines += section("Sessions", [[short(i.id), i.kind, i.status or "-", i.title + (" (gone)" if i.gone else "")]
                                   for i in result.sessions])
     lines += section("Pull requests", [[short(i.id), i.status or "-", i.title] for i in result.prs])
