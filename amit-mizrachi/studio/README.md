@@ -24,19 +24,55 @@ Stdlib Python 3.9+ and bash. No packages, no build step.
 
 ## `project-studio`
 
-```
-project-studio            same as `open`
-project-studio open       start the studio if it is not running (or restart an older version), open it
-project-studio status     say whether it runs, and where
-project-studio stop       ask the running studio to stop
-project-studio status <project>   a project's night runs and items
-project-studio list | show | find | inbox | refresh | rules   read the store from the terminal
-project-studio help [command]     every command, its options and an example
-```
+Every action the page and the MCP tools have, from the terminal. Each command calls one SDK
+function (`studio/cli.py` only parses and formats). `project-studio help [command]` prints
+every command, its options and an example.
 
-Every command takes `--json` (the MCP tools' shape). A project is named by its id, a unique id
-prefix (4+ characters) or its name (any case); exit codes are 0 ok, 1 a studio error, 2 a usage
-error. The CLI is `studio/cli.py`.
+| Command | Example | Does |
+|---|---|---|
+| (none), `open` | `project-studio` | start the studio if it is not running (or restart an older version), open it |
+| `stop` | `project-studio stop` | ask the running studio to stop |
+| `status` | `project-studio status` | whether the studio runs, and where |
+| `status <project>` | `project-studio status 'Project Studio'` | a project's night runs and items |
+| `list` | `project-studio list --all` | the project tree with each project's night-run line |
+| `show` | `project-studio show p_1a2b3c` | one project's view: sub-projects, runs, sessions, PRs, rules |
+| `find` | `project-studio find alpha --kind session-bg` | items that match, newest activity first |
+| `inbox` | `project-studio inbox --limit 20` | unfiled items with the suggested project |
+| `refresh` | `project-studio refresh --force` | re-read the sources; say what changed and what failed |
+| `rules` | `project-studio rules --project 'Shapes evals'` | the filing rules |
+| `create` | `project-studio create Docs --under Alpha` | a new project, top-level or under another |
+| `rename` | `project-studio rename Docs 'Docs site'` | a new name |
+| `archive` | `project-studio archive 'Old work'` | archive a project and everything under it |
+| `delete` | `project-studio delete Scratch --yes` | delete an EMPTY project; without `--yes` it says what it would delete |
+| `nest` | `project-studio nest Docs --under Beta` | a new parent (`--under`), or the top level (`--top`) |
+| `link` | `project-studio link Alpha Beta` | link two projects |
+| `add` | `project-studio add artifact https://claude.ai/artifact/abc Alpha` | file a session, folder, URL, file or PR by hand |
+| `file` | `project-studio file i_1a2b3c4d Alpha` | move an item into a project |
+| `undo` | `project-studio undo 42` | put back what a move did |
+| `remove` | `project-studio remove i_1a2b3c4d` | an item back to the Inbox; it deletes nothing |
+| `accept` | `project-studio accept i_1a2b3c4d` | file an Inbox item into its suggested project |
+| `rule-save` | `project-studio rule-save 42` | "Always file items like this here", from a move id |
+| `rule-delete` | `project-studio rule-delete r_1a2b3c4d5e6f` | delete one rule; what it filed stays |
+| `export` | `project-studio export ~/studio.json` | the whole store as JSON, printed or written to a file |
+| `purge` | `project-studio purge` | delete gone items for good (one, or all) |
+| `terminal` | `project-studio terminal i_1a2b3c4d` | Open in Terminal; asks y/N when the session may be open elsewhere |
+| `command` | `eval "$(project-studio command i_1a2b3c4d)"` | print only the command that opens a session again |
+| `open-item` | `project-studio open-item i_1a2b3c4d --target plan` | open a URL, folder or file with `open` |
+
+References: a project is its id, a unique id prefix (4+ characters, the `p_` optional) or its
+name (any case, active projects only); an item is its id or a unique id prefix. An ambiguous
+name lists the candidates. A move (`file`, `add` of a known item, `accept`, `nest`, `remove`,
+`undo`) prints `Move <id>. Undo: project-studio undo <id>`. An `add` that creates a new item is
+not a move; it prints the `remove` command instead.
+
+**The `--json` contract.** `--json` goes before or after the command. On success stdout is
+`to_dict(result)` with sorted keys: the same shape the MCP tools and the web routes return.
+On an error stdout is `{"error": {"code", "message", ...}}` (an ambiguous name adds
+`candidates`); without `--json` the error is `project-studio: <code>: <message>` on stderr.
+
+Exit codes: 0 ok; 1 a studio error (`not_found`, `ambiguous`, `invalid_input`, `refused`, ...);
+2 a usage error (argparse prints the usage), or `confirm_needed`: `delete` without `--yes`, and
+`terminal` without `--yes` when no tty can answer the y/N question.
 
 The studio is a local web server on `127.0.0.1` only. The home page is a grid of project cards
 that show only each project's night-run status; a click on a card opens the project view

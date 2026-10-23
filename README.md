@@ -362,6 +362,21 @@ Undo and "Always file items like this here". It never stops, kills or removes a 
 `project-studio status` and `project-studio stop` do what they say; it stops by itself after 30
 minutes with no open page.
 
+Everything the page does also works from the terminal, one command per action, each with
+`--json` (the MCP tools' shape) and exit codes 0 ok, 1 a studio error, 2 a usage error or a
+missing `--yes`. Name a project by id, id prefix or name; an item by id or id prefix:
+
+| Command | Example |
+|---|---|
+| `list`, `show`, `status`, `find`, `inbox`, `refresh`, `rules` | `project-studio show 'Project Studio' --json` |
+| `create`, `rename`, `archive`, `delete --yes`, `nest --under/--top`, `link` | `project-studio create Docs --under Alpha` |
+| `add`, `file`, `undo`, `remove`, `accept` | `project-studio file i_1a2b3c4d Alpha` (prints `project-studio undo <move id>`) |
+| `rule-save`, `rule-delete`, `export`, `purge` | `project-studio rule-save 42` |
+| `terminal`, `command`, `open-item` | `eval "$(project-studio command i_1a2b3c4d)"` |
+
+`project-studio help [command]` prints every option and an example; the full table and the
+`--json` contract are in `amit-mizrachi/studio/README.md`.
+
 Agents get the same data through the `project-studio` MCP server (registered from `.mcp.json`):
 `studio_list`, `studio_create`, `studio_find`, `studio_status`, `studio_add`, `studio_move`,
 `studio_link`, `studio_remove`, `studio_archive` and `studio_open`. A `SessionStart` hook files
