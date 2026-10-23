@@ -1,4 +1,4 @@
-"""Git readers: the worktrees of a repo, its PRs (`gh pr list`), and which repo a folder is in.
+"""Git readers: the worktrees of a repo, its PRs (two `gh pr list` calls), and which repo a folder is in.
 
 Each reader returns a `Read` with `ok`, the records, and `error`. A failed read is UNKNOWN:
 the caller keeps what it knew before and never marks anything gone on it.
@@ -6,11 +6,19 @@ the caller keeps what it knew before and never marks anything gone on it.
 
 import json
 import os
+import re
 
 from . import commands
 
-PR_LIMIT = 200
-PR_FIELDS = "number,title,headRefName,state,isDraft,url,updatedAt,statusCheckRollup"
+# One `gh pr list` with statusCheckRollup over 200 PRs hit GitHub's GraphQL 504 (~11 s) on
+# dreamteamapp/shapes-platform. Split, measured there on 2026-10-24: the light list of 100 took
+# ~1.7 s, the checks of 30 open PRs ~5.4 s (50 took ~6.8 s).
+PR_LIMIT = 100
+CHECKS_LIMIT = 30
+PR_FIELDS = "number,title,headRefName,state,isDraft,url,updatedAt"
+CHECK_FIELDS = "number,statusCheckRollup"
+GITHUB_SLUG = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+RETRY_ON = re.compile(r"HTTP 5[0-9][0-9]|timed out")
 RED_CHECKS = ("FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE")
 
 
@@ -50,27 +58,56 @@ def worktrees(repo_path):
     return Read(True, [w for w in parse_worktrees(out) if not w["main"] and not w["prunable"]])
 
 
-def prs(repo_slug):
-    """Amit's PRs in `owner/repo`, open and closed, in ONE `gh pr list` call."""
-    ok, out, error = commands.run(["gh", "pr", "list", "--repo", repo_slug, "--state", "all", "--author", "@me",
-                                   "--limit", str(PR_LIMIT), "--json", PR_FIELDS])
+def is_github_slug(repo_slug):
+    """True for an `owner/repo` that `gh` can read; False for "local only, no remote" and the like."""
+    return bool(GITHUB_SLUG.match(repo_slug or ""))
+
+
+def gh_pr_list(repo_slug, args):
+    """`gh pr list --repo <slug> --author @me <args>` -> (rows, error). A 5xx or a timeout is retried
+    once; rows is None when the call failed or did not print a JSON list."""
+    argv = ["gh", "pr", "list", "--repo", repo_slug, "--author", "@me"] + args
+    ok, out, error = commands.run(argv)
+    if not ok and RETRY_ON.search(error):
+        ok, out, error = commands.run(argv)
     if not ok:
-        return Read(False, [], error)
+        return None, error
     try:
         rows = json.loads(out or "[]")
     except ValueError:
-        return Read(False, [], "gh pr list for %s printed something that is not JSON" % repo_slug)
+        return None, "gh pr list for %s printed something that is not JSON" % repo_slug
     if not isinstance(rows, list):
-        return Read(False, [], "gh pr list for %s did not print a list" % repo_slug)
+        return None, "gh pr list for %s did not print a list" % repo_slug
+    return [r for r in rows if isinstance(r, dict)], ""
+
+
+def prs(repo_slug):
+    """Amit's PRs in `owner/repo`, open and closed: a light list of the newest PR_LIMIT, then the
+    check counts of its open PRs in a second, smaller call. A slug that is not a GitHub `owner/repo`
+    (a checkout with no remote) is not read at all: an ok, empty read, so it raises no banner."""
+    if not is_github_slug(repo_slug):
+        return Read(True, [])
+    rows, error = gh_pr_list(repo_slug, ["--state", "all", "--limit", str(PR_LIMIT), "--json", PR_FIELDS])
+    if rows is None:
+        return Read(False, [], error)
     records = []
     for row in rows:
-        if isinstance(row, dict) and isinstance(row.get("number"), int):
+        if isinstance(row.get("number"), int):
             records.append({
                 "repo_slug": repo_slug, "number": row["number"], "title": str(row.get("title") or ""),
                 "branch": str(row.get("headRefName") or ""), "state": str(row.get("state") or "").lower(),
                 "draft": bool(row.get("isDraft")), "url": str(row.get("url") or ""),
-                "updated_at": str(row.get("updatedAt") or ""), "checks": checks_of(row.get("statusCheckRollup")),
+                "updated_at": str(row.get("updatedAt") or ""), "checks": checks_of(None),
             })
+    opened = [r for r in records if r["state"] == "open"]
+    if opened:
+        limit = min(len(opened), CHECKS_LIMIT)
+        rows_checks, error = gh_pr_list(repo_slug, ["--state", "open", "--limit", str(limit), "--json", CHECK_FIELDS])
+        if rows_checks is None:
+            return Read(False, [], error)
+        rollups = {r.get("number"): r.get("statusCheckRollup") for r in rows_checks}
+        for rec in opened:
+            rec["checks"] = checks_of(rollups.get(rec["number"]))
     return Read(True, records, partial=len(rows) >= PR_LIMIT)
 
 
