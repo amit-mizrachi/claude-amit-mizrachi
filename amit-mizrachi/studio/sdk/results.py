@@ -292,8 +292,10 @@ class HomeBanner:
 
 @dataclass
 class HomeState:
-    """The whole home page: the cards in order and the top bar's facts. `loading` is True until
-    the first scan; `first_run` is True when there is no project yet."""
+    """The whole home page: the cards in order and the top bar's facts. `loading` is False once
+    the store answered (the page shows its skeleton only before that); `first_run` is True when
+    there is no project yet. `reading` names the sources still being read (say ["prs"]) and
+    `reading_text` is the quiet note for them ("Still reading PRs..."), '' when none is."""
 
     cards: List[HomeCard]
     caption: str
@@ -303,6 +305,8 @@ class HomeState:
     first_run: bool
     first_run_text: str
     banners: List[HomeBanner]
+    reading: List[str]
+    reading_text: str
     generated_at: str
 
 

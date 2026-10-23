@@ -6,6 +6,9 @@ Every rule the home page shows lives here, not in the web server or the page scr
 - Cards are ordered needs-you first, then blocked, then running, then by latest change.
 - Sub-projects show only as a count ("2 inside").
 - A failed source gives a banner; its items keep their last-good state.
+- The state is built from what the store holds and never waits for a read: a source still being
+  read is named in a quiet note ("Still reading PRs...") until it lands.
+- The Inbox count leaves out items quiet for longer than `items.INBOX_DAYS`.
 """
 
 import time
@@ -24,6 +27,8 @@ COMMANDS = {"prs": "gh pr list", "agents": "claude agents", "jobs": "the jobs fo
             "transcripts": "the session transcripts", "worktrees": "git worktree list",
             "workspaces": "the workspace scan", "workspace": "a workspace's state files"}
 CAPTION = "Needs you first, then running, then latest change"
+READING = {"prs": "PRs", "worktrees": "worktrees", "agents": "sessions", "jobs": "sessions",
+           "transcripts": "sessions", "workspaces": "night runs", "workspace": "night runs"}
 
 
 def ago(stamp, now):
@@ -147,12 +152,25 @@ def _banner(entry, now):
     return HomeBanner(source=entry.source, key=entry.key, text="%s - %s" % (head, kept), error=entry.error)
 
 
-def _inbox_counts(conn):
+def _inbox_counts(conn, now):
     counts = {}
-    for r in conn.execute("SELECT kind, COUNT(*) AS n FROM items WHERE project_id = ? AND gone_at IS NULL "
-                          "GROUP BY kind", (store.INBOX_ID,)):
-        counts[r["kind"]] = r["n"]
+    for r in conn.execute("SELECT kind, data_json, seen_at FROM items WHERE project_id = ? AND gone_at IS NULL",
+                          (store.INBOX_ID,)):
+        if items.recent(r, now):
+            counts[r["kind"]] = counts.get(r["kind"], 0) + 1
     return counts
+
+
+def reading_text(sources):
+    """'Still reading PRs...', 'Still reading night runs and PRs...', or '' when nothing is read."""
+    words = []
+    for source in sources:
+        word = READING.get(source, source)
+        if word not in words:
+            words.append(word)
+    if not words:
+        return ""
+    return "Still reading %s..." % (", ".join(words[:-1]) + " and " + words[-1] if len(words) > 1 else words[0])
 
 
 def _first_run_text(counts):
@@ -166,16 +184,19 @@ def _first_run_text(counts):
     return "%s %s waiting in the Inbox. Make a project, then drag them onto it." % (" and ".join(parts), verb)
 
 
-def state(conn, now=None):
-    """The whole home page as one HomeState (what `GET /state` and every SSE event carry)."""
+def state(conn, now=None, reading=()):
+    """The whole home page as one HomeState (what `GET /state` and every SSE event carry).
+    `reading` names the sources being read right now (`refresh.reading()`). `loading` is False:
+    the store answered, and only the page shows a skeleton before that."""
     now = time.time() if now is None else now
     entries = cache.entries(conn)
     prs = [e for (source, _), e in entries.items() if source == "prs"]
     prs_at = min((e.good_at for e in prs if e.good_at), default="")
-    counts = _inbox_counts(conn)
+    counts = _inbox_counts(conn, now)
     cards = _cards(conn)
     banners = [_banner(e, now) for _, e in sorted(entries.items()) if not e.ok]
     return HomeState(cards=cards, caption=CAPTION, inbox_count=sum(counts.values()),
                      source_age="PRs %s" % ago(prs_at, now) if prs_at else "",
-                     loading=not entries, first_run=not cards, first_run_text=_first_run_text(counts),
-                     banners=banners, generated_at=store.now_iso())
+                     loading=False, first_run=not cards, first_run_text=_first_run_text(counts),
+                     banners=banners, reading=list(reading), reading_text=reading_text(reading),
+                     generated_at=store.now_iso())

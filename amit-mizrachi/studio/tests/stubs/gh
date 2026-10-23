@@ -2,17 +2,49 @@
 # A stand-in for `gh` in the studio's tests. Only `gh pr list --repo <owner/repo> ...` is served.
 #
 # Reads under $STUDIO_STUB:
-#   prs-<owner>_<repo>.json   what `gh pr list` prints for that repo. Default: [].
+#   prs-<owner>_<repo>.json   the PRs of that repo, as `gh pr list --json` rows. Default: [].
+#                             Served like gh: `--state open` keeps the OPEN rows, `--limit N` the
+#                             first N, `--json a,b` only those fields.
 #   gh-fail                   if present, every call exits 1 (gh logged out or offline).
+#   gh-504                    holds a count N: the next N calls exit 1 with GitHub's GraphQL 504.
 # Appends every call to $STUDIO_STUB/calls.
 
 set -uo pipefail
 S="${STUDIO_STUB:?the gh stub needs STUDIO_STUB}"
 printf 'gh %s\n' "$*" >> "$S/calls"
 [ -e "$S/gh-fail" ] && { echo "error connecting to api.github.com" >&2; exit 1; }
-repo=""
+if [ -e "$S/gh-504" ]; then
+  left="$(cat "$S/gh-504")"
+  if [ "${left:-0}" -gt 0 ]; then
+    echo $((left - 1)) > "$S/gh-504"
+    echo "HTTP 504: 504 Gateway Timeout (https://api.github.com/graphql)" >&2
+    exit 1
+  fi
+fi
+repo="" state="all" limit="" fields=""
 while [ $# -gt 0 ]; do
-  [ "$1" = "--repo" ] && { repo="${2:-}"; shift; }
+  case "$1" in
+    --repo) repo="${2:-}"; shift ;;
+    --state) state="${2:-}"; shift ;;
+    --limit) limit="${2:-}"; shift ;;
+    --json) fields="${2:-}"; shift ;;
+  esac
   shift
 done
-cat "$S/prs-${repo//\//_}.json" 2>/dev/null || printf '[]'
+python3 - "$S/prs-${repo//\//_}.json" "$state" "$limit" "$fields" <<'EOF'
+import json, sys
+path, state, limit, fields = sys.argv[1:5]
+try:
+    with open(path) as fh:
+        rows = json.load(fh)
+except OSError:
+    rows = []
+if state == "open":
+    rows = [r for r in rows if r.get("state") == "OPEN"]
+if limit:
+    rows = rows[:int(limit)]
+if fields:
+    keep = fields.split(",")
+    rows = [{k: v for k, v in r.items() if k in keep} for r in rows]
+print(json.dumps(rows))
+EOF

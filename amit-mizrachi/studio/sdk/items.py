@@ -12,6 +12,7 @@ Every function takes an open connection; `sdk.api` owns the transactions. Rules 
 import json
 import os
 import re
+import time
 from collections import Counter
 
 from . import cache, model, rules, store
@@ -75,6 +76,21 @@ def _matches(r, query):
     data = item_data(r)
     hay = " ".join([r["title"], r["key"]] + [str(data.get(k) or "") for k in ("name", "cwd", "branch", "git_branch", "slug")])
     return query.lower() in hay.lower()
+
+
+INBOX_DAYS = 14   # an unfiled item quiet for longer stays in the store, out of the Inbox
+
+
+def _epoch(stamp):
+    return cache.epoch(stamp[:19] + "Z") if isinstance(stamp, str) and len(stamp) >= 19 else 0
+
+
+def recent(row, now):
+    """True when an item row (with `data_json` and `seen_at`) had activity in the last INBOX_DAYS
+    days: its newest of last_active / updated_at / started_at, else when the store first saw it."""
+    data = item_data(row)
+    then = max(_epoch(data.get(k)) for k in ("last_active", "updated_at", "started_at")) or _epoch(row["seen_at"])
+    return not then or now - then <= INBOX_DAYS * 86400
 
 
 def _recency(item):
@@ -347,7 +363,9 @@ def suggest(conn, r, tree, filed):
     return None
 
 
-def inbox(conn):
+def inbox(conn, now=None):
+    """Every unfiled item active in the last INBOX_DAYS days, newest first, with its suggestion."""
+    now = time.time() if now is None else now
     tree = model.Tree(conn)
     filed = []
     for r in conn.execute("SELECT project_id, data_json FROM items WHERE project_id != ? AND gone_at IS NULL",
@@ -355,7 +373,7 @@ def inbox(conn):
         if not tree.hidden(r["project_id"]):
             filed.append((r["project_id"], (item_data(r).get("signals") or {}).get("repo")))
     rows = [dict(r) for r in conn.execute("SELECT * FROM items WHERE project_id = ? AND gone_at IS NULL",
-                                          (store.INBOX_ID,))]
+                                          (store.INBOX_ID,)) if recent(r, now)]
     entries = [InboxEntry(item=to_item(r, tree), suggestion=suggest(conn, r, tree, filed)) for r in rows]
     entries.sort(key=lambda e: _recency(e.item), reverse=True)
     return entries

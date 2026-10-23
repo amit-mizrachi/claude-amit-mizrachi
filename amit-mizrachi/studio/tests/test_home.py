@@ -1,11 +1,14 @@
 """The studio's home page through the public SDK: card order, at most 3 runs, "+ n earlier runs",
-"n inside", the empty text, loading / first run, and a failed source's banner."""
+"n inside", the empty text, first run, a failed source's banner, the "Still reading" note while a
+slow source is read, and the 14-day Inbox window."""
 
 import os
+import threading
+import time
 
-from sdk import api
+from sdk import api, store
 
-from .support import Sources
+from .support import STUBS, Sources
 
 DONE3 = (("T01", "DONE"), ("T02", "DONE"), ("T03", "DONE"))
 
@@ -20,11 +23,12 @@ class Home(Sources):
         for path in paths:
             api.move_item(found[path].id, project_id)
 
-    def test_a_fresh_store_is_loading_and_first_run(self):
+    def test_a_fresh_store_answers_with_the_first_run_state(self):
         state = api.home()
-        self.assertTrue(state.loading)
+        self.assertFalse(state.loading)
         self.assertTrue(state.first_run)
         self.assertEqual(state.cards, [])
+        self.assertEqual((state.reading, state.reading_text), ([], ""))
         self.assertEqual(state.caption, "Needs you first, then running, then latest change")
 
     def test_a_project_without_runs_says_so(self):
@@ -89,3 +93,57 @@ class Home(Sources):
         self.assertIn("gh pr list failed for r", prs[0].text)
         self.assertIn("PR states below are from", prs[0].text)
         self.assertIn("Run status is live.", prs[0].text)
+
+    def slow_gh(self):
+        """Put a `gh` first on PATH that waits until the returned gate file exists."""
+        gate = os.path.join(self.stub, "gh-open")
+        gh = self.write(os.path.join(self.mkdir("slowbin"), "gh"),
+                        '#!/usr/bin/env bash\nwhile [ ! -e "%s" ]; do sleep 0.05; done\nexec "%s/gh" "$@"\n'
+                        % (gate, STUBS))
+        os.chmod(gh, 0o755)
+        os.environ["PATH"] = os.path.dirname(gh) + os.pathsep + os.environ["PATH"]
+        return gate
+
+    def test_a_due_slow_source_does_not_hold_back_the_cards(self):
+        gate = self.slow_gh()
+        self.workspace("s-20261023", facts={"REPO_SLUG": "me/r"})
+        alpha = api.create_project("Alpha")
+        worker = threading.Thread(target=api.refresh, kwargs={"force": True}, daemon=True)
+        worker.start()
+        self.addCleanup(worker.join, 10)
+        self.addCleanup(self.write, gate, "1")
+        deadline = time.time() + 10
+        while "prs" not in api.home().reading and time.time() < deadline:
+            time.sleep(0.05)
+        started = time.time()
+        state = api.home(refresh=True)
+        self.assertLess(time.time() - started, 5)
+        self.assertEqual([card.project.id for card in state.cards], [alpha.id])
+        self.assertFalse(state.loading)
+        self.assertEqual((state.reading, state.reading_text), (["prs"], "Still reading PRs..."))
+        self.write(gate, "1")
+        worker.join(10)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual((api.home().reading, api.home().reading_text), ([], ""))
+
+    def unfiled(self, name, days_ago):
+        """An artifact back in the Inbox whose last activity was `days_ago` days ago."""
+        p = api.create_project("Holder " + name)
+        item = api.add_item("artifact", "https://example.com/" + name, p.id).item
+        api.remove_item(item.id)
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - days_ago * 86400))
+        with store.write() as conn:
+            conn.execute("UPDATE items SET data_json = ?, seen_at = ? WHERE id = ?",
+                         ('{"updated_at": "%s"}' % stamp, stamp, item.id))
+        return item.id
+
+    def test_the_inbox_holds_only_items_active_in_the_last_14_days(self):
+        fresh, stale = self.unfiled("fresh", 13), self.unfiled("stale", 15)
+        self.assertEqual(api.home().inbox_count, 1)
+        self.assertEqual([e.item.id for e in api.inbox(refresh=False).entries], [fresh])
+        view = api.inbox_view()
+        self.assertEqual((view.count, [r.item_id for r in view.rows]), (1, [fresh]))
+        found = api.find_items("example.com/stale", refresh=False)
+        self.assertEqual([i.id for i in found.items], [stale])
+        target = api.create_project("Target")
+        self.assertEqual(api.move_item(stale, target.id).item.project_id, target.id)

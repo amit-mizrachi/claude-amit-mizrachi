@@ -787,6 +787,7 @@
     var banners = $("banners");
     clear(banners);
     s.banners.forEach(function (b) { banners.appendChild(banner(b)); });
+    if (s.reading_text) { banners.appendChild(el("p", "none reading", s.reading_text)); }
     var body = $("body");
     clear(body);
     if (s.loading) {
