@@ -6,7 +6,7 @@ read must leave items UNKNOWN with their last-good data, never gone.
 
 import os
 
-from sdk import api
+from sdk import api, cache, store
 from sdk.readers import git, runs, sessions
 
 from . import STUDIO
@@ -144,16 +144,100 @@ class Git(Sources):
         self.assertTrue(read.ok, read.error)
         self.assertEqual([(w["path"], w["branch"]) for w in read.records], [(paths[0], "feat/a")])
 
-    def test_prs_come_from_one_gh_call_per_repo_open_and_closed(self):
-        self.prs("me/r", [{"number": 4, "title": "a", "headRefName": "feat/a", "state": "MERGED", "isDraft": False,
+    def gh_calls(self):
+        path = os.path.join(self.stub, "calls")
+        if not os.path.exists(path):
+            return []
+        with open(path) as fh:
+            return [c for c in fh.read().splitlines() if c.startswith("gh ")]
+
+    def test_prs_are_a_light_list_then_the_checks_of_open_prs_only(self):
+        self.prs("me/r", [
+            {"number": 5, "title": "b", "headRefName": "feat/b", "state": "OPEN", "isDraft": False,
+             "url": "https://github.com/me/r/pull/5", "updatedAt": "2026-10-21T00:00:00Z",
+             "statusCheckRollup": [{"status": "COMPLETED", "conclusion": "FAILURE"},
+                                   {"status": "IN_PROGRESS", "conclusion": ""},
+                                   {"status": "COMPLETED", "conclusion": "SUCCESS"}]},
+            {"number": 4, "title": "a", "headRefName": "feat/a", "state": "MERGED", "isDraft": False,
+             "url": "https://github.com/me/r/pull/4", "updatedAt": "2026-10-20T00:00:00Z",
+             "statusCheckRollup": [{"status": "COMPLETED", "conclusion": "FAILURE"}]}])
+        read = git.prs("me/r")
+        self.assertTrue(read.ok, read.error)
+        self.assertFalse(read.partial)
+        by_number = {r["number"]: r for r in read.records}
+        self.assertEqual((by_number[4]["state"], by_number[4]["branch"]), ("merged", "feat/a"))
+        self.assertEqual(by_number[5]["checks"], {"total": 3, "red": 1, "pending": 1})
+        self.assertEqual(by_number[4]["checks"], {"total": 0, "red": 0, "pending": 0})   # closed: not asked
+        light, checks = self.gh_calls()
+        self.assertIn("--repo me/r", light)
+        self.assertIn("--state all", light)
+        self.assertIn("--limit %d" % git.PR_LIMIT, light)
+        self.assertNotIn("statusCheckRollup", light)
+        self.assertIn("--state open", checks)
+        self.assertIn("--limit 1", checks)                     # only as many as the light list holds open
+        self.assertIn("statusCheckRollup", checks)
+
+    def test_a_repo_with_no_open_prs_makes_one_gh_call(self):
+        self.prs("me/r", [{"number": 4, "title": "a", "headRefName": "feat/a", "state": "CLOSED", "isDraft": False,
                            "url": "https://github.com/me/r/pull/4", "updatedAt": "2026-10-20T00:00:00Z"}])
         read = git.prs("me/r")
-        self.assertTrue(read.ok)
-        self.assertEqual((read.records[0]["state"], read.records[0]["branch"]), ("merged", "feat/a"))
-        with open(os.path.join(self.stub, "calls")) as fh:
-            call = fh.read()
-        self.assertIn("--state all", call)
-        self.assertIn("--repo me/r", call)
+        self.assertTrue(read.ok, read.error)
+        self.assertEqual(len(self.gh_calls()), 1)
+
+    def test_a_504_is_retried_once(self):
+        self.prs("me/r", [{"number": 4, "title": "a", "headRefName": "feat/a", "state": "OPEN", "isDraft": False,
+                           "url": "https://github.com/me/r/pull/4", "updatedAt": "2026-10-20T00:00:00Z",
+                           "statusCheckRollup": [{"status": "COMPLETED", "conclusion": "SUCCESS"}]}])
+        self.write(os.path.join(self.stub, "gh-504"), "1")
+        read = git.prs("me/r")
+        self.assertTrue(read.ok, read.error)
+        self.assertEqual(read.records[0]["checks"], {"total": 1, "red": 0, "pending": 0})
+        self.assertEqual(len(self.gh_calls()), 3)              # light list twice, then the checks
+
+    def test_a_non_5xx_failure_is_not_retried(self):
+        self.write(os.path.join(self.stub, "gh-fail"), "1")
+        read = git.prs("me/r")
+        self.assertFalse(read.ok)
+        self.assertEqual(len(self.gh_calls()), 1)
+
+    def test_a_second_504_keeps_the_cached_prs_and_gives_the_banner(self):
+        repo, _ = self.git_repo("r", [])
+        self.workspace("s", facts={"REPO_PATH": repo, "REPO_SLUG": "me/r", "BRANCH": "feat/a"})
+        self.prs("me/r", [{"number": 4, "title": "a", "headRefName": "feat/a", "state": "OPEN", "isDraft": True,
+                           "url": "https://github.com/me/r/pull/4", "updatedAt": "2026-10-20T00:00:00Z"}])
+        api.refresh(force=True)
+        self.write(os.path.join(self.stub, "gh-504"), "2")
+        result = api.refresh(force=True)
+        state = [s for s in result.sources if s.source == "prs"][0]
+        self.assertEqual((state.ok, state.key), (False, "me/r"))
+        self.assertIn("504", state.error)
+        self.assertEqual(result.gone, 0)
+        pr = api.find_items(kind="pr", refresh=False).items[0]
+        self.assertEqual((pr.key, pr.data["state"], pr.gone), ("me/r#4", "open", False))
+        banners = [b for b in api.home().banners if b.source == "prs"]
+        self.assertEqual([b.key for b in banners], ["me/r"])
+        self.assertIn("PR states below are from", banners[0].text)
+
+    def test_a_checkout_with_no_github_remote_gets_no_pr_read_and_no_banner(self):
+        repo, _ = self.git_repo("r", [])
+        for slug in ("local only, no remote", "shapes-machina"):
+            self.workspace("s-" + slug.split(",")[0].replace(" ", "-"),
+                           facts={"REPO_PATH": repo, "REPO_SLUG": slug, "BRANCH": "feat/a"})
+        result = api.refresh(force=True)
+        self.assertEqual(self.gh_calls(), [])
+        self.assertEqual([s for s in result.sources if s.source == "prs" and not s.ok], [])
+        self.assertEqual([b for b in api.home().banners if b.source == "prs"], [])
+
+    def test_a_no_remote_banner_left_from_an_earlier_read_clears_on_the_next_refresh(self):
+        repo, _ = self.git_repo("r", [])
+        self.workspace("s", facts={"REPO_PATH": repo, "REPO_SLUG": "local only, no remote", "BRANCH": "feat/a"})
+        with store.write() as conn:
+            cache.put(conn, "prs", "local only, no remote", git.Read(False, [], "gh pr list exited 1: expected "
+                                                                      "the \"[HOST/]OWNER/REPO\" format"))
+        self.assertEqual(len([b for b in api.home().banners if b.source == "prs"]), 1)
+        api.refresh(force=True)
+        self.assertEqual([b for b in api.home().banners if b.source == "prs"], [])
+        self.assertEqual(self.gh_calls(), [])
 
     def test_a_failed_gh_read_keeps_last_good_pr_states_and_records_the_error(self):
         repo, _ = self.git_repo("r", [])

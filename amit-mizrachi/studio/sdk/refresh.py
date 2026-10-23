@@ -9,7 +9,7 @@ each stored and reconciled as it lands, so the home page never waits for them. W
 source, or a source with nothing stored yet, is being read, `reading()` names it.
 
 Repos come from the runs: each workspace's `REPO_PATH` gets a `git worktree list`, each
-`REPO_SLUG` one `gh pr list` (open and closed) per TTL.
+`REPO_SLUG` one PR read (open and closed; see `readers.git.prs`) per TTL.
 """
 
 import os
