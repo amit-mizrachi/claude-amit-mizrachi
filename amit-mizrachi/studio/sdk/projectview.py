@@ -15,6 +15,7 @@ import time
 
 from . import cache, items, model, store
 from .actions import run_session
+from .reconcile import WORKSPACE_KINDS
 from .home import GLYPHS, WORDS, _progress_text, _stage_bar, clock, pr_text
 from .results import ProjectView, ViewFold, ViewRow, ViewRun, ViewSession, ViewTile
 
@@ -97,17 +98,41 @@ def _runs_text(n):
     return "%d run%s" % (n, "" if n == 1 else "s")
 
 
+def tile_state(runs, runs_active, top_status):
+    """(status, text) for a project's runs: ("pending", "no runs"), ("running", "3 runs, 1 active"),
+    ("done", "2 runs done")."""
+    if not runs:
+        return "pending", "no runs"
+    if runs_active:
+        return top_status, "%s, %d active" % (_runs_text(runs), runs_active)
+    if top_status == "done":
+        return "done", "%s done" % _runs_text(runs)
+    return top_status or "unknown", _runs_text(runs)
+
+
 def view_tile(sub):
-    if not sub.runs:
-        status, text = "pending", "no runs"
-    elif sub.runs_active:
-        status, text = sub.top_status, "%s, %d active" % (_runs_text(sub.runs), sub.runs_active)
-    elif sub.top_status == "done":
-        status, text = "done", "%s done" % _runs_text(sub.runs)
-    else:
-        status, text = sub.top_status or "unknown", _runs_text(sub.runs)
+    status, text = tile_state(sub.runs, sub.runs_active, sub.top_status)
     glyph = "\u00b7" if status == "pending" else GLYPHS.get(status, "?")
     return ViewTile(project_id=sub.project.id, name=sub.project.name, status=status, glyph=glyph, text=text)
+
+
+def run_lines(conn, project_ids):
+    """Each project's night-run line, rolled up over its active sub-projects as its tile says it:
+    "running - 3 runs, 1 active", "done - 2 runs done", "no runs". The Inbox gets none."""
+    tree = model.Tree(conn)
+    marks = ",".join("?" * len(WORKSPACE_KINDS))
+    every = [items.to_run(items.to_item(dict(r), tree), [], [])
+             for r in conn.execute("SELECT * FROM items WHERE kind IN (%s)" % marks, WORKSPACE_KINDS)]
+    lines = {}
+    for pid in project_ids:
+        if pid == store.INBOX_ID:
+            continue
+        homes = set(items.subtree(tree, pid))
+        mine = items.rank_runs([r for r in every if r.project_id in homes])
+        active = sum(1 for r in mine if r.status in items.RUN_RANK)
+        status, text = tile_state(len(mine), active, mine[0].status if mine else None)
+        lines[pid] = text if status == "pending" else "%s - %s" % (status, text)
+    return lines
 
 
 # ---------------------------------------------------------------- folds

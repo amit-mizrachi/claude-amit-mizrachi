@@ -10,11 +10,29 @@ class StudioError(Exception):
 
     code = "error"
 
+    def to_dict(self):
+        """The error as JSON-ready fields: its `code`, its `message`, and any detail the class adds."""
+        return {"code": self.code, "message": str(self)}
+
 
 class NotFound(StudioError):
     """The id names no project (or no item) in the store."""
 
     code = "not_found"
+
+
+class Ambiguous(StudioError):
+    """A reference (an id prefix or a name) names more than one project or item. `candidates` lists
+    them, so the caller can pick one by its id."""
+
+    code = "ambiguous"
+
+    def __init__(self, message, candidates):
+        super().__init__(message)
+        self.candidates = candidates
+
+    def to_dict(self):
+        return dict(super().to_dict(), candidates=self.candidates)
 
 
 class InvalidInput(StudioError):

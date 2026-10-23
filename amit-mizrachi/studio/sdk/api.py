@@ -17,10 +17,11 @@ import os
 import tempfile
 from typing import Optional
 
-from . import actions, attach, home as homepage, inboxview, items, model, projectview, refresh as scan, server, store
+from . import (actions, attach, home as homepage, inboxview, items, model, projectview, refresh as scan, refs, server,
+               store)
 from .errors import InvalidInput
-from .results import (AttachResult, DeleteResult, Export, HomeState, InboxList, InboxView, ItemList, LinkResult,
-                      MoveChoices, MoveResult, OpenResult, Project, ProjectList, ProjectStatus, ProjectView,
+from .results import (AttachResult, DeleteResult, Export, HomeState, InboxList, InboxView, Item, ItemList,
+                      LinkResult, MoveChoices, MoveResult, OpenResult, Project, ProjectList, ProjectStatus, ProjectView,
                       PurgeResult, RefreshResult, Rule, RuleList, StudioServer, TerminalCommand, TerminalOpen)
 
 MAX_LIST_LIMIT = 1000
@@ -62,20 +63,41 @@ def create_project(name: str, parent_id: Optional[str] = None) -> Project:
 
 
 def list_projects(parent_id: Optional[str] = None, top_level: bool = False,
-                  include_archived: bool = False, limit: Optional[int] = None) -> ProjectList:
+                  include_archived: bool = False, limit: Optional[int] = None, with_runs: bool = False) -> ProjectList:
     """Projects in tree order (the Inbox first, then by path), at most `limit` of them.
 
     `parent_id` keeps only that project's direct sub-projects; `top_level` keeps only
     top-level projects. Archived projects, and everything under them, are left out unless
-    `include_archived`. `total` counts every match before the limit.
+    `include_archived`. `total` counts every match before the limit. `with_runs` also fills
+    `run_lines`: each shown project's night-run line, rolled up over its sub-projects.
     """
     parent_id = _optional_id(parent_id, "parent_id")
     top_level, include_archived = _flag(top_level, "top_level"), _flag(include_archived, "include_archived")
-    limit = _limit(limit)
+    limit, with_runs = _limit(limit), _flag(with_runs, "with_runs")
     with store.read() as conn:
         found = model.list_projects(conn, parent_id, top_level, include_archived)
-    shown, total, truncated = _page(found, limit)
-    return ProjectList(projects=shown, total=total, truncated=truncated)
+        shown, total, truncated = _page(found, limit)
+        lines = projectview.run_lines(conn, [p.id for p in shown]) if with_runs else {}
+    return ProjectList(projects=shown, total=total, truncated=truncated, run_lines=lines)
+
+
+def resolve_project(ref: str) -> Project:
+    """The project a person names: its exact id, then a unique id prefix (4+ characters, the `p_`
+    optional), then a case-insensitive exact name among active projects (archived ones, and those
+    under them, are left out). NotFound when nothing matches; Ambiguous, with `candidates`
+    ({id, name, parent_path}), when more than one does.
+    """
+    with store.read() as conn:
+        return refs.project(conn, ref)
+
+
+def resolve_item(ref: str) -> Item:
+    """The item a person names: its exact id or a unique id prefix (4+ characters, the `i_`
+    optional). No title matching: titles are not unique. NotFound when nothing matches; Ambiguous,
+    with `candidates` ({id, title, kind, project_path}), when more than one does.
+    """
+    with store.read() as conn:
+        return refs.item(conn, ref)
 
 
 def get_project(project_id: str) -> Project:

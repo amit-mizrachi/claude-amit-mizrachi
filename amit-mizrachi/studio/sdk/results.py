@@ -28,11 +28,13 @@ class Project:
 
 @dataclass
 class ProjectList:
-    """A bounded page of projects. `total` counts every match; `truncated` says some were cut."""
+    """A bounded page of projects. `total` counts every match; `truncated` says some were cut.
+    `run_lines` (only when asked for) maps a project id to its night-run line, "running - 3 runs, 1 active"."""
 
     projects: List[Project]
     total: int
     truncated: bool
+    run_lines: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
