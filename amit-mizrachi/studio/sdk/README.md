@@ -48,6 +48,10 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `list_rules(project_id=None)` / `delete_rule(rule_id)` | `RuleList` / `Rule` | Strongest signal first. |
 | `purge_gone(item_id=None)` | `PurgeResult` | Deletes gone items for good, only when asked. |
 | `attach_session(session_id, cwd, job_dir=None, entrypoint=None)` | `AttachResult` | The SessionStart hook: files a starting session by title > cwd > rule > Inbox over what the store holds, no reader run. Headless (`sdk*`) runs are skipped; a known session stays put. |
+| `home(refresh=False)` | `HomeState` | The studio's home page: cards in final order (needs-you, blocked, running, latest change), at most 3 runs per card with "+ n earlier runs", "2 inside", PR line, a banner per failed source (last-good states kept), `loading` before the first scan, `first_run` with no project. |
+| `open_studio()` | `StudioServer` | Starts `studio/web.py` on 127.0.0.1 unless one of this code version runs (`started` False); asks an older one to stop first. Never opens a browser. `StartFailed` after 5 s (see `studio.log`). |
+| `studio_status()` | `StudioServer` | The running studio, or `running` False. |
+| `stop_studio()` | `StudioServer` | POST /shutdown with the token, waits up to 5 s. Never kills. |
 
 The Inbox can't be moved, archived, deleted, linked, or hold sub-projects.
 
@@ -89,6 +93,7 @@ Results live in the store's `cache` table (`sdk/cache.py`), shared by every proc
 | `InvalidInput` | `invalid_input` | Wrong type, empty or over-long name, a limit out of range. |
 | `Refused` | `refused` | A rule says no: a cycle, a non-empty delete, the Inbox. |
 | `ReadOnlyStore` | `read_only` | The store was written by a newer SDK. |
+| `StartFailed` | `start_failed` | The studio web server did not come up (its log, `studio.log`, says why). |
 
 `Project` fields: `id`, `name`, `parent_id`, `path` (names from the top level down),
 `is_inbox`, `archived_at`, `created_at`, `updated_at` (ISO 8601 UTC), `child_count`,
@@ -107,3 +112,14 @@ them back; its drawing and display filter stay in night-watch.
 2. In `studio/mcp_server.py`, add one `TOOLS` entry (strict `inputSchema`, `outputSchema`,
    `annotations`) and one `HANDLERS` line that calls that function.
 3. Test the function through `sdk.api` and the tool over stdin/stdout.
+
+## The studio web server (ticket 04)
+
+`studio/web.py` is a thin adapter: one SDK call per route. `sdk/server.py` holds its lifecycle and
+guard. `server.json` in the data dir ({pid, port, version, token}, 0600) names the running server;
+the version hashes every studio source file's name, size and mtime, so a code change restarts it
+on the next open. It listens on 127.0.0.1 only (`$PROJECT_STUDIO_PORT`, else a free port), refuses
+any `Host` but `127.0.0.1:<port>` (403), refuses a POST without the token (`X-Studio-Token`) or
+with a foreign `Origin` (403), and stops after `$PROJECT_STUDIO_IDLE` seconds (default 1800) with
+no open page and no request. `bin/project-studio [open|status|stop]` and the `studio_open` MCP tool
+call `open_studio()`.
