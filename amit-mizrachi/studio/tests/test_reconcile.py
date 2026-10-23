@@ -76,6 +76,17 @@ class Reconcile(Sources):
         same = [i for i in api.find_items(include_gone=True, refresh=False, limit=1000).items if i.key == SID_D]
         self.assertEqual([(i.id, i.project_id) for i in same], [(filed.id, beta.id)])
 
+    def test_undo_of_a_wrong_drag_puts_an_auto_attached_item_back_on_its_run(self):
+        self.agents([agent(SID_A, "ns-%s-T02" % SLUG, "/x")])
+        found = self.items()
+        session, run = found[SID_A], found[self.ws]
+        beta, gamma = api.create_project("Beta"), api.create_project("Gamma")
+        api.move_item(run.id, beta.id)
+        back = api.undo_move(api.move_item(session.id, gamma.id).move_id)
+        self.assertEqual((back.item.project_id, back.item.placed_by), (beta.id, "title"))
+        api.move_item(run.id, gamma.id)
+        self.assertEqual(self.items()[SID_A].project_id, gamma.id)
+
     def test_an_unmatched_item_lands_in_the_inbox(self):
         self.agents([agent(SID_D, "stray", "/tmp/nowhere-in-particular")])
         stray = self.items()[SID_D]

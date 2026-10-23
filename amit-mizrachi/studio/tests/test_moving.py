@@ -83,6 +83,21 @@ class Drawer(Sources):
         api.delete_rule(rule.id)
         self.assertEqual(api.project_view(self.one.id).rules, [])
 
+    def test_undo_drops_the_rule_its_move_taught_and_keeps_an_older_one(self):
+        moved = api.move_item(self.by_key[SID_A].id, self.one.id)
+        self.assertTrue(api.save_rule_from_move(moved.move_id).created)
+        back = api.undo_move(moved.move_id)
+        self.assertEqual(back.message, "Moved back to Inbox. The rule was removed.")
+        api.refresh(force=True)
+        self.assertEqual(api.find_items(query="alpha", refresh=False).items[0].project_id, "inbox")
+        self.assertEqual(api.list_rules().rules, [])
+        older = api.save_rule_from_move(api.move_item(self.by_key[SID_B].id, self.one.id).move_id)
+        api.move_item(self.by_key[SID_B].id, "inbox")
+        again = api.move_item(self.by_key[SID_B].id, self.one.id)
+        self.assertFalse(api.save_rule_from_move(again.move_id).created)
+        self.assertEqual(api.undo_move(again.move_id).message, "Moved back to Inbox")
+        self.assertEqual([r.id for r in api.list_rules().rules], [older.id])
+
     def test_move_to_offers_every_project_but_its_own(self):
         offer = api.move_choices(self.by_key[SID_A].id)
         self.assertEqual((offer.kind, offer.revision), ("item", self.by_key[SID_A].revision))

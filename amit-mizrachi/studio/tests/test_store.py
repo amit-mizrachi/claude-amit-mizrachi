@@ -70,7 +70,7 @@ class Migration(TempHome):
                 conn.execute("INSERT INTO moves (item_id, from_project, to_project, revision, at) "
                              "VALUES ('i_aaaaaaaaaaaa', 'inbox', 'inbox', 2, 't')")
         with store.read() as conn:
-            self.assertEqual(store.version_of(conn), 2)
+            self.assertEqual(store.version_of(conn), store.SCHEMA_VERSION)
             move = dict(conn.execute("SELECT * FROM moves").fetchone())
             columns = [r[1] for r in conn.execute("PRAGMA table_info(projects)")]
         self.assertEqual((move["item_id"], move["project_id"], move["revision"]), ("i_aaaaaaaaaaaa", None, 2))

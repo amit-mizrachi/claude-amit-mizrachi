@@ -250,6 +250,7 @@ def export_document(conn, version):
                                        "ORDER BY created_at, id"),
         "links": _rows(conn, "SELECT a_id, b_id, created_at FROM links ORDER BY a_id, b_id"),
         "items": items,
-        "rules": _rows(conn, "SELECT id, project_id, signal, pattern, created_at FROM rules ORDER BY created_at, id"),
-        "moves": _rows(conn, "SELECT id, item_id, project_id, from_project, to_project, revision, at FROM moves ORDER BY id"),
+        "rules": _rows(conn, "SELECT id, project_id, signal, pattern, created_at, move_id FROM rules ORDER BY created_at, id"),
+        "moves": _rows(conn, "SELECT id, item_id, project_id, from_project, from_placed_by, to_project, revision, at FROM moves "
+                        "ORDER BY id"),
     }

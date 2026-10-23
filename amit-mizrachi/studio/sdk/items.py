@@ -184,9 +184,11 @@ def _move_row(conn, r, to_project, placed_by):
     return revision, followed
 
 
-def _record(conn, item_id, from_project, to_project, revision):
-    cur = conn.execute("INSERT INTO moves (item_id, from_project, to_project, revision, at) VALUES (?, ?, ?, ?, ?)",
-                       (item_id, from_project, to_project, revision, store.now_iso()))
+def _record(conn, r, to_project, revision):
+    """Record a move of item row `r` (as it was before the move) for Undo. Returns the move id."""
+    cur = conn.execute("INSERT INTO moves (item_id, from_project, from_placed_by, to_project, revision, at) "
+                       "VALUES (?, ?, ?, ?, ?, ?)",
+                       (r["id"], r["project_id"], r["placed_by"], to_project, revision, store.now_iso()))
     return cur.lastrowid
 
 
@@ -215,7 +217,7 @@ def move(conn, item_id, to_project, expected_revision, placed_by="manual"):
                           to_project_id=to_project, rule_preview=preview(r, to_project),
                           message="Already in %s" % tree.rows[to_project]["name"])
     revision, followed = _move_row(conn, r, to_project, placed_by)
-    move_id = _record(conn, item_id, r["project_id"], to_project, revision)
+    move_id = _record(conn, r, to_project, revision)
     return MoveResult(item=to_item(row(conn, item_id), tree), project=None, move_id=move_id,
                       from_project_id=r["project_id"], to_project_id=to_project, followed=followed,
                       rule_preview=preview(r, to_project), message=moved_to(tree, to_project))
@@ -265,12 +267,14 @@ def undo(conn, move_id):
     if m["from_project"] not in tree.rows:
         raise Refused("Can't undo: the project %s came from no longer exists." % r["title"])
     _target(tree, m["from_project"])
-    placed_by = "inbox" if m["from_project"] == store.INBOX_ID else "manual"
+    placed_by = m["from_placed_by"] or ("inbox" if m["from_project"] == store.INBOX_ID else "manual")
     revision, followed = _move_row(conn, r, m["from_project"], placed_by)
-    new_id = _record(conn, r["id"], m["to_project"], m["from_project"], revision)
+    new_id = _record(conn, r, m["from_project"], revision)
+    dropped = conn.execute("DELETE FROM rules WHERE move_id = ?", (m["id"],)).rowcount   # its "Always file" rule
+    message = moved_to(tree, m["from_project"], back=True) + (". The rule was removed." if dropped else "")
     return MoveResult(item=to_item(row(conn, r["id"]), tree), project=None, move_id=new_id,
                       from_project_id=m["to_project"], to_project_id=m["from_project"], followed=followed,
-                      message=moved_to(tree, m["from_project"], back=True))
+                      message=message)
 
 
 # ---------------------------------------------------------------- adding by hand
@@ -393,8 +397,8 @@ def save_rule(conn, move_id):
         return to_rule(dict(same), tree)
     rule = {"id": rules.new_rule_id(), "project_id": m["to_project"], "signal": found[0], "pattern": found[1],
             "created_at": store.now_iso()}
-    conn.execute("INSERT INTO rules (id, project_id, signal, pattern, created_at) VALUES (?, ?, ?, ?, ?)",
-                 (rule["id"], rule["project_id"], rule["signal"], rule["pattern"], rule["created_at"]))
+    conn.execute("INSERT INTO rules (id, project_id, signal, pattern, created_at, move_id) VALUES (?, ?, ?, ?, ?, ?)",
+                 (rule["id"], rule["project_id"], rule["signal"], rule["pattern"], rule["created_at"], m["id"]))
     return to_rule(rule, tree, created=True)
 
 

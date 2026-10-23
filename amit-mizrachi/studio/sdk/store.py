@@ -25,7 +25,7 @@ from urllib.parse import quote
 
 from .errors import ReadOnlyStore
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 INBOX_ID = "inbox"
 INBOX_NAME = "Inbox"
 DB_NAME = "studio.db"
@@ -132,9 +132,16 @@ def _schema_v2(conn):
     conn.execute("ALTER TABLE moves_v2 RENAME TO moves")
 
 
+def _schema_v3(conn):
+    """Undo puts an item back as it was: a move keeps the placement it replaced (`from_placed_by`),
+    and a rule learned from a move keeps that move's id (`move_id`), so undoing the move drops it."""
+    conn.execute("ALTER TABLE moves ADD COLUMN from_placed_by TEXT")
+    conn.execute("ALTER TABLE rules ADD COLUMN move_id INTEGER")
+
+
 # version -> the step that takes a store from version - 1 to version. Steps run in order, all
 # inside one BEGIN IMMEDIATE, after a file backup of the old store.
-MIGRATIONS = {1: _schema_v1, 2: _schema_v2}
+MIGRATIONS = {1: _schema_v1, 2: _schema_v2, 3: _schema_v3}
 
 
 class Store(object):
