@@ -55,7 +55,8 @@ every command, its options and an example.
 | `rule-delete` | `project-studio rule-delete r_1a2b3c4d5e6f` | delete one rule; what it filed stays |
 | `export` | `project-studio export ~/studio.json` | the whole store as JSON, printed or written to a file |
 | `purge` | `project-studio purge` | delete gone items for good (one, or all) |
-| `terminal` | `project-studio terminal i_1a2b3c4d` | Open in Terminal; asks y/N when the session may be open elsewhere |
+| `terminal` | `project-studio terminal i_1a2b3c4d` | Open in Terminal (in your terminal app, see `settings`); asks y/N when the session may be open elsewhere |
+| `settings` | `project-studio settings terminal iTerm` | print the settings, or set one: `terminal` is `Terminal`, `iTerm` or `default` |
 | `command` | `eval "$(project-studio command i_1a2b3c4d)"` | print only the command that opens a session again |
 | `open-item` | `project-studio open-item i_1a2b3c4d --target plan` | open a URL, folder or file with `open` |
 
@@ -64,6 +65,21 @@ name (any case, active projects only); an item is its id or a unique id prefix. 
 name lists the candidates. A move (`file`, `add` of a known item, `accept`, `nest`, `remove`,
 `undo`) prints `Move <id>. Undo: project-studio undo <id>`. An `add` that creates a new item is
 not a move; it prints the `remove` command instead.
+
+**Your terminal app.** Open in Terminal (the page's button and the `terminal` command alike)
+opens a session in the app the `terminal` setting names. With no setting
+(the default) it runs `open <file>.command`, which macOS gives to Terminal. To change it, a person
+or their Claude runs one command; "set my Project Studio terminal to iTerm" means:
+
+```
+project-studio settings terminal iTerm      # or Terminal; `default` clears it
+project-studio settings                     # prints the current value
+```
+
+iTerm gets a new window with its default profile, and the `.command` file runs in it. The first
+time, macOS asks once to let the studio control iTerm. A name the studio does not know is refused;
+an unknown name written into `settings.json` by hand falls back to Terminal, and the message says so.
+A running web server reads the setting on each open, so no restart is needed.
 
 **The `--json` contract.** `--json` goes before or after the command. On success stdout is
 `to_dict(result)` with sorted keys: the same shape the MCP tools and the web routes return.
@@ -118,6 +134,7 @@ that item's source failed to read: never report such an item as gone.
     so the MCP servers of several sessions, the web server and the hook share it safely.
   - `backups/` - a copy of the store before each schema migration.
   - `server.json` (0600) - the running web server's pid, port, version and token.
+  - `settings.json` (0600) - the person's settings: `{"terminal": "iTerm"}`; no file means the defaults.
   - `studio.log` - the web server's log.
   - `open/` - the `.command` files Open in Terminal writes.
 - Nothing is purged by itself. An item whose source no longer lists it is marked gone (and keeps

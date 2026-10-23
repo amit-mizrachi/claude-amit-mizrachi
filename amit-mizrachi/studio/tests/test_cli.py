@@ -425,6 +425,18 @@ class ChangeCommands(Cli):
             self.assertIn("[y/N]", err)
             self.assertEqual(len([c for c in self.calls() if c.startswith("open ")]), opens)
 
+    def test_settings_terminal_prints_sets_and_clears(self):
+        item = self.session_to_open()
+        self.assertEqual(self.ok("settings"), "Terminal: default (the app that opens .command files)\n")
+        self.assertIn("Terminal: iTerm.", self.ok("settings", "terminal", "iTerm"))
+        self.assertEqual(self.json_ok("--json", "settings", "terminal")["terminal"], "iTerm")
+        self.assertEqual(self.ok("terminal", item.id).splitlines()[0], "Opened in iTerm:")
+        code, _, err = self.run_cli("settings", "terminal", "Warp")
+        self.assertEqual(code, 1)
+        self.assertIn("invalid_input: Unknown terminal 'Warp'", err)
+        self.ok("settings", "terminal", "default")
+        self.assertEqual(self.json_ok("--json", "settings")["terminal"], "")
+
     def test_open_item_opens_a_url_with_the_open_stub(self):
         self.tree()
         api.add_item("artifact", "https://claude.ai/artifact/abc", self.alpha.id)
@@ -440,6 +452,6 @@ class ChangeCommands(Cli):
     def test_help_lists_every_change_command(self):
         text = self.ok("help")
         for name in ("create", "rename", "archive", "delete", "nest", "link", "add", "file", "undo", "remove",
-                     "accept", "rule-save", "rule-delete", "export", "purge", "terminal", "command", "open-item"):
+                     "accept", "rule-save", "rule-delete", "export", "purge", "terminal", "settings", "command", "open-item"):
             self.assertIn("  %s " % name, text)
         self.assertIn("missing --yes", text)

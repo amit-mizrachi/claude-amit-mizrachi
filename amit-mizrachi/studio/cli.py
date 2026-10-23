@@ -229,6 +229,10 @@ def text_open_item(result):
     return [result.message]
 
 
+def text_settings(result):
+    return [result.message]
+
+
 # ---------------------------------------------------------------- commands
 
 class NeedsYes(Exception):
@@ -404,6 +408,15 @@ def run_terminal(args):
     return api.open_in_terminal(item_id, confirmed=True)
 
 
+def setup_settings(parser):
+    parser.add_argument("name", nargs="?", choices=("terminal",), help="the setting: terminal")
+    parser.add_argument("value", nargs="?", help="the new value: Terminal, iTerm or default; leave out to print it")
+
+
+def run_settings(args):
+    return api.set_terminal(args.value) if args.value is not None else api.settings()
+
+
 def setup_open_item(parser):
     add_item_arg(parser)
     parser.add_argument("--target", choices=("default", "plan", "pr"), default="default",
@@ -469,8 +482,11 @@ COMMANDS = [
             setup_export, lambda a: api.export_json(a.dest), text_export),
     Command("purge", "Delete gone items for good: one, or every gone item.", "project-studio purge", setup_purge,
             lambda a: api.purge_gone(item_ref(a.item) if a.item else None), text_purge),
-    Command("terminal", "Open a session (or a night run's live session) in Terminal. Asks y/N when it may be open.",
+    Command("terminal", "Open a session (or a night run's live session) in your terminal app (see settings). "
+            "Asks y/N when it may be open.",
             "project-studio terminal i_1a2b3c4d", setup_terminal, run_terminal, text_terminal),
+    Command("settings", "Print or set a setting. terminal: the app Open in Terminal uses (Terminal, iTerm, default).",
+            "project-studio settings terminal iTerm", setup_settings, run_settings, text_settings),
     Command("command", "Print only the command that opens a session again, for $(...) and scripts.",
             "project-studio command i_1a2b3c4d", lambda p: add_item_arg(p),
             lambda a: api.terminal_command(item_ref(a.item)), text_command),

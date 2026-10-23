@@ -19,11 +19,12 @@ import tempfile
 from typing import Optional
 
 from . import (actions, attach, home as homepage, inboxview, items, model, projectview, refresh as scan, refs, server,
-               store)
+               settings as user_settings, store)
 from .errors import InvalidInput
 from .results import (AttachResult, DeleteResult, Export, HomeState, InboxList, InboxView, Item, ItemList,
                       LinkResult, MoveChoices, MoveResult, OpenResult, Project, ProjectList, ProjectStatus, ProjectView,
-                      PurgeResult, RefreshResult, Rule, RuleList, StudioServer, TerminalCommand, TerminalOpen)
+                      PurgeResult, RefreshResult, Rule, RuleList, Settings, StudioServer, TerminalCommand,
+                      TerminalOpen)
 
 MAX_LIST_LIMIT = 1000
 
@@ -440,14 +441,32 @@ def terminal_command(item_id: str) -> TerminalCommand:
 
 
 def open_in_terminal(item_id: str, confirmed: bool = False) -> TerminalOpen:
-    """Open a session (or a night run's live session) in Terminal: write the `terminal_command` to
-    `<data dir>/open/<item id>.command` (mode 0700) and run `open <file>`. When that fails, the
+    """Open a session (or a night run's live session) in a terminal: write the `terminal_command` to
+    `<data dir>/open/<item id>.command` (mode 0700) and open it in the `terminal` setting's app
+    (`settings()`): by default `open <file>` (Terminal), or Terminal or iTerm by name. A setting
+    it does not know falls back to Terminal and the message says so. When the open fails, the
     command goes to the clipboard (`copied`). A resume whose transcript changed in the last
     5 minutes runs nothing and returns `needs_confirm` until called with `confirmed` True.
     It never stops, kills or removes a session.
     """
     confirmed = _flag(confirmed, "confirmed")
     return actions.open_in_terminal(terminal_command(item_id), confirmed)
+
+
+def settings() -> Settings:
+    """The person's settings, from `<data dir>/settings.json`. `terminal` is the app Open in
+    Terminal uses: "Terminal", "iTerm", or "" for the default (the app that opens .command files).
+    """
+    return user_settings.current()
+
+
+def set_terminal(app: str) -> Settings:
+    """Set the app Open in Terminal uses: "Terminal" or "iTerm" (any case; "iTerm2" and
+    "Terminal.app" work too), or "default" to clear it. Refused (`InvalidInput`) for any other name.
+    """
+    if not isinstance(app, str):
+        raise InvalidInput("app must be a string.")
+    return user_settings.set_terminal(app)
 
 
 def open_target(item_id: str, target: str = "default") -> OpenResult:

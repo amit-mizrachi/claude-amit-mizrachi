@@ -475,14 +475,27 @@ class TerminalCommand:
 
 @dataclass
 class TerminalOpen:
-    """What Open in Terminal did. `opened`: `open <file>.command` worked. Else `copied` says the
-    command went to the clipboard. `needs_confirm`: nothing ran; ask, then call again confirmed."""
+    """What Open in Terminal did. `opened`: the terminal app took the .command file. Else `copied`
+    says the command went to the clipboard. `needs_confirm`: nothing ran; ask, then call again
+    confirmed. `app` is the app it went to: the `terminal` setting, or "" for the default."""
 
     command: TerminalCommand
     opened: bool
     copied: bool
     needs_confirm: bool
     path: Optional[str]             # the .command file, when one was written
+    message: str
+    app: str = ""
+
+
+@dataclass
+class Settings:
+    """The person's settings (`<data dir>/settings.json`). `terminal` is the app Open in Terminal
+    uses: "Terminal", "iTerm", or "" for the default (the app that opens .command files)."""
+
+    terminal: str
+    terminals: List[str]            # the names `set_terminal` takes
+    path: str
     message: str
 
 

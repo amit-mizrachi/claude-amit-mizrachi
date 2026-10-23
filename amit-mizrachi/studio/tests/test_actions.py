@@ -1,6 +1,6 @@
 """Open in Terminal, the open actions, the project view and the header actions, through the public SDK.
 
-`claude`, `open` and `pbcopy` are stubbed on PATH (tests/stubs): nothing opens on this Mac.
+`claude`, `open`, `osascript` and `pbcopy` are stubbed on PATH (tests/stubs): nothing opens on this Mac.
 """
 
 import os
@@ -8,7 +8,7 @@ import re
 import shlex
 import time
 
-from sdk import actions, api, store
+from sdk import actions, api, settings, store
 from sdk.errors import InvalidInput, NotFound, Refused
 
 from . import STUDIO
@@ -141,6 +141,62 @@ class OpenInTerminal(Studio):
         self.assertEqual([c for c in self.calls() if c.startswith("open ")], [])
         done = api.open_in_terminal(self.item.id, confirmed=True)
         self.assertTrue(done.opened)
+
+
+class TerminalSetting(Studio):
+    """The `terminal` setting picks the app Open in Terminal uses; no setting keeps `open <file>`."""
+
+    def setUp(self):
+        super().setUp()
+        self.old(self.transcript(SID_B, self.mkdir("work"), kind="interactive", title="Plan it"))
+        self.item = self.items()[SID_B]
+
+    def test_no_setting_is_the_default_and_keeps_open(self):
+        self.assertEqual((api.settings().terminal, api.settings().terminals), ("", ["Terminal", "iTerm"]))
+        done = api.open_in_terminal(self.item.id)
+        self.assertEqual((done.opened, done.app, done.message), (True, "", "Opened in Terminal:"))
+        self.assertEqual(self.calls()[-1], "open %s" % done.path)
+
+    def test_iterm_gets_the_quoted_command_file_through_a_fixed_script(self):
+        self.assertEqual(api.set_terminal("iterm2").terminal, "iTerm")
+        done = api.open_in_terminal(self.item.id)
+        self.assertEqual((done.opened, done.app, done.message), (True, "iTerm", "Opened in iTerm:"))
+        self.assertEqual(self.calls()[-1], "osascript %s" % shlex.quote(done.path))
+        argv = actions.launch_argv("iTerm", "/a b/i_1.command")
+        self.assertEqual((argv[0], argv[-1]), ("osascript", "'/a b/i_1.command'"))
+        script = argv[2:-1:2]
+        self.assertIn("set w to (create window with default profile)", script)
+        self.assertIn("tell current session of w to write text (item 1 of argv)", script)
+
+    def test_terminal_by_name_opens_with_open_a_terminal(self):
+        api.set_terminal("Terminal.app")
+        done = api.open_in_terminal(self.item.id)
+        self.assertEqual((done.app, done.message), ("Terminal", "Opened in Terminal:"))
+        self.assertEqual(self.calls()[-1], "open -a Terminal %s" % done.path)
+
+    def test_a_failed_iterm_copies_the_command(self):
+        api.set_terminal("iTerm")
+        self.flag("osascript-fail")
+        done = api.open_in_terminal(self.item.id)
+        self.assertEqual((done.opened, done.copied), (False, True))
+        self.assertEqual(done.message, "Could not open iTerm. Command copied:")
+
+    def test_an_unknown_name_in_the_file_falls_back_to_terminal_and_says_so(self):
+        settings.write({"terminal": "Warp"})
+        done = api.open_in_terminal(self.item.id)
+        self.assertTrue(done.opened)
+        self.assertTrue(done.message.startswith("Unknown terminal 'Warp' in "), done.message)
+        self.assertTrue(done.message.endswith("using Terminal. Opened in Terminal:"), done.message)
+        self.assertEqual(self.calls()[-1], "open -a Terminal %s" % done.path)
+
+    def test_set_refuses_an_unknown_name_and_default_clears(self):
+        with self.assertRaises(InvalidInput):
+            api.set_terminal("Warp")
+        self.assertEqual(api.settings().terminal, "")
+        api.set_terminal("ITERM")
+        self.assertEqual(os.stat(settings.path()).st_mode & 0o777, 0o600)
+        self.assertEqual(api.set_terminal("default").terminal, "")
+        self.assertEqual(settings.read(), {})
 
 
 class OpenTarget(Studio):

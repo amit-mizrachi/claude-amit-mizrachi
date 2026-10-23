@@ -9,9 +9,12 @@ Rules kept here:
   (`open -R`), so a stored path never runs a program.
 - A session opens again with `claude attach <short>` when `claude agents` lists it, else with
   `cd <recorded cwd> && claude --resume <session id>`. Every value is pattern-checked and
-  shlex-quoted, then written to `<data dir>/open/<item id>.command` (mode 0700) and run with
-  `open <file>`, which hands it to whatever app opens .command files (Terminal).
-- When `open` fails, the command goes to the clipboard (`pbcopy`) and the message says so.
+  shlex-quoted, then written to `<data dir>/open/<item id>.command` (mode 0700) and opened in the
+  `terminal` setting's app (sdk/settings.py): by default `open <file>`, which hands it to whatever
+  app opens .command files (Terminal); `open -a Terminal <file>`; or for iTerm, `osascript` with a
+  fixed script that opens a new window with the default profile and writes the file's quoted path
+  into it (the path is the script's argument, never part of the script).
+- When the open fails, the command goes to the clipboard (`pbcopy`) and the message says so.
 - A resume of a session whose transcript changed in the last 5 minutes is confirmed once first.
 - Nothing here stops, kills or removes anything.
 """
@@ -23,7 +26,7 @@ import subprocess
 import time
 from urllib.parse import urlparse
 
-from . import store
+from . import settings, store
 from .errors import InvalidInput, Refused
 from .items import SESSION_KEY, row as item_row
 from .readers import commands, sessions as session_reader
@@ -37,6 +40,9 @@ OPEN_TIMEOUT = 10
 TARGETS = ("default", "plan", "pr")
 BUNDLE_EXTENSIONS = (".app", ".bundle", ".framework", ".prefpane", ".saver", ".workflow", ".action")   # `open` runs these
 VIEW_EXTENSIONS = (".html", ".htm", ".md", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".txt", ".json", ".log")
+ITERM_SCRIPT = ('on run argv', 'tell application "iTerm"', 'activate',
+                'set w to (create window with default profile)',
+                'tell current session of w to write text (item 1 of argv)', 'end tell', 'end run')
 
 
 # ---------------------------------------------------------------- Open in Terminal
@@ -141,23 +147,37 @@ def copy(text):
     return done.returncode == 0
 
 
+def launch_argv(app, path):
+    """The argv that opens the .command file at `path` in `app` ("" = the default app)."""
+    if app == "iTerm":
+        return ["osascript"] + [arg for line in ITERM_SCRIPT for arg in ("-e", line)] + [shlex.quote(path)]
+    if app == "Terminal":
+        return ["open", "-a", "Terminal", path]
+    return ["open", path]
+
+
 def open_in_terminal(cmd, confirmed):
-    """Run `open <file>.command` for a built command; on failure copy it. Asks first when `confirm`."""
+    """Open the .command file of a built command in the `terminal` setting's app; on failure copy
+    the command. Asks first when `confirm`."""
     if cmd.confirm and not confirmed:
         return TerminalOpen(command=cmd, opened=False, copied=False, needs_confirm=True, path=None,
                             message=cmd.confirm)
+    app, note = settings.terminal()
+    name = app or "Terminal"
+    note = note + " " if note else ""
     path, opened = None, False
     try:
         path = write_command_file(cmd.item_id, cmd.command)
-        opened = commands.run(["open", path], timeout=OPEN_TIMEOUT)[0]
+        opened = commands.run(launch_argv(app, path), timeout=OPEN_TIMEOUT)[0]
     except OSError:
         opened = False
     if opened:
         return TerminalOpen(command=cmd, opened=True, copied=False, needs_confirm=False, path=path,
-                            message="Opened in Terminal:")
+                            message="%sOpened in %s:" % (note, name), app=app)
     copied = copy(cmd.command)
-    message = "Could not open Terminal. Command copied:" if copied else "Could not open Terminal. Copy this command:"
-    return TerminalOpen(command=cmd, opened=False, copied=copied, needs_confirm=False, path=path, message=message)
+    message = "%sCould not open %s. %s:" % (note, name, "Command copied" if copied else "Copy this command")
+    return TerminalOpen(command=cmd, opened=False, copied=copied, needs_confirm=False, path=path, message=message,
+                        app=app)
 
 
 # ---------------------------------------------------------------- open a URL or a path
