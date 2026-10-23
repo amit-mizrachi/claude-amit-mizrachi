@@ -95,7 +95,8 @@ class Hub(object):
         self.clients = set()
         self.last = time.time()
         self.seen = None
-        self.wake = threading.Event()
+        self.wake = threading.Event()           # run() waits on and clears this one
+        self.refresh_wake = threading.Event()   # refresh() waits on and clears this one
 
     def touch(self):
         self.last = time.time()
@@ -105,6 +106,7 @@ class Hub(object):
         with self.lock:
             self.clients.add(q)
         self.wake.set()
+        self.refresh_wake.set()
         return q
 
     def leave(self, q):
@@ -126,7 +128,8 @@ class Hub(object):
         back a state frame."""
         while True:
             if not self.clients:
-                self.wake.wait(POLL)
+                self.refresh_wake.wait(POLL)
+                self.refresh_wake.clear()
                 continue
             try:
                 api.refresh()

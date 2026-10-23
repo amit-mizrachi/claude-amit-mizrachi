@@ -6,7 +6,10 @@ import json
 import os
 import re
 import socket
+import threading
+import time
 
+import web
 from sdk import api, server
 
 from . import STUDIO
@@ -131,3 +134,16 @@ class Web(TempHome):
         self.assertFalse(stopped.running)
         self.assertIsNone(server.read_info())
         self.assertFalse(api.studio_status().running)
+
+
+class RefreshThread(TempHome):
+    def test_the_refresh_thread_sleeps_once_every_page_is_gone(self):
+        hub = web.Hub(idle=60)
+        waits = []
+        wait = hub.refresh_wake.wait
+        hub.refresh_wake.wait = lambda timeout: waits.append(timeout) or wait(timeout)
+        hub.leave(hub.join())   # join sets both events; run() has not cleared its own one
+        threading.Thread(target=hub.refresh, daemon=True).start()
+        time.sleep(0.3)
+        self.assertLessEqual(len(waits), 2, "the refresh thread spins on a set event")
+        self.assertFalse(hub.refresh_wake.is_set())
