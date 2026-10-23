@@ -96,3 +96,15 @@ class NewerStore(TempHome):
             self.assertEqual(opened.version, store.SCHEMA_VERSION + 1)
         finally:
             opened.close()
+
+    def test_default_reads_still_answer_from_a_newer_store(self):
+        alpha = api.create_project("Alpha")
+        conn = sqlite3.connect(store.db_path())
+        conn.execute("UPDATE schema_version SET version = 99")
+        conn.commit()
+        conn.close()
+        self.assertEqual(api.project_status("inbox").project.id, "inbox")
+        self.assertEqual(api.project_status(alpha.id).project.name, "Alpha")
+        self.assertEqual(api.find_items().total, 0)
+        with self.assertRaises(ReadOnlyStore):
+            api.refresh()

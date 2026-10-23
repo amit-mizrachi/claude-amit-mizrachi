@@ -49,7 +49,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 from sdk import api, server  # noqa: E402
-from sdk.errors import StudioError  # noqa: E402
+from sdk.errors import ReadOnlyStore, StudioError  # noqa: E402
 from sdk.results import to_dict  # noqa: E402
 
 STATIC = os.path.join(HERE, "static")
@@ -133,7 +133,10 @@ class Hub(object):
                 self.wake.clear()
                 continue
             try:
-                api.refresh()
+                try:
+                    api.refresh()
+                except ReadOnlyStore:   # a newer SDK's store: show what it holds, refresh nothing
+                    pass
                 text, key = home_json()
             except Exception as exc:   # one bad poll must not end the live view
                 log("poll failed: %r" % (exc,))

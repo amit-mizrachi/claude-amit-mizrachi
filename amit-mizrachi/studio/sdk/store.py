@@ -232,15 +232,20 @@ def read():
         store.close()
 
 
+def read_only_error(version):
+    """The `ReadOnlyStore` a write to a store stamped `version` (newer than this SDK) raises."""
+    return ReadOnlyStore("The store at %s was written by a newer Project Studio (schema v%d); this one "
+                         "knows v%d, so it can only read it. Update the amit-mizrachi plugin."
+                         % (db_path(), version, SCHEMA_VERSION))
+
+
 @contextmanager
 def write():
     """A connection inside one BEGIN IMMEDIATE transaction: committed on success, rolled back on error."""
     store = open_store()
     try:
         if store.read_only:
-            raise ReadOnlyStore("The store at %s was written by a newer Project Studio (schema v%d); this one "
-                                "knows v%d, so it can only read it. Update the amit-mizrachi plugin."
-                                % (db_path(), store.version, SCHEMA_VERSION))
+            raise read_only_error(store.version)
         store.conn.execute("BEGIN IMMEDIATE")
         try:
             yield store.conn

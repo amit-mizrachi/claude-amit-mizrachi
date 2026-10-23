@@ -179,7 +179,7 @@ def refresh(force: bool = False) -> RefreshResult:
 
 def _maybe_refresh(fresh):
     if _flag(fresh, "refresh"):
-        scan.refresh()
+        scan.refresh(strict=False)
 
 
 def find_items(query: Optional[str] = None, kind: Optional[str] = None, project_id: Optional[str] = None,

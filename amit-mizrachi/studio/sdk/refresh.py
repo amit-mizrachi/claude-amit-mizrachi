@@ -16,6 +16,8 @@ from .inventory import Inventory
 from .readers import git, runs, sessions
 from .reconcile import WORKSPACE_KINDS, item_data, reconcile
 
+NO_CHANGES = {"added": 0, "filed": 0, "gone": 0, "back": 0}
+
 
 class Plan(object):
     """The reads one refresh makes, as (source, key, callable) in order."""
@@ -86,16 +88,25 @@ def run_reads(entries, folders, repo_paths, now, force):
     return done
 
 
-def refresh(force=False):
+def refresh(force=False, strict=True):
     """Read what is due (everything when `force`), store it, reconcile. Returns
-    (reads made as [(source, key, ok)], reconcile counts, every cache entry after)."""
+    (reads made as [(source, key, ok)], reconcile counts, every cache entry after).
+
+    A store written by a newer SDK is read-only: `strict` raises `ReadOnlyStore` before any read,
+    otherwise nothing is read and the current entries come back, so a read that refreshes first
+    still returns the stored data."""
     now = time.time()
     with store.read() as conn:
+        version = store.version_of(conn)
         entries = cache.entries(conn)
         folders, repo_paths = _known(conn)
+    if version > store.SCHEMA_VERSION:
+        if strict:
+            raise store.read_only_error(version)
+        return [], dict(NO_CHANGES), entries
     done = run_reads(entries, folders, repo_paths, now, force)
     if not done:
-        return [], {"added": 0, "filed": 0, "gone": 0, "back": 0}, entries
+        return [], dict(NO_CHANGES), entries
     with store.write() as conn:
         before = cache.entries(conn)
         for source, key, read in done:
