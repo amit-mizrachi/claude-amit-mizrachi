@@ -4,6 +4,7 @@ token/Origin guards, /state, the first SSE event, and the page script writing te
 import http.client
 import json
 import os
+import re
 import socket
 
 from sdk import api, server
@@ -94,6 +95,17 @@ class Web(TempHome):
         self.assertEqual(self.request("GET", "/static/app.js")[0], 200)
         self.assertEqual(self.request("GET", "/static/app.css")[0], 200)
         self.assertEqual(self.request("GET", "/static/../web.py")[0], 404)
+
+    def test_a_long_run_bar_shrinks_to_fit_its_card(self):
+        """A 17-ticket run's bar was 17 fixed 14px segments and ran out of the card (dogfood, T05)."""
+        css = self.request("GET", "/static/app.css")[1].decode()
+        bar = re.search(r"\.bar\{([^}]*)\}", css).group(1)
+        segment = re.search(r"\.bar i\{([^}]*)\}", css).group(1)
+        self.assertIn("min-width:0", bar)
+        self.assertIn("minmax(0,1fr)", re.search(r"\.run\{([^}]*)\}", css).group(1))
+        self.assertNotIn("flex:none", bar)
+        self.assertIn("width:14px;flex:0 1 auto", segment)
+        self.assertIn(".run .st span:not(.bar){flex:none}", css)   # the words keep their width, the bar gives
 
     def test_the_first_event_is_a_full_snapshot(self):
         api.create_project("Alpha")

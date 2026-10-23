@@ -42,12 +42,12 @@ body{margin:0;font:var(--font-size-2)/var(--line-height-2) var(--font);color:var
 .card.attn{border-color:var(--violet-9);box-shadow:inset 3px 0 0 var(--violet-9)}.card.bad{box-shadow:inset 3px 0 0 var(--red-9)}
 .ct{display:flex;align-items:center;gap:var(--space-2);min-width:0}.ct h4{margin:0;font-size:var(--font-size-3);line-height:var(--line-height-3);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
 .sub{color:var(--text-2);font-size:var(--font-size-1);white-space:nowrap}
-.run{display:grid;grid-template-columns:16px 1fr auto;column-gap:var(--space-2);row-gap:2px;align-items:center}
+.run{display:grid;grid-template-columns:16px minmax(0,1fr) auto;column-gap:var(--space-2);row-gap:2px;align-items:center}
 .run .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}.run .st{font-size:var(--font-size-1);color:var(--text-2);grid-column:2/4;display:flex;gap:var(--space-2);align-items:center;min-width:0}
-.run .st span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.run .st span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.run .st span:not(.bar){flex:none}
 .g{font-size:13px;text-align:center;font-weight:700}.g.run_{color:var(--amber-11)}.g.done{color:var(--green-9)}.g.wait{color:var(--violet-9)}.g.blk{color:var(--red-9)}.g.pend{color:var(--slate-9)}.g.stale{color:var(--slate-11)}
 .w{font-weight:600}.w.run_{color:var(--amber-11)}.w.done{color:var(--green-11)}.w.wait{color:var(--violet-11)}.w.blk{color:var(--red-11)}
-.bar{display:inline-flex;gap:2px;flex:none}.bar i{width:14px;height:6px;border-radius:2px;background:var(--bg-ui);border:1px solid var(--border)}
+.bar{display:inline-flex;gap:2px;flex:0 1 auto;min-width:0}.bar i{width:14px;flex:0 1 auto;min-width:3px;height:6px;border-radius:2px;background:var(--bg-ui);border:1px solid var(--border)}
 .bar i.d{background:var(--green-9);border-color:var(--green-9)}.bar i.r{background:var(--amber-9);border-color:var(--amber-11)}.bar i.b{background:var(--red-9);border-color:var(--red-9)}.bar i.w{background:var(--violet-9);border-color:var(--violet-9)}
 .pr{font-size:var(--font-size-1);color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pr b{font-weight:600;color:var(--text)}
 .none{color:var(--text-2);font-size:var(--font-size-1)}
