@@ -6,6 +6,8 @@ below the public API.
 
 import os
 import sqlite3
+import threading
+import time
 from unittest import mock
 
 from sdk import api, store
@@ -36,6 +38,25 @@ class FreshStore(TempHome):
                 conn.execute("INSERT INTO projects (id, name, created_at, updated_at) VALUES ('p_aaaaaaaaaaaa', 'x', 't', 't')")
                 raise RuntimeError("boom")
         self.assertEqual(api.list_projects().total, 1)
+
+    def test_a_write_waits_out_another_writer_that_holds_the_lock_for_6_s(self):
+        # A refresh on a large store holds the write lock about 1.5 s per source, back to back;
+        # `refresh --force` beside the web server died with "database is locked" at a 5 s wait.
+        api.list_projects()
+        held = threading.Event()
+
+        def hold():
+            with store.write():
+                held.set()
+                time.sleep(6)
+
+        other = threading.Thread(target=hold)
+        other.start()
+        held.wait(5)
+        try:
+            self.assertEqual(api.create_project("Alpha").name, "Alpha")
+        finally:
+            other.join()
 
 
 class Migration(TempHome):

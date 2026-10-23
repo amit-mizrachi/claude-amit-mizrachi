@@ -5,7 +5,10 @@ Where: `$PROJECT_STUDIO_HOME/studio.db`, default `~/.project-studio/studio.db`. 
 
 Rules this module keeps:
 - Every write runs in one `BEGIN IMMEDIATE` transaction (`write()`), so two processes (the MCP
-  server, the studio, a hook) never interleave a read-check-write.
+  server, the studio, a hook) never interleave a read-check-write. A writer waits up to
+  BUSY_TIMEOUT seconds for the lock: a refresh that stores and reconciles a large store holds it
+  for 1 to 2 s per source, back to back, so a shorter wait failed with "database is locked". The
+  SessionStart hook has its own, shorter budget (session_hook.py), so it never waits this long.
 - The schema version lives in `schema_version`. A store at an older version is backed up to
   `backups/` as a file first, then migrated in one `BEGIN IMMEDIATE`. A store at a NEWER version
   (written by a newer SDK) is opened read-only: reads work, `write()` raises `ReadOnlyStore`.
@@ -29,6 +32,7 @@ SCHEMA_VERSION = 3
 INBOX_ID = "inbox"
 INBOX_NAME = "Inbox"
 DB_NAME = "studio.db"
+BUSY_TIMEOUT = 30                   # seconds a connection waits for another writer's lock
 ITEM_KINDS = ("session-bg", "session-interactive", "night-sprint", "night-marathon", "artifact", "pr", "worktree")
 SESSION_KINDS = ("session-bg", "session-interactive")   # derived, so one session id is ONE item across both
 PLACED_BY = ("manual", "title", "cwd", "rule", "inbox")
@@ -159,12 +163,12 @@ class Store(object):
 
 def _connect(path, read_only):
     if read_only:
-        conn = sqlite3.connect("file:%s?mode=ro" % quote(path), uri=True, isolation_level=None, timeout=5)
+        conn = sqlite3.connect("file:%s?mode=ro" % quote(path), uri=True, isolation_level=None, timeout=BUSY_TIMEOUT)
     else:
-        conn = sqlite3.connect(path, isolation_level=None, timeout=5)
+        conn = sqlite3.connect(path, isolation_level=None, timeout=BUSY_TIMEOUT)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("PRAGMA busy_timeout = %d" % (BUSY_TIMEOUT * 1000))
     return conn
 
 
