@@ -302,7 +302,9 @@ def add(conn, kind, key, project_id, title):
     key = _clean_key(kind, key)
     if title is not None and (not isinstance(title, str) or len(title) > 300):
         raise InvalidInput("title must be text of at most 300 characters.")
-    existing = conn.execute("SELECT id FROM items WHERE kind = ? AND key = ?", (kind, key)).fetchone()
+    kinds = store.SESSION_KINDS if kind in store.SESSION_KINDS else (kind,)   # one session, either kind
+    existing = conn.execute("SELECT id FROM items WHERE kind IN (%s) AND key = ?" % ", ".join("?" * len(kinds)),
+                            kinds + (key,)).fetchone()
     if existing:
         return move(conn, existing["id"], project_id, None)
     tree = model.Tree(conn)

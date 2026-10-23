@@ -70,22 +70,31 @@ def _changes_home(row, target, rung):
     return row["placed_by"] == "inbox" and rung != "inbox"
 
 
+def identity(kind, key):
+    """What makes two items the same: (kind, key), except that a session's kind is derived and can
+    change, so a session is one item per session id across both session kinds."""
+    return ("session", key) if kind in store.SESSION_KINDS else (kind, key)
+
+
 def reconcile(conn, inventory):
     """Upsert every found item, file what is unplaced, mark gone what a complete read lost.
 
     Runs inside the caller's write transaction. Returns counts: added, filed, gone, back.
     """
     placer, stamp = Placer(conn), store.now_iso()
-    rows = {(r["kind"], r["key"]): dict(r) for r in conn.execute("SELECT * FROM items")}
+    rows = {identity(r["kind"], r["key"]): dict(r) for r in conn.execute("SELECT * FROM items")}
     for row in rows.values():
         if row["kind"] in WORKSPACE_KINDS:
             placer.runs[row["key"]] = row
     counts = {"added": 0, "filed": 0, "gone": 0, "back": 0}
     seen = set()
     for found in inventory.found():
-        seen.add((found.kind, found.key))
+        ident = identity(found.kind, found.key)
+        if ident in seen:                          # one item found twice in a scan: the first one wins
+            continue
+        seen.add(ident)
         data = json.dumps(dict(found.data, scope=found.scope, signals=found.signals), sort_keys=True)
-        row = rows.get((found.kind, found.key))
+        row = rows.get(ident)
         target, rung, wsid = placer.place(found.link, found.signals)
         if row is None:
             row = {"id": new_item_id(), "kind": found.kind, "key": found.key, "project_id": target,
@@ -101,10 +110,10 @@ def reconcile(conn, inventory):
             if _changes_home(row, target, rung):
                 row.update(project_id=target, placed_by=rung, revision=row["revision"] + 1)
                 counts["filed"] += 1
-            row["workspace_item_id"] = wsid
-            conn.execute("UPDATE items SET title = ?, data_json = ?, seen_at = ?, gone_at = NULL, project_id = ?, "
-                         "placed_by = ?, workspace_item_id = ?, revision = ? WHERE id = ?",
-                         (found.title[:300], data, stamp, row["project_id"], row["placed_by"], wsid,
+            row.update(workspace_item_id=wsid, kind=found.kind)
+            conn.execute("UPDATE items SET kind = ?, title = ?, data_json = ?, seen_at = ?, gone_at = NULL, "
+                         "project_id = ?, placed_by = ?, workspace_item_id = ?, revision = ? WHERE id = ?",
+                         (found.kind, found.title[:300], data, stamp, row["project_id"], row["placed_by"], wsid,
                           row["revision"], row["id"]))
         if found.kind in WORKSPACE_KINDS:
             placer.runs[found.key] = row

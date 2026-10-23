@@ -30,6 +30,7 @@ INBOX_ID = "inbox"
 INBOX_NAME = "Inbox"
 DB_NAME = "studio.db"
 ITEM_KINDS = ("session-bg", "session-interactive", "night-sprint", "night-marathon", "artifact", "pr", "worktree")
+SESSION_KINDS = ("session-bg", "session-interactive")   # derived, so one session id is ONE item across both
 PLACED_BY = ("manual", "title", "cwd", "rule", "inbox")
 
 

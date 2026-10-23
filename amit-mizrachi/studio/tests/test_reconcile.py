@@ -57,6 +57,25 @@ class Reconcile(Sources):
         self.assertEqual(found[self.loose_wt].placed_by, "inbox")             # not the run's
         self.assertIsNone(found[self.loose_wt].workspace_item_id)
 
+    def test_one_item_found_twice_in_a_scan_is_stored_once(self):
+        self.workspace("twin-20261023", facts={"REPO_PATH": self.repo + "/"})   # same repo, two cache keys
+        result = api.refresh(force=True)
+        self.assertGreaterEqual(sum(1 for r in result.reads if r["source"] == "worktrees"), 2)
+        rows = api.find_items(query=os.path.basename(self.loose_wt), kind="worktree", refresh=False).items
+        self.assertEqual([r.key for r in rows], [self.loose_wt])
+
+    def test_a_session_added_under_its_other_kind_stays_one_item(self):
+        self.agents([agent(SID_D, "stray", "/tmp/nowhere-in-particular")])
+        filed = self.items()[SID_D]
+        self.assertEqual(filed.kind, "session-bg")
+        beta = api.create_project("Beta")
+        moved = api.add_item("session-interactive", SID_D, beta.id)
+        self.assertFalse(moved.created)
+        self.assertEqual((moved.item.id, moved.item.project_id), (filed.id, beta.id))
+        api.refresh(force=True)
+        same = [i for i in api.find_items(include_gone=True, refresh=False, limit=1000).items if i.key == SID_D]
+        self.assertEqual([(i.id, i.project_id) for i in same], [(filed.id, beta.id)])
+
     def test_an_unmatched_item_lands_in_the_inbox(self):
         self.agents([agent(SID_D, "stray", "/tmp/nowhere-in-particular")])
         stray = self.items()[SID_D]
