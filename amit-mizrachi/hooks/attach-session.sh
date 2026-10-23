@@ -14,5 +14,8 @@
 HOOK="${CLAUDE_PLUGIN_ROOT:-${BASH_SOURCE[0]%/*}/..}/studio/session_hook.py"
 [ -f "$HOOK" ] || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
-python3 "$HOOK" >/dev/null 2>&1
+# The shell's own stderr goes too: when the 3 s alarm ends python3, bash itself reports
+# "Alarm clock" on stderr, and a redirect on the command alone does not hide that.
+exec >/dev/null 2>&1
+python3 "$HOOK"
 exit 0

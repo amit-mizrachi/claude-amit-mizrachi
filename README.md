@@ -5,7 +5,9 @@ sitting and watching - handing a session off, turning a feature into a spec and 
 it through the night, researching a product question end to end, taking a feature from idea to
 plan to PR, and keeping a big effort's map legible - plus `codex-bridge`, an MCP server that lets
 Claude ask OpenAI Codex for a second opinion, `night-watch`, a live terminal board of every
-sprint and marathon in flight, and the macOS hook that stops your machine sleeping through it.
+sprint and marathon in flight, Project Studio, which files every session, run, PR and
+worktree into your projects and shows them as cards in a local web page and as MCP tools,
+and the macOS hook that stops your machine sleeping through it.
 
 ## Install
 
@@ -340,6 +342,36 @@ your own terminals, a `SessionStart` hook links `bin/night-watch` into the first
 writable (else `~/.local/bin`), and re-links it after each plugin update. It never replaces a
 file of the same name that it did not put there. So after installing or updating the plugin,
 start one Claude Code session, then `night-watch` works everywhere.
+
+### Project Studio (`project-studio` command and MCP server)
+
+Your projects as a tree, and in each one everything Claude runs for it: night sprints, night
+marathons, background and interactive sessions, artifacts, PRs and worktrees. Each is filed
+into exactly one project - by its night-run title, its worktree or folder, or a rule you taught
+it by moving one like it - and what the studio cannot place waits in the Inbox.
+
+```
+project-studio
+```
+
+opens it in your browser (`127.0.0.1` only): a calm grid of project cards that show only each
+project's night-run status, in light and dark mode. Click a card for the project's runs and
+sessions; **Open in Terminal** on a session opens Terminal on `claude attach <id>` or
+`claude --resume <id>`, or copies the command. Drag an Inbox item onto a card to file it, with
+Undo and "Always file items like this here". It never stops, kills or removes a session.
+`project-studio status` and `project-studio stop` do what they say; it stops by itself after 30
+minutes with no open page.
+
+Agents get the same data through the `project-studio` MCP server (registered from `.mcp.json`):
+`studio_list`, `studio_create`, `studio_find`, `studio_status`, `studio_add`, `studio_move`,
+`studio_link`, `studio_remove`, `studio_archive` and `studio_open`. A `SessionStart` hook files
+each new session as it starts, silently, and never blocks it.
+
+All logic lives in one stdlib SDK (`amit-mizrachi/studio/sdk/`) that the page, the MCP server
+and the hook all call, so a new agent tool is a few lines over one SDK function. Data is one
+SQLite file in `~/.project-studio/` (`PROJECT_STUDIO_HOME`). Needs `python3` 3.9+, no packages;
+`gh` for PR states. Details, every tool's SDK function and how to add a tool:
+[`amit-mizrachi/studio/README.md`](amit-mizrachi/studio/README.md).
 
 ### The `caffeinate` hook
 
