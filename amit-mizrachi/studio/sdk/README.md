@@ -97,6 +97,11 @@ makes every bg session `status = "unknown"`. Headless `claude -p` runs never bec
 
 Results live in the store's `cache` table (`sdk/cache.py`), shared by every process.
 
+A night sprint is `needs-you` / "CI red" when `state/ACCEPTANCE.verdict` is FAIL, unless its CI
+ticket later wrote `PASS at <same head>` to `state/CI.summary` (accept.sh writes FAIL when
+`gh pr checks` exits 1, which it also does on a PR with no checks). A finished sprint whose CI
+summary says it had no checks (`no CI`, `0 checks`) is `done` with the reason "no CI".
+
 | Error | `code` | When |
 |---|---|---|
 | `NotFound` | `not_found` | No project with that id (a malformed id included). |

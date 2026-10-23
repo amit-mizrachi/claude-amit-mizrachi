@@ -92,8 +92,8 @@ def home_run(run):
     """A run as one card line: glyph, name, status word, reason, "T03 of 5", stage bar, Open plan."""
     url = run.artifact_url if run.artifact_url.startswith(("https://", "http://")) else ""
     return HomeRun(item_id=run.item_id, title=run.title, status=run.status, glyph=GLYPHS.get(run.status, "?"),
-                   word=WORDS.get(run.status, run.status.title()), reason=run.reason if run.status == "needs-you"
-                   else "", progress=_progress_text(run) if run.status != "needs-you" else "",
+                   word=WORDS.get(run.status, run.status.title()),
+                   reason=run.reason if run.status in ("needs-you", "done") else "", progress=_progress_text(run) if run.status != "needs-you" else "",
                    bar=_stage_bar(run) if run.status != "needs-you" else [],
                    open_plan_url=url if run.status == "needs-you" else "", pr=pr_text(run.pr), gone=run.gone)
 

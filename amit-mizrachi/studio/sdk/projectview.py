@@ -79,7 +79,7 @@ def _detail(run):
         return run.reason
     current = (run.progress or {}).get("current") or ""
     stage = run.stage if run.stage and run.stage != current else ""
-    return _join(stage, _progress_text(run))
+    return _join(run.reason if run.status == "done" else "", stage, _progress_text(run))
 
 
 def view_run(conn, run, arts):

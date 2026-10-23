@@ -22,10 +22,23 @@ from .sessions import iso
 from .workspace import Sprint, World, facts, mtime, read1, tag_state, walk_chain
 
 TICKET = re.compile(r"^T\d+$")
+CI_PASS = re.compile(r"^PASS at ([0-9a-f]{7,40})\b")
+NO_CI = re.compile(r"\bno CI\b|\b0 checks\b|\bno checks\b", re.I)
 
 
 def _one_line(ws, name, fallback=""):
     return read1(os.path.join(ws, name)) or fallback
+
+
+def _ci_red(sp):
+    """True for a FAIL acceptance verdict that the CI ticket did not overrule. accept.sh writes FAIL
+    whenever `gh pr checks` exits 1, which it also does on a PR with no checks at all; the CI ticket
+    runs later and writes "PASS at <sha>" to state/CI.summary when nothing at that head is red."""
+    if sp.acceptance != "FAIL":
+        return False
+    words = sp.acceptance_line.split(" ")
+    sha, passed = words[1] if len(words) > 1 else "", CI_PASS.match(sp.ci_summary)
+    return not (sha and passed and (sha.startswith(passed.group(1)) or passed.group(1).startswith(sha)))
 
 
 def _sprint_status(sp):
@@ -39,10 +52,10 @@ def _sprint_status(sp):
     for stage in sp.stages:
         if stage.status == "blocked":
             return "blocked", re.sub(r"^BLOCKED:?\s*", "", stage.detail, flags=re.I) or "blocked"
-    if sp.acceptance == "FAIL":                    # night-watch's two other "needs you" alerts
+    if _ci_red(sp):                                # night-watch's two other "needs you" alerts
         return "needs-you", "CI red"
     if sp.finished:
-        return "done", ""
+        return "done", "no CI" if NO_CI.search(sp.ci_summary) else ""
     if sp.started and not sp.runner:               # nothing advances, revives or resumes a pause
         return "needs-you", "runner stopped"
     if sp.paused:

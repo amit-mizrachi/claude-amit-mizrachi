@@ -61,6 +61,20 @@ class Runs(Sources):
                          ("needs-you", "runner stopped"))
         self.assertEqual((found["red-20261023"]["status"], found["red-20261023"]["reason"]), ("needs-you", "CI red"))
 
+    def test_a_fail_verdict_the_ci_ticket_passed_at_the_same_head_is_no_ci_not_red(self):
+        # accept.sh writes FAIL when `gh pr checks` exits 1 on "no checks reported" (a repo with no CI)
+        done = (("T01", "DONE"), ("CI", "DONE"))
+        self.workspace("noci-20261023", tags=done, files={
+            "state/ACCEPTANCE.verdict": "FAIL 6d6888429b29 required checks failing (PR #24): see gh pr checks\n",
+            "state/CI.summary": "PASS at 6d6888429b29 (vacuous: repo has no CI workflows, 0 checks on the PR)\n"})
+        self.workspace("other-head-20261023", tags=done, files={
+            "state/ACCEPTANCE.verdict": "FAIL 6d6888429b29 required checks failing\n",
+            "state/CI.summary": "PASS at 1a2b3c4d5e6f, 0 fixes pushed\n"})
+        found = self.by_slug()
+        self.assertEqual((found["noci-20261023"]["status"], found["noci-20261023"]["reason"]), ("done", "no CI"))
+        self.assertEqual((found["other-head-20261023"]["status"], found["other-head-20261023"]["reason"]),
+                         ("needs-you", "CI red"))
+
     def test_running_sprint_has_ticket_progress_and_per_ticket_branches_and_worktrees(self):
         self.workspace("x-20261023", facts={"BRANCH": "feat/x", "WORKTREE": "/w/x", "TOTAL": "5"},
                        tags=(("T01", "DONE"), ("T02", "DONE"), ("T03", ""), ("T04", None)),

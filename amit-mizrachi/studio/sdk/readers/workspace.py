@@ -213,7 +213,9 @@ class Sprint(object):
         self.runner = world.runner_alive(self.state)
         self.paused = read1(os.path.join(self.state, "PAUSED"))
         self.pr = read1(os.path.join(self.state, "PR.url"))
-        self.acceptance = read1(os.path.join(self.state, "ACCEPTANCE.verdict")).split(" ")[0]
+        self.acceptance_line = read1(os.path.join(self.state, "ACCEPTANCE.verdict"))
+        self.acceptance = self.acceptance_line.split(" ")[0]
+        self.ci_summary = read1(os.path.join(self.state, "CI.summary"))
         self.golden = read1(os.path.join(self.state, "GOLDEN.verdict")).split(" ")[0]
         self.events = os.path.join(self.state, "EVENTS.log")
         self.last_event = mtime(self.events)
