@@ -26,8 +26,10 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | Function | Returns | Notes |
 |---|---|---|
 | `create_project(name, parent_id=None)` | `Project` | Refused under the Inbox or an archived parent, or for an active sibling's name (any case). |
-| `list_projects(parent_id=None, top_level=False, include_archived=False, limit=None)` | `ProjectList` | Inbox first, then by path. `total` counts every match; `truncated` says the limit cut some. |
+| `list_projects(parent_id=None, top_level=False, include_archived=False, limit=None, with_runs=False)` | `ProjectList` | Inbox first, then by path. `total` counts every match; `truncated` says the limit cut some. `with_runs` fills `run_lines` (id -> "running - 3 runs, 1 active" / "done - 2 runs done" / "no runs"; none for the Inbox), the CLI's `list` line. |
 | `get_project(project_id)` | `Project` | Archived or not. |
+| `resolve_project(ref)` | `Project` | What a person types: the exact id, then a unique id prefix (4+ characters, the `p_` optional), then a name (any case) among active projects. A unique name beats a prefix that matches several ids. `NotFound`, or `Ambiguous` with `candidates` ({id, name, parent_path}, at most 20). |
+| `resolve_item(ref)` | `Item` | The exact id or a unique id prefix (4+ characters, the `i_` optional); no title matching. `NotFound`, or `Ambiguous` with `candidates` ({id, title, kind, project_path}, at most 20). |
 | `move_project(project_id, new_parent_id=None)` | `Project` | `None` = top level. A cycle is refused as `Can't move <A> into <B>: it is inside <A>.` |
 | `rename_project(project_id, name)` | `Project` | Same name rules as create; refused for the Inbox and an active sibling's name (any case). |
 | `link_projects(a_id, b_id)` | `LinkResult` | Symmetric; `created` is False when it already existed. |
@@ -97,6 +99,7 @@ Results live in the store's `cache` table (`sdk/cache.py`), shared by every proc
 | Error | `code` | When |
 |---|---|---|
 | `NotFound` | `not_found` | No project with that id (a malformed id included). |
+| `Ambiguous` | `ambiguous` | A reference (`resolve_project` / `resolve_item`) matches more than one; `candidates` lists them. |
 | `InvalidInput` | `invalid_input` | Wrong type, empty or over-long name, a limit out of range. |
 | `Refused` | `refused` | A rule says no: a cycle, a non-empty delete, the Inbox. |
 | `ReadOnlyStore` | `read_only` | The store was written by a newer SDK. |

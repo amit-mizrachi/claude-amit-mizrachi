@@ -5,7 +5,8 @@ This module IS the contract (studio/sdk/README.md lists it too). Each function:
 - runs every write in one BEGIN IMMEDIATE transaction,
 - returns a structured value from `sdk.results` (serialise it with `sdk.results.to_dict`),
 - raises an `sdk.errors.StudioError` subclass whose message is fit to show a person as it is:
-  `NotFound`, `InvalidInput`, `Refused` (a rule says no), `ReadOnlyStore` (newer store).
+  `NotFound`, `Ambiguous` (a reference matches more than one), `InvalidInput`, `Refused` (a rule
+  says no), `ReadOnlyStore` (newer store). `to_dict()` gives `{code, message}` (and `candidates`).
 
 An adapter parses its input, calls ONE of these, and serialises the result. No SQL, ranking or
 state rule lives outside `studio/sdk/`. A new agent tool (say `project_status`) is a new

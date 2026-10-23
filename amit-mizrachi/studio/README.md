@@ -10,7 +10,7 @@ Three ways in, all over the same data:
 
 | Way in | Who uses it | Where |
 |---|---|---|
-| `project-studio` | you, in a browser | `bin/project-studio`, `studio/web.py`, `studio/static/` |
+| `project-studio` | you, in a browser or a terminal | `bin/project-studio`, `studio/cli.py`, `studio/web.py`, `studio/static/` |
 | the `project-studio` MCP server (`studio_*` tools) | agents | `studio/mcp_server.py`, registered in `.mcp.json` |
 | the SessionStart hook | every new session, silently | `hooks/attach-session.sh` -> `studio/session_hook.py` |
 
@@ -29,7 +29,14 @@ project-studio            same as `open`
 project-studio open       start the studio if it is not running (or restart an older version), open it
 project-studio status     say whether it runs, and where
 project-studio stop       ask the running studio to stop
+project-studio status <project>   a project's night runs and items
+project-studio list | show | find | inbox | refresh | rules   read the store from the terminal
+project-studio help [command]     every command, its options and an example
 ```
+
+Every command takes `--json` (the MCP tools' shape). A project is named by its id, a unique id
+prefix (4+ characters) or its name (any case); exit codes are 0 ok, 1 a studio error, 2 a usage
+error. The CLI is `studio/cli.py`.
 
 The studio is a local web server on `127.0.0.1` only. The home page is a grid of project cards
 that show only each project's night-run status; a click on a card opens the project view
