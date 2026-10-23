@@ -60,6 +60,175 @@ class Export:
     path: Optional[str]
 
 
+@dataclass
+class Item:
+    """One item with exactly one home project. `data` is what its reader last said (kind-specific:
+    a session's cwd and short id, a run's progress, a PR's state, ...), plus `signals` and `scope`."""
+
+    id: str
+    kind: str                       # session-bg, session-interactive, night-sprint, night-marathon, artifact, pr, worktree
+    key: str                        # the stable id: session UUID, folder path, URL, owner/repo#n
+    title: str
+    project_id: str
+    project_path: List[str]
+    placed_by: str                  # manual, title, cwd, rule, inbox
+    workspace_item_id: Optional[str]
+    revision: int                   # bumped by every move; pass it to a move to refuse a stale one
+    status: str                     # from data.status ("unknown" when its source failed)
+    gone: bool
+    gone_at: Optional[str]
+    seen_at: Optional[str]
+    data: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ItemList:
+    """A bounded page of items. `total` counts every match; `truncated` says some were cut."""
+
+    items: List[Item]
+    total: int
+    truncated: bool
+
+
+@dataclass
+class SourceState:
+    """What one reader said last: `ok` False means its items are kept from `good_at` and are not complete."""
+
+    source: str
+    key: str
+    ok: bool
+    error: str
+    fetched_at: Optional[str]
+    good_at: Optional[str]
+    partial: bool
+
+
+@dataclass
+class RefreshResult:
+    """One refresh: the reads it made, what the reconcile changed, and every source's state."""
+
+    reads: List[Dict[str, Any]]
+    added: int
+    filed: int
+    gone: int
+    back: int
+    sources: List[SourceState]
+
+
+@dataclass
+class RulePreview:
+    """The rule "Always file items like this here" would save."""
+
+    signal: str
+    pattern: str
+    description: str
+
+
+@dataclass
+class Rule:
+    """An attach rule learned from a move. `created` is False when the same rule already existed."""
+
+    id: str
+    project_id: str
+    project_name: str
+    signal: str
+    pattern: str
+    description: str
+    created_at: str
+    created: bool = False
+
+
+@dataclass
+class RuleList:
+    rules: List[Rule]
+    total: int
+
+
+@dataclass
+class MoveResult:
+    """A move of an item (or, through `move`, a project). `move_id` is what `undo_move` and
+    `save_rule_from_move` take; it is None when nothing moved. `followed` lists the auto-attached
+    items that moved with a run."""
+
+    item: Optional[Item]
+    project: Optional[Project]
+    move_id: Optional[int]
+    from_project_id: Optional[str]
+    to_project_id: Optional[str]
+    followed: List[str] = field(default_factory=list)
+    rule_preview: Optional[RulePreview] = None
+    created: bool = False
+
+
+@dataclass
+class Suggestion:
+    project_id: str
+    project_name: str
+    reason: str
+
+
+@dataclass
+class InboxEntry:
+    item: Item
+    suggestion: Optional[Suggestion]
+
+
+@dataclass
+class InboxList:
+    entries: List[InboxEntry]
+    total: int
+    truncated: bool
+
+
+@dataclass
+class Run:
+    """One night run, as a card or a run panel shows it."""
+
+    item_id: str
+    kind: str
+    title: str
+    project_id: str
+    status: str                     # needs-you, blocked, running, paused, pending, done, unknown
+    reason: str
+    progress: Optional[Dict[str, Any]]   # {"current": "T03", "index": 3, "total": 5, "text": "T03 of 5"}
+    stage: str
+    stages: List[Dict[str, Any]]
+    pr: Optional[Dict[str, Any]]    # {"key", "number", "state", "draft", "url", "good_at"}
+    artifact_url: str
+    started_at: str
+    updated_at: str
+    gone: bool
+
+
+@dataclass
+class SubProject:
+    project: Project
+    runs: int
+    runs_active: int
+    top_status: Optional[str]
+
+
+@dataclass
+class ProjectStatus:
+    """A project's night runs (ranked needs-you > blocked > running > latest), sessions, PRs,
+    worktrees and artifacts, rolled up over its sub-projects, and every source's state."""
+
+    project: Project
+    runs: List[Run]
+    sessions: List[Item]
+    prs: List[Item]
+    worktrees: List[Item]
+    artifacts: List[Item]
+    sub_projects: List[SubProject]
+    sources: List[SourceState]
+
+
+@dataclass
+class PurgeResult:
+    ids: List[str]
+    count: int
+
+
 def to_dict(value):
     """A JSON-ready dict (or list) for any SDK return value."""
     if isinstance(value, list):

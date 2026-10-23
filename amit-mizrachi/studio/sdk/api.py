@@ -17,9 +17,10 @@ import os
 import tempfile
 from typing import Optional
 
-from . import model, store
+from . import items, model, refresh as scan, store
 from .errors import InvalidInput
-from .results import DeleteResult, Export, LinkResult, Project, ProjectList
+from .results import (DeleteResult, Export, InboxList, ItemList, LinkResult, MoveResult, Project,
+                      ProjectList, ProjectStatus, PurgeResult, RefreshResult, Rule, RuleList)
 
 MAX_LIST_LIMIT = 1000
 
@@ -28,6 +29,17 @@ def _optional_id(value, name):
     if value is not None and not isinstance(value, str):
         raise InvalidInput("%s must be a project id or null." % name)
     return value or None
+
+
+def _limit(value):
+    if value is not None and (isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= MAX_LIST_LIMIT):
+        raise InvalidInput("limit must be a whole number from 1 to %d." % MAX_LIST_LIMIT)
+    return value
+
+
+def _page(found, limit):
+    shown = found[:limit] if limit else found
+    return shown, len(found), len(shown) < len(found)
 
 
 def _flag(value, name):
@@ -58,12 +70,11 @@ def list_projects(parent_id: Optional[str] = None, top_level: bool = False,
     """
     parent_id = _optional_id(parent_id, "parent_id")
     top_level, include_archived = _flag(top_level, "top_level"), _flag(include_archived, "include_archived")
-    if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= MAX_LIST_LIMIT):
-        raise InvalidInput("limit must be a whole number from 1 to %d." % MAX_LIST_LIMIT)
+    limit = _limit(limit)
     with store.read() as conn:
         found = model.list_projects(conn, parent_id, top_level, include_archived)
-    shown = found[:limit] if limit else found
-    return ProjectList(projects=shown, total=len(found), truncated=len(shown) < len(found))
+    shown, total, truncated = _page(found, limit)
+    return ProjectList(projects=shown, total=total, truncated=truncated)
 
 
 def get_project(project_id: str) -> Project:
@@ -138,3 +149,154 @@ def export_json(dest: Optional[str] = None) -> Export:
             os.unlink(tmp)
             raise
     return Export(document=document, path=path)
+
+
+# ---------------------------------------------------------------- items (ticket 02)
+
+def refresh(force: bool = False) -> RefreshResult:
+    """Run every reader whose cache row is due (all of them when `force`), store what each said,
+    and reconcile: new items are filed (manual > title > cwd/worktree > rule > Inbox), runs pull
+    their auto-attached items along, and only a COMPLETE read marks an item gone. A failed read
+    keeps the last-good data and shows up in `sources` with its error; `claude agents` failing
+    leaves bg sessions with status "unknown". TTLs: state files 2 s (live runs), discover 60 s,
+    `claude agents` 10 s, `gh pr list` 5 min per repo.
+    """
+    reads, counts, entries = scan.refresh(force=_flag(force, "force"))
+    with store.read() as conn:
+        sources = items.sources(conn)
+    return RefreshResult(reads=[{"source": s, "key": k, "ok": ok} for s, k, ok in reads], sources=sources, **counts)
+
+
+def _maybe_refresh(fresh):
+    if _flag(fresh, "refresh"):
+        scan.refresh()
+
+
+def find_items(query: Optional[str] = None, kind: Optional[str] = None, project_id: Optional[str] = None,
+               include_gone: bool = False, limit: Optional[int] = None, refresh: bool = True) -> ItemList:
+    """Items whose title, key, name, cwd or branch holds `query` (any case), newest activity first,
+    gone ones last. `kind` keeps one kind; `project_id` keeps items in that project or under it.
+    Refreshes due sources first unless `refresh` is False.
+    """
+    if query is not None and not isinstance(query, str):
+        raise InvalidInput("query must be text.")
+    if kind is not None and kind not in store.ITEM_KINDS:
+        raise InvalidInput("kind must be one of: %s." % ", ".join(store.ITEM_KINDS))
+    project_id, limit = _optional_id(project_id, "project_id"), _limit(limit)
+    include_gone = _flag(include_gone, "include_gone")
+    _maybe_refresh(refresh)
+    with store.read() as conn:
+        found = items.find(conn, query, kind, project_id, include_gone)
+    shown, total, truncated = _page(found, limit)
+    return ItemList(items=shown, total=total, truncated=truncated)
+
+
+def project_status(project_id: str, refresh: bool = True) -> ProjectStatus:
+    """A project's night runs (each with status, reason, "T03 of 5" progress, stage, PR state and
+    artifact), ranked needs-you > blocked > running > paused > latest, plus its sessions, PRs,
+    worktrees and artifacts, all rolled up over its active sub-projects, the sub-projects with a
+    run count, and every source's state. Refreshes due sources first unless `refresh` is False.
+    """
+    _maybe_refresh(refresh)
+    with store.read() as conn:
+        found = items.status(conn, project_id)
+    project, runs, sessions, prs, worktrees, artifacts, subs, sources = found
+    return ProjectStatus(project=project, runs=runs, sessions=sessions, prs=prs, worktrees=worktrees,
+                         artifacts=artifacts, sub_projects=subs, sources=sources)
+
+
+def add_item(kind: str, key: str, project_id: str, title: Optional[str] = None) -> MoveResult:
+    """File an item into a project by hand (`placed_by = manual`, so no rule ever moves it).
+
+    `key` is the item's stable id: a session UUID, a folder path (a run or worktree, ad-hoc
+    folders included), an https URL or file path for an artifact, `owner/repo#n` for a PR. An item
+    the studio already knows is moved there instead (`created` False). Refused into an archived project.
+    """
+    with store.write() as conn:
+        return items.add(conn, kind, key, project_id, title)
+
+
+def move_item(item_id: str, project_id: str, expected_revision: Optional[int] = None) -> MoveResult:
+    """Move an item to a project by hand. With `expected_revision`, refused when the item moved
+    since that revision. A run's auto-attached sessions, PRs, worktrees and artifacts follow it;
+    ones placed by hand stay. Returns the `move_id` for `undo_move` / `save_rule_from_move` and
+    the `rule_preview` "Always file items like this here" would save.
+    """
+    if expected_revision is not None and (isinstance(expected_revision, bool) or not isinstance(expected_revision, int)):
+        raise InvalidInput("expected_revision must be a whole number.")
+    with store.write() as conn:
+        return items.move(conn, item_id, project_id, expected_revision)
+
+
+def move(target_id: str, to_project_id: Optional[str], expected_revision: Optional[int] = None) -> MoveResult:
+    """Move an item (id `i_...`) or a project (id `p_...`) - the one call behind drop = move.
+
+    A project goes under `to_project_id` (None = top level) as `move_project` does; an item goes
+    into it as `move_item` does.
+    """
+    if isinstance(target_id, str) and items.ITEM_ID.match(target_id):
+        if to_project_id is None:
+            raise InvalidInput("An item needs a project to move into.")
+        return move_item(target_id, to_project_id, expected_revision)
+    project = move_project(target_id, to_project_id)
+    return MoveResult(item=None, project=project, move_id=None, from_project_id=None, to_project_id=to_project_id)
+
+
+def undo_move(move_id: int) -> MoveResult:
+    """Put an item back where `move_id` took it from. Refused when it moved again since."""
+    with store.write() as conn:
+        return items.undo(conn, move_id)
+
+
+def remove_item(item_id: str) -> MoveResult:
+    """Take an item out of its project, back to the Inbox. It never deletes the thing itself,
+    and it stays in the Inbox (placed by hand) until filed again."""
+    with store.write() as conn:
+        return items.move(conn, item_id, store.INBOX_ID, None)
+
+
+def inbox(limit: Optional[int] = None, refresh: bool = True) -> InboxList:
+    """Every unfiled item, newest first, each with a suggested project and the reason
+    ("same run as ...", "rule: ...", "repo shapes-platform: 4 items there"), or none."""
+    limit = _limit(limit)
+    _maybe_refresh(refresh)
+    with store.read() as conn:
+        found = items.inbox(conn)
+    shown, total, truncated = _page(found, limit)
+    return InboxList(entries=shown, total=total, truncated=truncated)
+
+
+def accept_suggestion(item_id: str) -> MoveResult:
+    """File an Inbox item into its suggested project, as a move by hand (undoable)."""
+    with store.write() as conn:
+        return items.accept(conn, item_id)
+
+
+def save_rule_from_move(move_id: int) -> Rule:
+    """"Always file items like this here": save a rule from the moved item's strongest signal
+    (workspace slug > repo + branch prefix > cwd prefix) into the project the move went to.
+    The next refresh files matching new and Inbox items there. Saving the same rule twice
+    returns the existing one (`created` False)."""
+    with store.write() as conn:
+        return items.save_rule(conn, move_id)
+
+
+def list_rules(project_id: Optional[str] = None) -> RuleList:
+    """The attach rules, strongest signal first; only one project's with `project_id`."""
+    project_id = _optional_id(project_id, "project_id")
+    with store.read() as conn:
+        found = items.list_rules(conn, project_id)
+    return RuleList(rules=found, total=len(found))
+
+
+def delete_rule(rule_id: str) -> Rule:
+    """Delete one rule. Items it filed stay where they are."""
+    with store.write() as conn:
+        return items.delete_rule(conn, rule_id)
+
+
+def purge_gone(item_id: Optional[str] = None) -> PurgeResult:
+    """Delete gone items for good: one (refused if it is not gone), or every gone item."""
+    with store.write() as conn:
+        ids = items.purge(conn, item_id)
+    return PurgeResult(ids=ids, count=len(ids))
