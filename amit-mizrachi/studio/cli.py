@@ -6,7 +6,7 @@ each command parses its arguments, calls ONE function of `sdk.api`, and formats 
 project or item named on the command line is first turned into its id with `api.resolve_project`
 or `api.resolve_item` (that is parsing, not logic). No SQL, ranking or state rule lives here.
 
-Adding a command (ticket 02 does this):
+Adding a command:
 - Add one `Command(name, summary, example, setup, run, text)` to COMMANDS.
   `setup(parser)` adds its arguments; `run(args)` returns the SDK result; `text(result)` returns
   the lines printed without `--json`. `after(result)` is an optional side step (`open` opens the
@@ -20,7 +20,11 @@ Output and exit codes, the same for every command:
   `to_dict(result)` with sort_keys, the shape the MCP tools return.
 - 0 on success. 1 on an SDK error: `project-studio: <code>: <message>` on stderr, or with `--json`
   `{"error": {"code", "message", ...}}` on stdout (an ambiguous name adds `candidates`).
-  2 on a usage error (argparse prints the usage on stderr).
+  2 on a usage error (argparse prints the usage on stderr), and when a command that needs `--yes`
+  did not get it (`delete`; `terminal` without a tty): the message says what it would have done,
+  code `confirm_needed`, on stderr or as `--json` error.
+- A move (`file`, `add`, `accept`, `nest`, `remove`, `undo`) prints its move id and the `undo`
+  command. `command <item>` prints only the command, so `$(project-studio command <item>)` works.
 - `project-studio` alone is `open`, and `open | status | stop` print what they printed before.
 
 Zero dependencies. Python 3.9+. Data in `$PROJECT_STUDIO_HOME`, default `~/.project-studio`.
@@ -173,7 +177,77 @@ def text_rules(result):
     return table(rows) or ["No rules yet."]
 
 
+def text_project(verb):
+    """The text for a command that returns one Project: "Created Alpha / Docs  p_1a2b3c4d5e6f"."""
+    return lambda project: ["%s %s  %s" % (verb, path(project.path), project.id)]
+
+
+def text_delete(result):
+    return ["Deleted %s  %s" % (result.name, result.id)]
+
+
+def text_link(result):
+    return ["%s %s and %s." % ("Linked" if result.created else "Already linked:", result.a_id, result.b_id)]
+
+
+def text_move(result):
+    """The toast, then the move id and the command that undoes it; a filing adds the rule it could save.
+    An item `add` created is not a move (it had no home before), so it names `remove` instead."""
+    if result.created and result.item:
+        return ["Added %s to %s  %s" % (result.item.title, path(result.item.project_path), result.item.id),
+                "A new item, so there is no move to undo. Take it out: %s remove %s" % (PROG, result.item.id)]
+    lines = [result.message or "Nothing moved."]
+    if result.followed:
+        lines.append("%d attached item%s moved with it." % (len(result.followed), "" if len(result.followed) == 1
+                                                           else "s"))
+    if result.move_id is not None:
+        lines.append("Move %d. Undo: %s undo %d" % (result.move_id, PROG, result.move_id))
+        if result.rule_preview:
+            lines.append("Always file items like this here (%s): %s rule-save %d" % (
+                result.rule_preview.description, PROG, result.move_id))
+    return lines
+
+
+def text_rule(verb):
+    def lines(rule):
+        head = verb if verb != "Saved" or rule.created else "Already saved"
+        return ["%s rule %s: %s -> %s" % (head, rule.id, rule.description, rule.project_name)]
+    return lines
+
+
+def text_export(result):
+    if result.path:
+        return ["Wrote the store to %s" % result.path]
+    return [json.dumps(result.document, indent=2, sort_keys=True)]
+
+
+def text_purge(result):
+    return ["Purged %d gone item%s%s" % (result.count, "" if result.count == 1 else "s",
+                                        (": " + ", ".join(result.ids)) if result.ids else ".")]
+
+
+def text_terminal(result):
+    return [result.message, result.command.command]
+
+
+def text_command(result):
+    return [result.command]
+
+
+def text_open_item(result):
+    return [result.message]
+
+
 # ---------------------------------------------------------------- commands
+
+class NeedsYes(Exception):
+    """A command that needs `--yes` (or a y on a tty) before it acts: exit 2, the message says what it would do."""
+
+    code = "confirm_needed"
+
+    def to_dict(self):
+        return {"code": self.code, "message": str(self)}
+
 
 class Command(object):
     def __init__(self, name, summary, example, setup, run, text, after=None):
@@ -243,6 +317,108 @@ def setup_rules(parser):
     parser.add_argument("--project", help="only this project's rules")
 
 
+def add_project_arg(parser, name="project"):
+    parser.add_argument(name, help="project id, unique id prefix (4+ characters) or name")
+
+
+def add_item_arg(parser):
+    parser.add_argument("item", help="item id or unique id prefix (4+ characters)")
+
+
+def add_move_id(parser):
+    parser.add_argument("move_id", type=int, help="the move id a filing printed")
+
+
+def add_yes(parser, help):
+    parser.add_argument("--yes", "-y", action="store_true", help=help)
+
+
+def setup_create(parser):
+    parser.add_argument("name", help="the new project's name")
+    parser.add_argument("--under", metavar="PROJECT", help="create it under this project (default: top level)")
+
+
+def setup_rename(parser):
+    add_project_arg(parser)
+    parser.add_argument("name", help="the new name")
+
+
+def setup_delete(parser):
+    add_project_arg(parser)
+    add_yes(parser, "really delete it (an empty project only; archive one that holds anything)")
+
+
+def run_delete(args):
+    project = api.resolve_project(args.project)
+    if not args.yes:
+        raise NeedsYes("This deletes the project %s (%s) for good, with its links and rules. Run again with --yes."
+                       % (path(project.path), project.id))
+    return api.delete_project(project.id)
+
+
+def setup_nest(parser):
+    add_project_arg(parser)
+    where = parser.add_mutually_exclusive_group(required=True)
+    where.add_argument("--under", metavar="PROJECT", help="the new parent project")
+    where.add_argument("--top", action="store_true", help="move it to the top level")
+
+
+def setup_link(parser):
+    add_project_arg(parser, "a")
+    add_project_arg(parser, "b")
+
+
+def setup_add(parser):
+    parser.add_argument("kind", choices=store.ITEM_KINDS, help="the item's kind")
+    parser.add_argument("key", help="its stable id: session UUID, folder path, https URL or file, owner/repo#n")
+    add_project_arg(parser)
+    parser.add_argument("--title", help="its title (default: from the key)")
+
+
+def setup_file(parser):
+    add_item_arg(parser)
+    add_project_arg(parser)
+    parser.add_argument("--revision", type=int, metavar="N", help="refuse when the item moved since revision N")
+
+
+def setup_export(parser):
+    parser.add_argument("dest", nargs="?", help="also write it to this file (mode 0600); without it, print it")
+
+
+def setup_purge(parser):
+    parser.add_argument("item", nargs="?", help="one gone item's id or prefix; leave out for every gone item")
+
+
+def setup_terminal(parser):
+    add_item_arg(parser)
+    add_yes(parser, "open it even when its transcript changed in the last 5 minutes")
+
+
+def ask(question):
+    """True when the person at the terminal answers y; the question goes to stderr so stdout stays clean."""
+    sys.stderr.write(question + " [y/N] ")
+    sys.stderr.flush()
+    return sys.stdin.readline().strip().lower() in ("y", "yes")
+
+
+def run_terminal(args):
+    item_id = item_ref(args.item)
+    result = api.open_in_terminal(item_id, confirmed=args.yes)
+    if not result.needs_confirm:
+        return result
+    if not sys.stdin.isatty():
+        raise NeedsYes("%s Nothing ran. Run again with --yes to open it anyway." % result.message)
+    if not ask("%s Open it anyway?" % result.message):
+        raise NeedsYes("Nothing opened.")
+    return api.open_in_terminal(item_id, confirmed=True)
+
+
+def setup_open_item(parser):
+    add_item_arg(parser)
+    parser.add_argument("--target", choices=("default", "plan", "pr"), default="default",
+                        help="plan: a night run's plan page, pr: its PR, default: the item itself")
+
+
 COMMANDS = [
     Command("open", "Start the studio web page if it is not running, and open it in the browser.",
             "project-studio open", no_args, lambda a: api.open_studio(), text_server, after=open_browser),
@@ -265,6 +441,51 @@ COMMANDS = [
             "project-studio refresh --force", setup_refresh, lambda a: api.refresh(force=a.force), text_refresh),
     Command("rules", "List the filing rules, strongest signal first.", "project-studio rules --project 'Shapes evals'",
             setup_rules, lambda a: api.list_rules(project_ref(a.project)), text_rules),
+    Command("create", "Create a project, top-level or under another.", "project-studio create Docs --under Alpha",
+            setup_create, lambda a: api.create_project(a.name, project_ref(a.under)), text_project("Created")),
+    Command("rename", "Give a project a new name.", "project-studio rename Docs 'Docs site'", setup_rename,
+            lambda a: api.rename_project(project_ref(a.project), a.name), text_project("Renamed to")),
+    Command("archive", "Archive a project and everything under it.", "project-studio archive 'Old work'",
+            lambda p: add_project_arg(p), lambda a: api.archive_project(project_ref(a.project)),
+            text_project("Archived")),
+    Command("delete", "Delete an EMPTY project for good. Needs --yes; without it, says what it would delete.",
+            "project-studio delete Scratch --yes", setup_delete, run_delete, text_delete),
+    Command("nest", "Move a project under another (--under) or to the top level (--top). Undoable.",
+            "project-studio nest Docs --under Beta", setup_nest,
+            lambda a: api.move(project_ref(a.project), None if a.top else project_ref(a.under)), text_move),
+    Command("link", "Link two projects.", "project-studio link Alpha Beta", setup_link,
+            lambda a: api.link_projects(project_ref(a.a), project_ref(a.b)), text_link),
+    Command("add", "File an item into a project by hand: a session, folder, URL, file or PR. Undoable.",
+            "project-studio add artifact https://claude.ai/artifact/abc Alpha", setup_add,
+            lambda a: api.add_item(a.kind, a.key, project_ref(a.project), a.title), text_move),
+    Command("file", "Move an item into a project by hand. Prints the move id for undo and rule-save.",
+            "project-studio file i_1a2b3c4d Alpha", setup_file,
+            lambda a: api.move_item(item_ref(a.item), project_ref(a.project), a.revision), text_move),
+    Command("undo", "Put back what a move (file, add, accept, nest, remove) did.", "project-studio undo 42",
+            add_move_id, lambda a: api.undo_move(a.move_id), text_move),
+    Command("remove", "Take an item out of its project, back to the Inbox. It deletes nothing.",
+            "project-studio remove i_1a2b3c4d", lambda p: add_item_arg(p),
+            lambda a: api.remove_item(item_ref(a.item)), text_move),
+    Command("accept", "File an Inbox item into its suggested project. Undoable.", "project-studio accept i_1a2b3c4d",
+            lambda p: add_item_arg(p), lambda a: api.accept_suggestion(item_ref(a.item)), text_move),
+    Command("rule-save", "Always file items like this here: save a rule from a filing's move id.",
+            "project-studio rule-save 42", add_move_id, lambda a: api.save_rule_from_move(a.move_id),
+            text_rule("Saved")),
+    Command("rule-delete", "Delete one rule (ids from `rules`). Items it filed stay where they are.",
+            "project-studio rule-delete r_1a2b3c4d5e6f", lambda p: p.add_argument("rule_id", help="the rule's id"),
+            lambda a: api.delete_rule(a.rule_id), text_rule("Deleted")),
+    Command("export", "Print the whole store as JSON, or write it to a file.", "project-studio export ~/studio.json",
+            setup_export, lambda a: api.export_json(a.dest), text_export),
+    Command("purge", "Delete gone items for good: one, or every gone item.", "project-studio purge", setup_purge,
+            lambda a: api.purge_gone(item_ref(a.item) if a.item else None), text_purge),
+    Command("terminal", "Open a session (or a night run's live session) in Terminal. Asks y/N when it may be open.",
+            "project-studio terminal i_1a2b3c4d", setup_terminal, run_terminal, text_terminal),
+    Command("command", "Print only the command that opens a session again, for $(...) and scripts.",
+            "project-studio command i_1a2b3c4d", lambda p: add_item_arg(p),
+            lambda a: api.terminal_command(item_ref(a.item)), text_command),
+    Command("open-item", "Open an item: a URL in the browser, a folder in Finder, a file in its app.",
+            "project-studio open-item i_1a2b3c4d --target plan", setup_open_item,
+            lambda a: api.open_target(item_ref(a.item), a.target), text_open_item),
 ]
 
 
@@ -272,14 +493,16 @@ COMMANDS = [
 
 def parser():
     """The argparse parser: one sub-parser per Command, plus `help [command]`."""
-    examples = "\n".join("  %-8s %s" % (c.name, c.example) for c in COMMANDS)
+    examples = "\n".join("  %-11s %s" % (c.name, c.example) for c in COMMANDS)
     top = argparse.ArgumentParser(
         prog=PROG, formatter_class=argparse.RawDescriptionHelpFormatter,
         description="Project Studio: your projects, night runs and sessions, from the terminal. "
                     "With no command it runs `open`.",
-        epilog="examples:\n%s\n  %-8s project-studio help show\n\n"
-               "Exit codes: 0 ok, 1 a studio error, 2 a usage error. Projects are named by id, unique id prefix\n"
-               "(4+ characters) or name (any case); items by id or unique id prefix." % (examples, "help"))
+        epilog="examples:\n%s\n  %-11s project-studio help show\n\n"
+               "Exit codes: 0 ok, 1 a studio error, 2 a usage error or a missing --yes.\n"
+               "Projects are named by id, unique id prefix (4+ characters) or name (any case); items by id or\n"
+               "unique id prefix. A filing prints its move id: `project-studio undo <id>` puts it back."
+               % (examples, "help"))
     top.add_argument("--json", action="store_true", help="print the result as JSON (the MCP tools' shape)")
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
@@ -318,6 +541,9 @@ def main(argv):
         result = command.run(args)
     except StudioError as exc:
         return emit_error(args, exc)
+    except NeedsYes as exc:
+        emit_error(args, exc)
+        return 2
     if args.json:
         print(json.dumps(to_dict(result), indent=2, sort_keys=True))
     else:
