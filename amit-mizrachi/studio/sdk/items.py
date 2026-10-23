@@ -78,19 +78,7 @@ def _matches(r, query):
     return query.lower() in hay.lower()
 
 
-INBOX_DAYS = 14   # an unfiled item quiet for longer stays in the store, out of the Inbox
-
-
-def _epoch(stamp):
-    return cache.epoch(stamp[:19] + "Z") if isinstance(stamp, str) and len(stamp) >= 19 else 0
-
-
-def recent(row, now):
-    """True when an item row (with `data_json` and `seen_at`) had activity in the last INBOX_DAYS
-    days: its newest of last_active / updated_at / started_at, else when the store first saw it."""
-    data = item_data(row)
-    then = max(_epoch(data.get(k)) for k in ("last_active", "updated_at", "started_at")) or _epoch(row["seen_at"])
-    return not then or now - then <= INBOX_DAYS * 86400
+INBOX_DAYS, recent = model.INBOX_DAYS, model.recent   # the Inbox window lives with the tree's counts
 
 
 def _recency(item):

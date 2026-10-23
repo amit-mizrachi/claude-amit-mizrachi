@@ -107,7 +107,9 @@ Results live in the store's `cache` table (`sdk/cache.py`), shared by every proc
 
 `Project` fields: `id`, `name`, `parent_id`, `path` (names from the top level down),
 `is_inbox`, `archived_at`, `created_at`, `updated_at` (ISO 8601 UTC), `child_count`,
-`item_count`, `linked_ids`. Fields may be added; none is renamed or removed.
+`item_count`, `linked_ids`. Fields may be added; none is renamed or removed. The Inbox's
+`item_count` is what the Inbox shows: items not gone, active in the last 14 days
+(`model.INBOX_DAYS`), the same number as `home().inbox_count`.
 
 ## night-watch's readers
 

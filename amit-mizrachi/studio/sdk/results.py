@@ -22,7 +22,7 @@ class Project:
     created_at: str
     updated_at: str
     child_count: int                # direct sub-projects, archived ones included
-    item_count: int                 # items whose one home is this project
+    item_count: int                 # items whose one home is this project; the Inbox: only what it shows
     linked_ids: List[str] = field(default_factory=list)
 
 

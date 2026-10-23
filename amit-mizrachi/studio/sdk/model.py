@@ -12,9 +12,10 @@ the transactions. Rules kept here:
 
 import json
 import re
+import time
 import uuid
 
-from . import store
+from . import cache, store
 from .errors import InvalidInput, NotFound, Refused
 from .results import Project
 
@@ -47,6 +48,25 @@ def check_id(value):
     return value
 
 
+INBOX_DAYS = 14   # an unfiled item quiet for longer stays in the store, out of the Inbox
+
+
+def _epoch(stamp):
+    return cache.epoch(stamp[:19] + "Z") if isinstance(stamp, str) and len(stamp) >= 19 else 0
+
+
+def recent(row, now):
+    """True when an item row (with `data_json` and `seen_at`) had activity in the last INBOX_DAYS
+    days: its newest of last_active / updated_at / started_at, else when the store first saw it."""
+    try:
+        data = json.loads(row["data_json"] or "{}")
+    except ValueError:
+        data = {}
+    data = data if isinstance(data, dict) else {}
+    then = max(_epoch(data.get(k)) for k in ("last_active", "updated_at", "started_at")) or _epoch(row["seen_at"])
+    return not then or now - then <= INBOX_DAYS * 86400
+
+
 # ---------------------------------------------------------------- reading the tree
 
 class Tree(object):
@@ -59,6 +79,7 @@ class Tree(object):
         for row in self.rows.values():
             self.children.setdefault(row["parent_id"], []).append(row["id"])
         self.items = {r[0]: r[1] for r in conn.execute("SELECT project_id, COUNT(*) FROM items GROUP BY project_id")}
+        self.conn, self._inbox_count = conn, None
         self.links = {}
         for a, b in conn.execute("SELECT a_id, b_id FROM links"):
             self.links.setdefault(a, []).append(b)
@@ -90,8 +111,17 @@ class Tree(object):
             id=row["id"], name=row["name"], parent_id=row["parent_id"], path=names,
             is_inbox=row["id"] == store.INBOX_ID, archived_at=row["archived_at"],
             created_at=row["created_at"], updated_at=row["updated_at"],
-            child_count=len(self.children.get(row["id"], [])), item_count=self.items.get(row["id"], 0),
+            child_count=len(self.children.get(row["id"], [])), item_count=self.inbox_count() if row["id"] == store.INBOX_ID else self.items.get(row["id"], 0),
             linked_ids=sorted(self.links.get(row["id"], [])))
+
+    def inbox_count(self):
+        """What the Inbox shows: its items not gone and active in the last INBOX_DAYS days."""
+        if self._inbox_count is None:
+            now = time.time()
+            self._inbox_count = sum(1 for r in self.conn.execute(
+                "SELECT data_json, seen_at FROM items WHERE project_id = ? AND gone_at IS NULL",
+                (store.INBOX_ID,)) if recent(r, now))
+        return self._inbox_count
 
     def sibling_named(self, parent_id, name, skip=None):
         for pid in self.children.get(parent_id, []):

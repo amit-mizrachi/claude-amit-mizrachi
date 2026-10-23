@@ -147,3 +147,15 @@ class Home(Sources):
         self.assertEqual([i.id for i in found.items], [stale])
         target = api.create_project("Target")
         self.assertEqual(api.move_item(stale, target.id).item.project_id, target.id)
+
+    def test_the_inbox_project_counts_what_the_inbox_shows(self):
+        fresh = self.unfiled("fresh", 1)
+        self.unfiled("stale", 30)
+        with store.write() as conn:
+            conn.execute("UPDATE items SET gone_at = ? WHERE id != ? AND project_id = ?",
+                         (store.now_iso(), fresh, store.INBOX_ID))
+        self.unfiled("other", 2)
+        inbox = api.get_project(store.INBOX_ID)
+        self.assertEqual(inbox.item_count, api.home().inbox_count)
+        self.assertEqual(inbox.item_count, 2)
+        self.assertEqual(api.list_projects().projects[0].item_count, 2)
