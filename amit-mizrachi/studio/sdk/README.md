@@ -29,6 +29,7 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `list_projects(parent_id=None, top_level=False, include_archived=False, limit=None)` | `ProjectList` | Inbox first, then by path. `total` counts every match; `truncated` says the limit cut some. |
 | `get_project(project_id)` | `Project` | Archived or not. |
 | `move_project(project_id, new_parent_id=None)` | `Project` | `None` = top level. A cycle is refused as `Can't move <A> into <B>: it is inside <A>.` |
+| `rename_project(project_id, name)` | `Project` | Same name rules as create; refused for the Inbox and an active sibling's name (any case). |
 | `link_projects(a_id, b_id)` | `LinkResult` | Symmetric; `created` is False when it already existed. |
 | `archive_project(project_id)` | `Project` | Hides it and everything under it from lists. Idempotent. |
 | `delete_project(project_id)` | `DeleteResult` | Empty projects only (no sub-projects, no items); otherwise archive. |
@@ -52,6 +53,10 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `open_studio()` | `StudioServer` | Starts `studio/web.py` on 127.0.0.1 unless one of this code version runs (`started` False); asks an older one to stop first. Never opens a browser. `StartFailed` after 5 s (see `studio.log`). |
 | `studio_status()` | `StudioServer` | The running studio, or `running` False. |
 | `stop_studio()` | `StudioServer` | POST /shutdown with the token, waits up to 5 s. Never kills. |
+| `project_view(project_id, refresh=False)` | `ProjectView` | The studio's `#/p/<id>`: breadcrumb, "Linked: ..." text, link choices, sub-project tiles, run panels (Open plan / Open PR / Open in Terminal when they apply), session rows (bg live, bg done, interactive, gone), "Everything else" folds (sessions too when none is active). |
+| `terminal_command(item_id)` | `TerminalCommand` | A session (or a run's listed session): `claude attach <short>` when `claude agents` lists it, else `cd <cwd> && claude --resume <id>`; pattern-checked, shlex-quoted; `confirm` set when its transcript changed in the last 5 min. Runs nothing ("Copy command"). |
+| `open_in_terminal(item_id, confirmed=False)` | `TerminalOpen` | Writes `<data dir>/open/<item id>.command` (0700) and runs `open` on it; on failure `pbcopy` (`copied`). `needs_confirm` until `confirmed` when the guard asks. Never stops, kills or removes a session. |
+| `open_target(item_id, target="default")` | `OpenResult` | `open` on the item's own URL or path (`plan` / `pr` for a run): http(s) URLs, or paths under the known roots; folders in Finder, pages in their app, other files only revealed (`open -R`). |
 
 The Inbox can't be moved, archived, deleted, linked, or hold sub-projects.
 
