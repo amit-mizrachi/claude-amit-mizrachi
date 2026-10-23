@@ -1,5 +1,6 @@
 /* Project Studio - page styles. Tokens and class names come from the approved mockups
-   (artifact/mockups/01-home-cards.html, 02-project-view.html, 09-d4-a-copy-only.html): Radix Colors 3.0.0 (slate, green, amber, violet, red,
+   (artifact/mockups/01-home-cards.html, 02-project-view.html, 03-inbox-and-drag.html,
+   09-d4-a-copy-only.html, 11-d5-a-learn-from-moves.html): Radix Colors 3.0.0 (slate, green, amber, violet, red,
    blue and their -dark scales) and Radix Themes 3.1.6 base tokens. Status glyphs are night-watch's. */
 :root{
 --slate-1:#fcfcfd;--slate-2:#f9f9fb;--slate-3:#f0f0f3;--slate-6:#d9d9e0;--slate-9:#8b8d98;--slate-11:#60646c;--slate-12:#1c2024;
@@ -91,3 +92,32 @@ body{margin:0;font:var(--font-size-2)/var(--line-height-2) var(--font);color:var
 .toast code{font-family:var(--mono);background:rgba(127,127,127,.25);padding:1px 4px;border-radius:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .toast.err{background:var(--red-9);color:#fff}
 .toast .act{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-decoration:underline;white-space:nowrap}
+
+/* the Inbox drawer, drag-and-drop, the move toast and the picker (mockups 03 and 11) */
+.lay.open{display:grid;grid-template-columns:minmax(0,1fr) 300px;min-height:calc(100vh - 41px)}
+.drawer{border-left:1px solid var(--border);background:var(--bg-subtle);padding:var(--space-3);overflow-y:auto}
+.drawer h3{font-size:var(--font-size-2);margin:0 0 var(--space-2);display:flex;gap:var(--space-2);align-items:center}
+.ib{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-3);padding:var(--space-2);margin-bottom:var(--space-2);font-size:var(--font-size-1);color:var(--text)}
+.ib[draggable=true]{cursor:grab}.ib:focus-visible{outline:2px solid var(--blue-9);outline-offset:1px}
+.ib .t{font-size:var(--font-size-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ib .s{display:flex;gap:var(--space-2);align-items:center;margin-top:4px;color:var(--text-2)}
+.ib.drag{opacity:.5;border-style:dashed}
+.ib label{display:flex;gap:6px;align-items:center;cursor:pointer}
+.ib input[type=checkbox]{margin:0;accent-color:var(--blue-9)}
+#toasts .ib{pointer-events:auto;max-width:520px;width:100%;margin:0;box-shadow:0 4px 16px rgba(0,0,0,.18)}
+.chip{display:inline-block;border-radius:var(--radius-2);background:var(--blue-3);color:var(--blue-11);padding:0 6px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px}
+code{font-family:var(--mono);font-size:12px;background:rgba(127,127,127,.25);padding:1px 4px;border-radius:3px}
+.card[draggable=true]{cursor:grab}
+.card.drop{background:var(--blue-3);outline:2px solid var(--blue-9);outline-offset:-1px}
+.card.drag{opacity:.5;border-style:dashed}
+.ghost{position:fixed;left:-1000px;top:-1000px;background:var(--bg);color:var(--text);border:1px solid var(--blue-9);border-radius:var(--radius-3);padding:4px 10px;font-size:var(--font-size-1);box-shadow:0 4px 12px rgba(0,0,0,.18);white-space:nowrap;pointer-events:none}
+.scrim{position:fixed;inset:0;z-index:10;background:rgba(0,0,0,.3);display:flex;align-items:flex-start;justify-content:center;padding:12vh var(--space-4) 0}
+.dlg{width:100%;max-width:380px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-5);padding:var(--space-4);box-shadow:0 8px 28px rgba(0,0,0,.2)}
+.dlg h4{margin:0 0 var(--space-2);font-size:var(--font-size-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dlg p{margin:0 0 var(--space-3);color:var(--text-2);font-size:var(--font-size-1)}
+.dlg .acts{display:flex;justify-content:flex-end;gap:var(--space-2);margin-top:var(--space-3)}
+.dlg input,.dlg select{width:100%;font:inherit;font-size:var(--font-size-2);color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-2);padding:4px 8px}
+.dlg select{margin-top:var(--space-2);padding:2px}
+.dlg input:focus-visible,.dlg select:focus-visible{outline:2px solid var(--blue-9);outline-offset:1px}
+.rule .t code{font-size:11px}
+

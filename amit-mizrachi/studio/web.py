@@ -11,6 +11,8 @@ Each route is one SDK call:
     GET  /static/<name>  app.css, app.js
     GET  /state          api.home()
     GET  /project?id=    api.project_view(id)
+    GET  /inbox          api.inbox_view() (the Inbox drawer)
+    GET  /choices?id=    api.move_choices(id) ("Move to..." and "Set parent")
     GET  /events         SSE: `event: state` with the full home state first, then on every change
     POST /api/projects   {"name": ...} -> api.create_project
     POST /api/refresh    api.refresh(force=True) (the banner's Retry)
@@ -20,6 +22,11 @@ Each route is one SDK call:
     POST /api/open       {"item_id", "target"} -> api.open_target (the URL or path comes from the store)
     POST /api/terminal   {"item_id", "confirmed"} -> api.open_in_terminal
     POST /api/command    {"item_id"} -> api.terminal_command ("Copy command")
+    POST /api/move       {"target_id", "to_project_id", "revision"} -> api.move (a drop, Move to..., Set parent)
+    POST /api/undo       {"move_id"} -> api.undo_move
+    POST /api/accept     {"item_id"} -> api.accept_suggestion
+    POST /api/rule       {"move_id"} -> api.save_rule_from_move ("Always file items like this here")
+    POST /api/rule/delete {"rule_id"} -> api.delete_rule
     POST /shutdown       stop
 Every request needs `Host: 127.0.0.1:<port>`; every POST needs the token (X-Studio-Token) and, when
 it sends one, this Origin. The guard and the lifecycle live in `sdk/server.py`, every rule the page
@@ -60,6 +67,11 @@ ACTIONS = {
     "/api/open": lambda b: api.open_target(b.get("item_id"), b.get("target") or "default"),
     "/api/terminal": lambda b: api.open_in_terminal(b.get("item_id"), b.get("confirmed") is True),
     "/api/command": lambda b: api.terminal_command(b.get("item_id")),
+    "/api/move": lambda b: api.move(b.get("target_id"), b.get("to_project_id"), b.get("revision")),
+    "/api/undo": lambda b: api.undo_move(b.get("move_id")),
+    "/api/accept": lambda b: api.accept_suggestion(b.get("item_id")),
+    "/api/rule": lambda b: api.save_rule_from_move(b.get("move_id")),
+    "/api/rule/delete": lambda b: api.delete_rule(b.get("rule_id")),
 }
 
 
@@ -205,6 +217,10 @@ class Handler(BaseHTTPRequestHandler):
             self.call(api.home)
         elif path == "/project":
             self.call(lambda: api.project_view((parse_qs(query).get("id") or [""])[0]))
+        elif path == "/inbox":
+            self.call(api.inbox_view)
+        elif path == "/choices":
+            self.call(lambda: api.move_choices((parse_qs(query).get("id") or [""])[0]))
         elif path == "/events":
             self.events()
         else:

@@ -41,14 +41,15 @@ class FreshStore(TempHome):
 class Migration(TempHome):
     def test_an_older_store_is_backed_up_then_migrated(self):
         api.create_project("Alpha")
+        later = store.SCHEMA_VERSION + 1
 
-        def to_v2(conn):
+        def to_later(conn):
             conn.execute("ALTER TABLE projects ADD COLUMN colour TEXT")
 
-        with mock.patch.object(store, "SCHEMA_VERSION", 2), mock.patch.dict(store.MIGRATIONS, {2: to_v2}):
+        with mock.patch.object(store, "SCHEMA_VERSION", later), mock.patch.dict(store.MIGRATIONS, {later: to_later}):
             opened = store.open_store()
             try:
-                self.assertEqual(opened.version, 2)
+                self.assertEqual(opened.version, later)
                 self.assertTrue(opened.backup_path and os.path.isfile(opened.backup_path))
                 columns = [r[1] for r in opened.conn.execute("PRAGMA table_info(projects)")]
                 self.assertIn("colour", columns)
@@ -56,10 +57,27 @@ class Migration(TempHome):
                 opened.close()
         backup = sqlite3.connect(opened.backup_path)
         try:
-            self.assertEqual(backup.execute("SELECT version FROM schema_version").fetchone()[0], 1)
+            self.assertEqual(backup.execute("SELECT version FROM schema_version").fetchone()[0], later - 1)
             self.assertEqual(backup.execute("SELECT COUNT(*) FROM projects").fetchone()[0], 2)
         finally:
             backup.close()
+
+    def test_a_v1_store_keeps_its_item_moves_and_gains_project_moves(self):
+        with mock.patch.object(store, "SCHEMA_VERSION", 1):
+            with store.write() as conn:
+                conn.execute("INSERT INTO items (id, kind, key, title, project_id, placed_by) "
+                             "VALUES ('i_aaaaaaaaaaaa', 'pr', 'o/r#1', 'PR 1', 'inbox', 'inbox')")
+                conn.execute("INSERT INTO moves (item_id, from_project, to_project, revision, at) "
+                             "VALUES ('i_aaaaaaaaaaaa', 'inbox', 'inbox', 2, 't')")
+        with store.read() as conn:
+            self.assertEqual(store.version_of(conn), 2)
+            move = dict(conn.execute("SELECT * FROM moves").fetchone())
+            columns = [r[1] for r in conn.execute("PRAGMA table_info(projects)")]
+        self.assertEqual((move["item_id"], move["project_id"], move["revision"]), ("i_aaaaaaaaaaaa", None, 2))
+        self.assertIn("revision", columns)
+        alpha, beta = api.create_project("Alpha"), api.create_project("Beta")
+        moved = api.move(beta.id, alpha.id)
+        self.assertIsNotNone(moved.move_id)
 
 
 class NewerStore(TempHome):

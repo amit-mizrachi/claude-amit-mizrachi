@@ -117,11 +117,13 @@ class RefreshResult:
 
 @dataclass
 class RulePreview:
-    """The rule "Always file items like this here" would save."""
+    """The rule "Always file items like this here" would save. `parts` are its (word, value) pairs,
+    so the studio can set each value as code: [["repo", "shapes-platform"], ["branch", "eval/*"]]."""
 
     signal: str
     pattern: str
     description: str
+    parts: List[List[str]] = field(default_factory=list)
 
 
 @dataclass
@@ -136,6 +138,7 @@ class Rule:
     description: str
     created_at: str
     created: bool = False
+    parts: List[List[str]] = field(default_factory=list)
 
 
 @dataclass
@@ -146,9 +149,9 @@ class RuleList:
 
 @dataclass
 class MoveResult:
-    """A move of an item (or, through `move`, a project). `move_id` is what `undo_move` and
-    `save_rule_from_move` take; it is None when nothing moved. `followed` lists the auto-attached
-    items that moved with a run."""
+    """A move of an item (or, through `move`, a project). `move_id` is what `undo_move` (and, for an
+    item, `save_rule_from_move`) take; it is None when nothing moved. `followed` lists the
+    auto-attached items that moved with a run. `message` is the toast: "Moved to Project Studio"."""
 
     item: Optional[Item]
     project: Optional[Project]
@@ -158,6 +161,7 @@ class MoveResult:
     followed: List[str] = field(default_factory=list)
     rule_preview: Optional[RulePreview] = None
     created: bool = False
+    message: str = ""
 
 
 @dataclass
@@ -396,6 +400,51 @@ class ProjectView:
     sessions_folded: bool
     folds: List[ViewFold]
     generated_at: str
+    rules: List[Rule] = field(default_factory=list)   # this project's attach rules, each deletable
+
+
+# ---------------------------------------------------------------- the Inbox drawer and the picker (ticket 06)
+
+@dataclass
+class InboxRow:
+    """One row of the Inbox drawer. `revision` goes back with a drag, so a stale drop is refused."""
+
+    item_id: str
+    revision: int
+    title: str
+    meta: str                      # kind and one fact, joined by a middle dot: "interactive", "2 h"
+    chip: str                      # an arrow and the suggested project, or '' with no suggestion
+    chip_title: str                # why: "rule: repo shapes-platform + branch eval/*"
+    can_accept: bool
+
+
+@dataclass
+class InboxView:
+    """The Inbox drawer: its rows (newest first), the full count, the hint and the empty text."""
+
+    rows: List[InboxRow]
+    count: int
+    truncated: bool
+    hint: str
+    empty: str
+
+
+@dataclass
+class MoveChoice:
+    id: Optional[str]              # a project id; None = the top level (Set parent only)
+    label: str                     # the project's path, "Project Studio / Studio MCP tools"
+
+
+@dataclass
+class MoveChoices:
+    """What "Move to..." (an item) or "Set parent" (a project) offers, in tree order."""
+
+    target_id: str
+    kind: str                      # item or project
+    name: str
+    title: str                     # "Move <name> to..." or "Set parent of <name>"
+    revision: Optional[int]        # an item's revision, sent back with the move
+    choices: List[MoveChoice]
 
 
 @dataclass

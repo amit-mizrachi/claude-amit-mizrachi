@@ -7,6 +7,7 @@ Every rule the project view shows lives here, not in the web server or the page 
 - A bg session still listed opens ("Open in Terminal"); an interactive or removed one resumes.
 - Sessions fold into "Everything else" when none is active; PRs, worktrees and artifacts always do.
 - Gone PRs, worktrees and artifacts are left out; gone sessions show greyed, "(removed)".
+- The project's own attach rules are listed, strongest signal first, each one deletable.
 """
 
 import os
@@ -198,4 +199,4 @@ def state(conn, project_id, now=None):
     return ProjectView(project=project, crumbs=crumbs, linked=linked, link_choices=choices,
                        inside=[view_tile(s) for s in subs], runs=[view_run(conn, r, arts) for r in runs],
                        sessions=rows, sessions_folded=folded, folds=folds(rows, folded, prs, trees, arts, live_cwds),
-                       generated_at=store.now_iso())
+                       generated_at=store.now_iso(), rules=items.list_rules(conn, project.id))

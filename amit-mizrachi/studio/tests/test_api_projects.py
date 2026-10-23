@@ -3,7 +3,7 @@
 import json
 import os
 
-from sdk import api
+from sdk import api, store
 from sdk.errors import InvalidInput, NotFound, Refused
 
 from .support import TempHome
@@ -158,7 +158,7 @@ class ExportJson(TempHome):
         export = api.export_json(dest)
         doc = export.document
         self.assertEqual(doc["format"], "project-studio-export")
-        self.assertEqual(doc["schema_version"], 1)
+        self.assertEqual(doc["schema_version"], store.SCHEMA_VERSION)
         self.assertEqual({p["id"] for p in doc["projects"]}, {"inbox", alpha.id, beta.id})
         self.assertEqual(len(doc["links"]), 1)
         self.assertEqual((doc["items"], doc["rules"], doc["moves"]), ([], [], []))

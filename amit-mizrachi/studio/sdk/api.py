@@ -17,11 +17,11 @@ import os
 import tempfile
 from typing import Optional
 
-from . import actions, attach, home as homepage, items, model, projectview, refresh as scan, server, store
+from . import actions, attach, home as homepage, inboxview, items, model, projectview, refresh as scan, server, store
 from .errors import InvalidInput
-from .results import (AttachResult, DeleteResult, Export, HomeState, InboxList, ItemList, LinkResult, MoveResult,
-                      OpenResult, Project, ProjectList, ProjectStatus, ProjectView, PurgeResult, RefreshResult, Rule,
-                      RuleList, StudioServer, TerminalCommand, TerminalOpen)
+from .results import (AttachResult, DeleteResult, Export, HomeState, InboxList, InboxView, ItemList, LinkResult,
+                      MoveChoices, MoveResult, OpenResult, Project, ProjectList, ProjectStatus, ProjectView,
+                      PurgeResult, RefreshResult, Rule, RuleList, StudioServer, TerminalCommand, TerminalOpen)
 
 MAX_LIST_LIMIT = 1000
 
@@ -241,19 +241,22 @@ def move_item(item_id: str, project_id: str, expected_revision: Optional[int] = 
 def move(target_id: str, to_project_id: Optional[str], expected_revision: Optional[int] = None) -> MoveResult:
     """Move an item (id `i_...`) or a project (id `p_...`) - the one call behind drop = move.
 
-    A project goes under `to_project_id` (None = top level) as `move_project` does; an item goes
-    into it as `move_item` does.
+    A project goes under `to_project_id` (None = top level) as `move_project` does, and its move
+    gets a `move_id` for `undo_move` too; an item goes into it as `move_item` does. `message` is
+    the toast ("Moved to Project Studio").
     """
     if isinstance(target_id, str) and items.ITEM_ID.match(target_id):
         if to_project_id is None:
             raise InvalidInput("An item needs a project to move into.")
         return move_item(target_id, to_project_id, expected_revision)
-    project = move_project(target_id, to_project_id)
-    return MoveResult(item=None, project=project, move_id=None, from_project_id=None, to_project_id=to_project_id)
+    to_project_id = _optional_id(to_project_id, "to_project_id")
+    with store.write() as conn:
+        return items.move_project(conn, target_id, to_project_id)
 
 
 def undo_move(move_id: int) -> MoveResult:
-    """Put an item back where `move_id` took it from. Refused when it moved again since."""
+    """Put an item back where `move_id` took it from, or a project back under its old parent.
+    Refused ("Can't undo: <name> was moved again since.") when it moved again since."""
     with store.write() as conn:
         return items.undo(conn, move_id)
 
@@ -285,6 +288,7 @@ def accept_suggestion(item_id: str) -> MoveResult:
 def save_rule_from_move(move_id: int) -> Rule:
     """"Always file items like this here": save a rule from the moved item's strongest signal
     (workspace slug > repo + branch prefix > cwd prefix) into the project the move went to.
+    Refused for a project's move.
     The next refresh files matching new and Inbox items there. Saving the same rule twice
     returns the existing one (`created` False)."""
     with store.write() as conn:
@@ -425,3 +429,27 @@ def open_target(item_id: str, target: str = "default") -> OpenResult:
     with store.read() as conn:
         found_id, value, how, argv = actions.resolve_target(conn, item_id, target)
     return actions.run_open(found_id, target, value, how, argv)
+
+
+# ---------------------------------------------------------------- the Inbox drawer and moving (ticket 06)
+
+INBOX_VIEW_LIMIT = 200
+
+
+def inbox_view(limit: Optional[int] = INBOX_VIEW_LIMIT) -> InboxView:
+    """The studio's Inbox drawer: one row per unfiled item, newest first (name, "interactive - 2 h"
+    style kind and fact, the suggestion chip with its reason, whether Accept applies), the full
+    count, and the hint "Drag a row onto a card, or Accept the suggestion.". Reads the store only.
+    """
+    limit = _limit(limit)
+    with store.read() as conn:
+        return inboxview.state(conn, limit)
+
+
+def move_choices(target_id: str) -> MoveChoices:
+    """What "Move to..." offers an item (`i_...`: every active project but its own, the Inbox
+    included) or "Set parent" offers a project (`p_...`: the top level and every other active
+    project), in tree order. Pass the chosen id (None = top level) to `move`.
+    """
+    with store.read() as conn:
+        return inboxview.choices(conn, target_id)

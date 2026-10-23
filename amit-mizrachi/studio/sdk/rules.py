@@ -41,15 +41,20 @@ def for_signals(signals):
     return None
 
 
-def describe(signal, pattern):
-    """The words the studio shows for a rule: "repo shapes-platform + branch eval/*"."""
+def parts(signal, pattern):
+    """A rule as (word, value) pairs: [["repo", "shapes-platform"], ["branch", "eval/*"]]."""
     if signal == "repo-branch":
         repo, _, branch = pattern.partition(" ")
-        return "repo %s + branch %s" % (repo, branch)
+        return [["repo", repo], ["branch", branch]]
     if signal == "cwd":
         home = os.path.expanduser("~")
-        return "folder %s" % ("~" + pattern[len(home):] if pattern.startswith(home + "/") else pattern)
-    return "workspace %s" % pattern
+        return [["folder", "~" + pattern[len(home):] if pattern.startswith(home + "/") else pattern]]
+    return [["workspace", pattern]]
+
+
+def describe(signal, pattern):
+    """The words the studio shows for a rule: "repo shapes-platform + branch eval/*"."""
+    return " + ".join("%s %s" % (word, value) for word, value in parts(signal, pattern))
 
 
 def matches(signal, pattern, signals):

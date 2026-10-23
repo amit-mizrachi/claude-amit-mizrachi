@@ -10,8 +10,9 @@ Rules this module keeps:
   `backups/` as a file first, then migrated in one `BEGIN IMMEDIATE`. A store at a NEWER version
   (written by a newer SDK) is opened read-only: reads work, `write()` raises `ReadOnlyStore`.
 - The Inbox is a seeded project with the fixed id `inbox`.
-- Items carry a `revision` that every move bumps; a move records the revision it produced in
-  `moves`, so an Undo can refuse when something moved the item since (ticket 02 builds on it).
+- Items and projects carry a `revision` that every move bumps; a move records the revision it
+  produced in `moves` (an item's or, since v2, a project's), so an Undo can refuse when something
+  moved it since.
 
 Only the SDK touches SQL. Adapters call `sdk.api`.
 """
@@ -24,7 +25,7 @@ from urllib.parse import quote
 
 from .errors import ReadOnlyStore
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 INBOX_ID = "inbox"
 INBOX_NAME = "Inbox"
 DB_NAME = "studio.db"
@@ -111,9 +112,28 @@ def _schema_v1(conn):
                  "VALUES (?, ?, NULL, NULL, ?, ?)", (INBOX_ID, INBOX_NAME, stamp, stamp))
 
 
+def _schema_v2(conn):
+    """Project moves get Undo: projects carry a revision, and a `moves` row is an item's move
+    (item_id set) or a project's (project_id set, from/to = old/new parent, NULL = top level)."""
+    conn.execute("ALTER TABLE projects ADD COLUMN revision INTEGER NOT NULL DEFAULT 1")
+    conn.execute("""CREATE TABLE moves_v2 (
+             id INTEGER PRIMARY KEY AUTOINCREMENT,
+             item_id TEXT REFERENCES items(id),
+             project_id TEXT REFERENCES projects(id),
+             from_project TEXT,
+             to_project TEXT,
+             revision INTEGER NOT NULL,
+             at TEXT NOT NULL,
+             CHECK ((item_id IS NULL) != (project_id IS NULL)))""")
+    conn.execute("INSERT INTO moves_v2 (id, item_id, project_id, from_project, to_project, revision, at) "
+                 "SELECT id, item_id, NULL, from_project, to_project, revision, at FROM moves")
+    conn.execute("DROP TABLE moves")
+    conn.execute("ALTER TABLE moves_v2 RENAME TO moves")
+
+
 # version -> the step that takes a store from version - 1 to version. Steps run in order, all
 # inside one BEGIN IMMEDIATE, after a file backup of the old store.
-MIGRATIONS = {1: _schema_v1}
+MIGRATIONS = {1: _schema_v1, 2: _schema_v2}
 
 
 class Store(object):

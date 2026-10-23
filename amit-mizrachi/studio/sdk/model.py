@@ -54,7 +54,7 @@ class Tree(object):
 
     def __init__(self, conn):
         self.rows = {r["id"]: r for r in conn.execute(
-            "SELECT id, name, parent_id, archived_at, created_at, updated_at FROM projects")}
+            "SELECT id, name, parent_id, archived_at, revision, created_at, updated_at FROM projects")}
         self.children = {}
         for row in self.rows.values():
             self.children.setdefault(row["parent_id"], []).append(row["id"])
@@ -147,6 +147,8 @@ def create_project(conn, name, parent_id):
 
 
 def move_project(conn, project_id, new_parent_id):
+    """Re-parent a project, bump its revision and record the move. Returns the move id, or None
+    when it already had that parent."""
     tree = Tree(conn)
     row = tree.row(project_id)
     if project_id == store.INBOX_ID:
@@ -156,12 +158,16 @@ def move_project(conn, project_id, new_parent_id):
         if new_parent_id == project_id or project_id in tree.ancestors(new_parent_id):
             raise Refused("Can't move %s into %s: it is inside %s." % (row["name"], target["name"], row["name"]))
     if row["parent_id"] == new_parent_id:
-        return
+        return None
     _parent_ok(tree, new_parent_id, row["name"])
     if tree.sibling_named(new_parent_id, row["name"], skip=project_id):
         raise Refused("A project named %s already exists there." % row["name"])
-    conn.execute("UPDATE projects SET parent_id = ?, updated_at = ? WHERE id = ?",
-                 (new_parent_id, store.now_iso(), project_id))
+    stamp, revision = store.now_iso(), row["revision"] + 1
+    conn.execute("UPDATE projects SET parent_id = ?, revision = ?, updated_at = ? WHERE id = ?",
+                 (new_parent_id, revision, stamp, project_id))
+    cur = conn.execute("INSERT INTO moves (project_id, from_project, to_project, revision, at) VALUES (?, ?, ?, ?, ?)",
+                       (project_id, row["parent_id"], new_parent_id, revision, stamp))
+    return cur.lastrowid
 
 
 def rename_project(conn, project_id, name):
@@ -217,6 +223,7 @@ def delete_project(conn, project_id):
                       % (row["name"], " and ".join(held)))
     conn.execute("DELETE FROM links WHERE a_id = ? OR b_id = ?", (project_id, project_id))
     conn.execute("DELETE FROM rules WHERE project_id = ?", (project_id,))
+    conn.execute("DELETE FROM moves WHERE project_id = ?", (project_id,))
     conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
     return row["name"]
 
@@ -239,9 +246,10 @@ def export_document(conn, version):
         "format": "project-studio-export",
         "schema_version": version,
         "exported_at": store.now_iso(),
-        "projects": _rows(conn, "SELECT id, name, parent_id, archived_at, created_at, updated_at FROM projects ORDER BY created_at, id"),
+        "projects": _rows(conn, "SELECT id, name, parent_id, archived_at, revision, created_at, updated_at FROM projects "
+                                       "ORDER BY created_at, id"),
         "links": _rows(conn, "SELECT a_id, b_id, created_at FROM links ORDER BY a_id, b_id"),
         "items": items,
         "rules": _rows(conn, "SELECT id, project_id, signal, pattern, created_at FROM rules ORDER BY created_at, id"),
-        "moves": _rows(conn, "SELECT id, item_id, from_project, to_project, revision, at FROM moves ORDER BY id"),
+        "moves": _rows(conn, "SELECT id, item_id, project_id, from_project, to_project, revision, at FROM moves ORDER BY id"),
     }

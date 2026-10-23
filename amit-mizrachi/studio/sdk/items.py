@@ -4,7 +4,7 @@ Every function takes an open connection; `sdk.api` owns the transactions. Rules 
 - An item has exactly one home. A move by hand sets `placed_by = manual`, bumps `revision` and
   records a `moves` row; the auto-attached items of a moved run (placed by title or cwd) follow it.
 - A move can carry the revision the caller saw; a newer one refuses it. Undo is refused when the
-  item moved since the move it undoes.
+  item (or project) moved since the move it undoes.
 - Nothing is filed into an archived project, by hand or by rule.
 - Purge deletes only gone items, and only when asked.
 """
@@ -192,7 +192,14 @@ def _record(conn, item_id, from_project, to_project, revision):
 
 def preview(r, to_project):
     found = rules.for_signals(item_data(r).get("signals")) if to_project != store.INBOX_ID else None
-    return RulePreview(signal=found[0], pattern=found[1], description=rules.describe(*found)) if found else None
+    return RulePreview(signal=found[0], pattern=found[1], description=rules.describe(*found),
+                       parts=rules.parts(*found)) if found else None
+
+
+def moved_to(tree, project_id, back=False):
+    """The toast after a move: "Moved to Project Studio", "Moved back to the top level"."""
+    where = tree.rows[project_id]["name"] if project_id in tree.rows else "the top level"
+    return "Moved %sto %s" % ("back " if back else "", where)
 
 
 def move(conn, item_id, to_project, expected_revision, placed_by="manual"):
@@ -205,12 +212,22 @@ def move(conn, item_id, to_project, expected_revision, placed_by="manual"):
                       % (r["title"], expected_revision, r["revision"]))
     if r["project_id"] == to_project and r["placed_by"] == placed_by:
         return MoveResult(item=to_item(r, tree), project=None, move_id=None, from_project_id=r["project_id"],
-                          to_project_id=to_project, rule_preview=preview(r, to_project))
+                          to_project_id=to_project, rule_preview=preview(r, to_project),
+                          message="Already in %s" % tree.rows[to_project]["name"])
     revision, followed = _move_row(conn, r, to_project, placed_by)
     move_id = _record(conn, item_id, r["project_id"], to_project, revision)
     return MoveResult(item=to_item(row(conn, item_id), tree), project=None, move_id=move_id,
                       from_project_id=r["project_id"], to_project_id=to_project, followed=followed,
-                      rule_preview=preview(r, to_project))
+                      rule_preview=preview(r, to_project), message=moved_to(tree, to_project))
+
+
+def move_project(conn, project_id, to_parent):
+    """Move a project under `to_parent` (None = top level) as a MoveResult with an undoable move_id."""
+    move_id = model.move_project(conn, project_id, to_parent)
+    tree = model.Tree(conn)
+    message = moved_to(tree, to_parent) if move_id else "Already there"
+    return MoveResult(item=None, project=tree.project(project_id), move_id=move_id, from_project_id=None,
+                      to_project_id=to_parent, message=message)
 
 
 def _move_by_id(conn, move_id):
@@ -222,8 +239,23 @@ def _move_by_id(conn, move_id):
     return dict(m)
 
 
+def _undo_project(conn, m):
+    tree = model.Tree(conn)
+    p = tree.row(m["project_id"])
+    if p["revision"] != m["revision"]:
+        raise Refused("Can't undo: %s was moved again since." % p["name"])
+    if m["from_project"] is not None and m["from_project"] not in tree.rows:
+        raise Refused("Can't undo: the project %s came from no longer exists." % p["name"])
+    new_id = model.move_project(conn, p["id"], m["from_project"])
+    tree = model.Tree(conn)
+    return MoveResult(item=None, project=tree.project(p["id"]), move_id=new_id, from_project_id=m["to_project"],
+                      to_project_id=m["from_project"], message=moved_to(tree, m["from_project"], back=True))
+
+
 def undo(conn, move_id):
     m = _move_by_id(conn, move_id)
+    if m["project_id"]:
+        return _undo_project(conn, m)
     r = row(conn, m["item_id"])
     if r["revision"] != m["revision"]:
         raise Refused("Can't undo: %s was moved again since." % r["title"])
@@ -237,7 +269,8 @@ def undo(conn, move_id):
     revision, followed = _move_row(conn, r, m["from_project"], placed_by)
     new_id = _record(conn, r["id"], m["to_project"], m["from_project"], revision)
     return MoveResult(item=to_item(row(conn, r["id"]), tree), project=None, move_id=new_id,
-                      from_project_id=m["to_project"], to_project_id=m["from_project"], followed=followed)
+                      from_project_id=m["to_project"], to_project_id=m["from_project"], followed=followed,
+                      message=moved_to(tree, m["from_project"], back=True))
 
 
 # ---------------------------------------------------------------- adding by hand
@@ -337,11 +370,13 @@ def accept(conn, item_id):
 def to_rule(r, tree, created=False):
     return Rule(id=r["id"], project_id=r["project_id"], project_name=tree.rows[r["project_id"]]["name"],
                 signal=r["signal"], pattern=r["pattern"], description=rules.describe(r["signal"], r["pattern"]),
-                created_at=r["created_at"], created=created)
+                created_at=r["created_at"], created=created, parts=rules.parts(r["signal"], r["pattern"]))
 
 
 def save_rule(conn, move_id):
     m = _move_by_id(conn, move_id)
+    if m["project_id"]:
+        raise Refused("A rule learns from an item's move, not a project's.")
     r = row(conn, m["item_id"])
     tree = model.Tree(conn)
     if m["to_project"] == store.INBOX_ID:
