@@ -10,9 +10,16 @@ Each route is one SDK call:
     GET  /               static/index.html with this server's token in a meta tag
     GET  /static/<name>  app.css, app.js
     GET  /state          api.home()
+    GET  /project?id=    api.project_view(id)
     GET  /events         SSE: `event: state` with the full home state first, then on every change
     POST /api/projects   {"name": ...} -> api.create_project
     POST /api/refresh    api.refresh(force=True) (the banner's Retry)
+    POST /api/rename     {"project_id", "name"} -> api.rename_project
+    POST /api/archive    {"project_id"} -> api.archive_project
+    POST /api/link       {"project_id", "other_id"} -> api.link_projects
+    POST /api/open       {"item_id", "target"} -> api.open_target (the URL or path comes from the store)
+    POST /api/terminal   {"item_id", "confirmed"} -> api.open_in_terminal
+    POST /api/command    {"item_id"} -> api.terminal_command ("Copy command")
     POST /shutdown       stop
 Every request needs `Host: 127.0.0.1:<port>`; every POST needs the token (X-Studio-Token) and, when
 it sends one, this Origin. The guard and the lifecycle live in `sdk/server.py`, every rule the page
@@ -29,6 +36,7 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -43,6 +51,16 @@ POLL, KEEPALIVE = 2.0, 15.0
 MAX_BODY = 64 * 1024
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; "
        "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+
+
+ACTIONS = {
+    "/api/rename": lambda b: api.rename_project(b.get("project_id"), b.get("name")),
+    "/api/archive": lambda b: api.archive_project(b.get("project_id")),
+    "/api/link": lambda b: api.link_projects(b.get("project_id"), b.get("other_id")),
+    "/api/open": lambda b: api.open_target(b.get("item_id"), b.get("target") or "default"),
+    "/api/terminal": lambda b: api.open_in_terminal(b.get("item_id"), b.get("confirmed") is True),
+    "/api/command": lambda b: api.terminal_command(b.get("item_id")),
+}
 
 
 def log(msg):
@@ -174,7 +192,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.guarded(False):
             return
-        path = self.path.split("?", 1)[0]
+        path, _, query = self.path.partition("?")
         if path == "/":
             with open(os.path.join(STATIC, "index.html"), encoding="utf-8") as fh:
                 page = fh.read().replace("{{TOKEN}}", html.escape(self.server.token, quote=True))
@@ -185,6 +203,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send(200, fh.read(), STATIC_TYPES[name])
         elif path == "/state":
             self.call(api.home)
+        elif path == "/project":
+            self.call(lambda: api.project_view((parse_qs(query).get("id") or [""])[0]))
         elif path == "/events":
             self.events()
         else:
@@ -202,6 +222,8 @@ class Handler(BaseHTTPRequestHandler):
             self.call(lambda: api.create_project(body.get("name")))
         elif self.path == "/api/refresh":
             self.call(lambda: api.refresh(force=True))
+        elif self.path in ACTIONS:
+            self.call(lambda: ACTIONS[self.path](body))
         elif self.path == "/shutdown":
             self.send_json(200, {"stopping": True})
             threading.Thread(target=self.server.shutdown, daemon=True).start()

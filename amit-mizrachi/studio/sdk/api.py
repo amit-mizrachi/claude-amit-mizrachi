@@ -17,10 +17,11 @@ import os
 import tempfile
 from typing import Optional
 
-from . import attach, home as homepage, items, model, refresh as scan, server, store
+from . import actions, attach, home as homepage, items, model, projectview, refresh as scan, server, store
 from .errors import InvalidInput
-from .results import (AttachResult, DeleteResult, Export, HomeState, InboxList, ItemList, LinkResult, MoveResult, Project,
-                      ProjectList, ProjectStatus, PurgeResult, RefreshResult, Rule, RuleList, StudioServer)
+from .results import (AttachResult, DeleteResult, Export, HomeState, InboxList, ItemList, LinkResult, MoveResult,
+                      OpenResult, Project, ProjectList, ProjectStatus, ProjectView, PurgeResult, RefreshResult, Rule,
+                      RuleList, StudioServer, TerminalCommand, TerminalOpen)
 
 MAX_LIST_LIMIT = 1000
 
@@ -93,6 +94,15 @@ def move_project(project_id: str, new_parent_id: Optional[str] = None) -> Projec
     new_parent_id = _optional_id(new_parent_id, "new_parent_id")
     with store.write() as conn:
         model.move_project(conn, project_id, new_parent_id)
+        return model.Tree(conn).project(project_id)
+
+
+def rename_project(project_id: str, name: str) -> Project:
+    """Give a project a new name and return it. Same name rules as `create_project`; refused for
+    the Inbox and when an active sibling already has the name (ignoring case).
+    """
+    with store.write() as conn:
+        model.rename_project(conn, project_id, name)
         return model.Tree(conn).project(project_id)
 
 
@@ -366,3 +376,52 @@ def stop_studio() -> StudioServer:
     kills a process. `running` False afterwards means it stopped (or was not running).
     """
     return server.stop_studio()
+
+
+# ---------------------------------------------------------------- the project view and open actions (ticket 05)
+
+def project_view(project_id: str, refresh: bool = False) -> ProjectView:
+    """The studio's project view: breadcrumb, "Linked: ..." text, the projects "Link..." can offer,
+    sub-project tiles ("1 run done", "no runs"), run panels (which of Open plan, Open PR and Open in
+    Terminal apply), session rows (bg live "working - 2 min", bg done "finished - 3 h", interactive
+    "last active 1 d", gone "(removed)"), and the "Everything else" folds (PRs, worktrees, artifacts,
+    and sessions when none is active). Refreshes due sources first only when `refresh` is True.
+    """
+    _maybe_refresh(refresh)
+    with store.read() as conn:
+        return projectview.state(conn, project_id)
+
+
+def terminal_command(item_id: str) -> TerminalCommand:
+    """The command that opens a session again, built from the store: `claude attach <short id>` when
+    `claude agents` lists the session, else `cd <recorded cwd> && claude --resume <session id>`
+    (every value pattern-checked and shlex-quoted). `item_id` is a session, or a night run (its
+    newest listed session). `confirm` is set when the transcript changed in the last 5 minutes.
+    It runs nothing: this is what "Copy command" copies.
+    """
+    with store.read() as conn:
+        found = actions.session_of(conn, item_id)
+    return actions.terminal_command(found)
+
+
+def open_in_terminal(item_id: str, confirmed: bool = False) -> TerminalOpen:
+    """Open a session (or a night run's live session) in Terminal: write the `terminal_command` to
+    `<data dir>/open/<item id>.command` (mode 0700) and run `open <file>`. When that fails, the
+    command goes to the clipboard (`copied`). A resume whose transcript changed in the last
+    5 minutes runs nothing and returns `needs_confirm` until called with `confirmed` True.
+    It never stops, kills or removes a session.
+    """
+    confirmed = _flag(confirmed, "confirmed")
+    return actions.open_in_terminal(terminal_command(item_id), confirmed)
+
+
+def open_target(item_id: str, target: str = "default") -> OpenResult:
+    """Open an item with `open`: an http(s) URL in the browser, a folder in Finder, a page or text
+    file in its app, any other file revealed in Finder (`open -R`). The value is the item's own,
+    from the store: `target` "plan" is a night run's plan page, "pr" its PR, "default" the item
+    itself (a run's or worktree's folder, a PR's URL, an artifact). Refused for a path outside
+    the known roots and for anything that is not an http(s) URL or a path.
+    """
+    with store.read() as conn:
+        found_id, value, how, argv = actions.resolve_target(conn, item_id, target)
+    return actions.run_open(found_id, target, value, how, argv)

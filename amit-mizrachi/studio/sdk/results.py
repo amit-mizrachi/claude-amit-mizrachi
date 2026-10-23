@@ -310,6 +310,134 @@ class StudioServer:
     started: bool = False
 
 
+# ---------------------------------------------------------------- the project view and open actions (ticket 05)
+
+@dataclass
+class ViewTile:
+    """One sub-project tile in "Inside <n>": glyph by its top run status, and "1 run done" / "no runs"."""
+
+    project_id: str
+    name: str
+    status: str                     # its top run's status, "pending" when it has no runs
+    glyph: str
+    text: str
+
+
+@dataclass
+class ViewRun:
+    """One run panel. `detail` sits before the stage bar ("REDRAW - T03 of 5"), `started` and `pr`
+    after it. `terminal_item_id` is the run's live session (None: no "Open in Terminal")."""
+
+    item_id: str
+    title: str
+    status: str
+    glyph: str
+    word: str
+    detail: str
+    bar: List[str]
+    started: str
+    pr: str
+    has_plan: bool
+    has_pr: bool
+    terminal_item_id: Optional[str]
+    gone: bool
+
+
+@dataclass
+class ViewSession:
+    """One session row: bg live ("working - 2 min"), bg done ("finished - 3 h"), interactive
+    ("last active 1 d") or gone ("(removed)", "gone - 9 h"). `action` is the button's text."""
+
+    item_id: str
+    kind: str                       # bg or interactive
+    title: str
+    status: str                     # running, done, pending, unknown (gone)
+    glyph: str
+    age: str
+    action: str                     # "Open in Terminal" or "Resume in Terminal"
+    gone: bool
+
+
+@dataclass
+class ViewRow:
+    """One line inside a fold row (a PR, a worktree, an artifact) and the button that opens it."""
+
+    item_id: str
+    title: str
+    text: str
+    action: str                     # "Open" or "Show in Finder"
+
+
+@dataclass
+class ViewFold:
+    """One collapsed line of "Everything else": "Pull requests 2 - 1 open, 1 merged". The sessions
+    fold (only when no session is active) has no `rows`: its rows are `ProjectView.sessions`."""
+
+    kind: str                       # sessions, prs, worktrees, artifacts
+    label: str
+    count: int
+    summary: str
+    rows: List[ViewRow]
+
+
+@dataclass
+class ProjectView:
+    """The whole project view (`#/p/<id>`): breadcrumb, "Linked: ..." text, sub-project tiles, run
+    panels, session rows (or a sessions fold when all are idle), the fold rows, and the projects
+    "Link..." can offer."""
+
+    project: Project
+    crumbs: List[Dict[str, str]]    # [{"id", "name"}] from the top level down to the parent
+    linked: str                     # "Linked: night-sprint plugin", or ""
+    link_choices: List[Dict[str, str]]   # [{"id", "name"}]: active projects it is not linked to yet
+    inside: List[ViewTile]
+    runs: List[ViewRun]
+    sessions: List[ViewSession]
+    sessions_folded: bool
+    folds: List[ViewFold]
+    generated_at: str
+
+
+@dataclass
+class TerminalCommand:
+    """The command that opens a session again: `claude attach <short>` when `claude agents` lists it
+    (`mode` attach), else `cd <cwd> && claude --resume <id>` (`mode` resume). `confirm` is set when
+    the session's transcript changed in the last 5 minutes: it may still be open elsewhere."""
+
+    item_id: str                    # the session item the command is for
+    mode: str                       # attach or resume
+    command: str
+    session_id: str
+    short: str
+    cwd: str
+    confirm: str
+
+
+@dataclass
+class TerminalOpen:
+    """What Open in Terminal did. `opened`: `open <file>.command` worked. Else `copied` says the
+    command went to the clipboard. `needs_confirm`: nothing ran; ask, then call again confirmed."""
+
+    command: TerminalCommand
+    opened: bool
+    copied: bool
+    needs_confirm: bool
+    path: Optional[str]             # the .command file, when one was written
+    message: str
+
+
+@dataclass
+class OpenResult:
+    """What an open action did: `how` is url (browser), folder (Finder), file, or reveal (`open -R`)."""
+
+    item_id: str
+    target: str                     # default, plan or pr
+    value: str
+    how: str
+    opened: bool
+    message: str
+
+
 def to_dict(value):
     """A JSON-ready dict (or list) for any SDK return value."""
     if isinstance(value, list):

@@ -1,5 +1,5 @@
-/* Project Studio - home page styles. Tokens and class names come from the approved mockup
-   (artifact/mockups/01-home-cards.html): Radix Colors 3.0.0 (slate, green, amber, violet, red,
+/* Project Studio - page styles. Tokens and class names come from the approved mockups
+   (artifact/mockups/01-home-cards.html, 02-project-view.html, 09-d4-a-copy-only.html): Radix Colors 3.0.0 (slate, green, amber, violet, red,
    blue and their -dark scales) and Radix Themes 3.1.6 base tokens. Status glyphs are night-watch's. */
 :root{
 --slate-1:#fcfcfd;--slate-2:#f9f9fb;--slate-3:#f0f0f3;--slate-6:#d9d9e0;--slate-9:#8b8d98;--slate-11:#60646c;--slate-12:#1c2024;
@@ -28,7 +28,7 @@ body{margin:0;font:var(--font-size-2)/var(--line-height-2) var(--font);color:var
 .top b{color:var(--text);font-size:var(--font-size-2)}.sp{flex:1}
 .live{display:inline-flex;align-items:center;gap:6px}.live i{width:8px;height:8px;border-radius:50%;background:var(--green-9)}.live.off i{background:var(--slate-9)}
 .btn{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:var(--font-size-1);color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-2);padding:3px 10px;white-space:nowrap;cursor:pointer;text-decoration:none}
-.btn:focus-visible{outline:2px solid var(--blue-9);outline-offset:1px}
+.btn:focus-visible,.btn.focus{outline:2px solid var(--blue-9);outline-offset:1px}
 .btn.pri{background:var(--blue-9);border-color:var(--blue-9);color:#fff}.btn.ghost{border-color:transparent;background:none;color:var(--text-2)}
 .btn:disabled{opacity:.45;cursor:default}
 .cnt{display:inline-block;min-width:18px;padding:0 6px;border-radius:9px;background:var(--bg-ui);color:var(--text);font-size:11px;line-height:18px;text-align:center}
@@ -57,3 +57,37 @@ body{margin:0;font:var(--font-size-2)/var(--line-height-2) var(--font);color:var
 .empty{border:1px dashed var(--border);border-radius:var(--radius-4);padding:var(--space-6);text-align:center;color:var(--text-2)}
 .empty .lead{margin:0 0 var(--space-2);color:var(--text);font-size:var(--font-size-3)}.empty .txt{margin:0 0 var(--space-4)}
 .dim{opacity:.55}
+
+/* the project view (mockup 02) */
+[hidden]{display:none!important}
+.crumb{color:var(--text-2);font-size:var(--font-size-1);margin-bottom:var(--space-1)}
+.crumb a{color:inherit;text-decoration:none}.crumb a:hover{color:var(--text);text-decoration:underline}
+.h .grow{flex:1}.h .menu{position:relative}
+.pop{position:absolute;right:0;top:calc(100% + 4px);z-index:5;min-width:180px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-3);padding:var(--space-1);display:flex;flex-direction:column;gap:2px;box-shadow:0 4px 16px rgba(0,0,0,.18)}
+.pop .btn{justify-content:flex-start;border-color:transparent;background:none}.pop .btn:hover{background:var(--bg-ui)}
+.pop select{font:inherit;font-size:var(--font-size-1);color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-2);padding:3px 6px;margin-bottom:var(--space-1)}
+.pop .row2{display:flex;gap:var(--space-1);justify-content:flex-end}
+.sec{margin-top:var(--space-5)}.sec.first{margin-top:0}
+.sec h3{display:flex;align-items:center;gap:var(--space-2);font-size:var(--font-size-1);text-transform:uppercase;letter-spacing:.05em;color:var(--text-2);margin:0 0 var(--space-2);font-weight:600}
+.minis{display:flex;gap:var(--space-2);flex-wrap:wrap}
+.mini{border:1px solid var(--border);border-radius:var(--radius-3);padding:var(--space-2) var(--space-3);display:flex;gap:var(--space-2);align-items:center;font-size:var(--font-size-1);color:var(--text);background:var(--bg);font-family:inherit;cursor:pointer}
+.mini:hover{border-color:var(--slate-9)}.mini:focus-visible{outline:2px solid var(--blue-9);outline-offset:1px}
+.runbig{border:1px solid var(--border);border-radius:var(--radius-4);padding:var(--space-3) var(--space-4);display:grid;grid-template-columns:16px 1fr auto;gap:2px var(--space-2);align-items:center;margin-bottom:var(--space-2)}
+.runbig b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.runbig .acts{display:flex;gap:var(--space-1);flex-wrap:wrap;justify-content:flex-end}
+.runbig .st{grid-column:2/4;display:flex;gap:var(--space-2);align-items:center;font-size:var(--font-size-1);color:var(--text-2);flex-wrap:wrap;min-width:0}
+.rows{border:1px solid var(--border);border-radius:var(--radius-4);overflow:hidden}
+.row{display:grid;grid-template-columns:16px 76px 1fr auto auto;gap:var(--space-2);align-items:center;padding:var(--space-2) var(--space-3);border-top:1px solid var(--border)}
+.row:first-child{border-top:0}.row.hot{background:var(--bg-ui)}.row.plain{grid-template-columns:1fr auto auto}
+.row .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.row .acts{display:flex;gap:var(--space-1)}
+.kind{font-size:11px;color:var(--text-2);border:1px solid var(--border);border-radius:var(--radius-2);padding:0 6px;text-align:center;white-space:nowrap}
+.age{color:var(--text-2);font-size:var(--font-size-1);white-space:nowrap}
+.fold{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);border:1px solid var(--border);border-radius:var(--radius-4);color:var(--text-2);font-size:var(--font-size-1);margin-top:var(--space-2);background:var(--bg);font-family:inherit;width:100%;text-align:left;cursor:pointer}
+.fold:hover{border-color:var(--slate-9)}.fold:focus-visible{outline:2px solid var(--blue-9);outline-offset:1px}
+.fold+.rows{margin-top:var(--space-1)}
+#toasts{position:fixed;left:0;right:0;bottom:var(--space-5);display:flex;flex-direction:column;align-items:center;gap:var(--space-2);pointer-events:none;padding:0 var(--space-4)}
+.toast{pointer-events:auto;max-width:520px;width:100%;display:flex;gap:var(--space-3);align-items:center;background:var(--slate-12);color:var(--slate-1);border-radius:var(--radius-3);padding:var(--space-2) var(--space-3);font-size:var(--font-size-1);box-shadow:0 4px 16px rgba(0,0,0,.25)}
+.toast code{font-family:var(--mono);background:rgba(127,127,127,.25);padding:1px 4px;border-radius:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.toast.err{background:var(--red-9);color:#fff}
+.toast .act{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-decoration:underline;white-space:nowrap}

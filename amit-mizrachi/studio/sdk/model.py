@@ -164,6 +164,19 @@ def move_project(conn, project_id, new_parent_id):
                  (new_parent_id, store.now_iso(), project_id))
 
 
+def rename_project(conn, project_id, name):
+    name = clean_name(name)
+    tree = Tree(conn)
+    row = tree.row(project_id)
+    if project_id == store.INBOX_ID:
+        raise Refused("The Inbox can't be renamed.")
+    if row["name"] == name:
+        return
+    if tree.sibling_named(row["parent_id"], name, skip=project_id):
+        raise Refused("A project named %s already exists there." % name)
+    conn.execute("UPDATE projects SET name = ?, updated_at = ? WHERE id = ?", (name, store.now_iso(), project_id))
+
+
 def link_projects(conn, a_id, b_id):
     """Link two projects. Returns True when the link is new."""
     tree = Tree(conn)

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# A stand-in for macOS `pbcopy` in the studio's tests: stdin goes to $STUDIO_STUB/clipboard.
+#
+# Reads under $STUDIO_STUB:
+#   pbcopy-fail   if present, exits 1.
+# Appends every call to $STUDIO_STUB/calls.
+
+set -uo pipefail
+S="${STUDIO_STUB:?the pbcopy stub needs STUDIO_STUB}"
+printf 'pbcopy\n' >> "$S/calls"
+[ -e "$S/pbcopy-fail" ] && exit 1
+cat > "$S/clipboard"
+exit 0
