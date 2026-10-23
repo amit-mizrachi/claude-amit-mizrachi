@@ -56,7 +56,12 @@
   }
 
   function reload() {
-    return fetch("/state").then(function (res) { return res.json(); }).then(render);
+    return fetch("/state").then(function (res) {
+      return res.json().then(function (data) {
+        if (!res.ok) { throw new Error(data && data.message ? data.message : "Request failed (" + res.status + ")."); }
+        return data;
+      });
+    }).then(render);
   }
 
   function newProject() {
@@ -296,8 +301,7 @@
     var name = window.prompt("Rename project", v.project.name);
     if (name === null) { return; }
     post("/api/rename", { project_id: v.project.id, name: name }).then(function () {
-      reload();
-      return loadView(v.project.id);
+      return reload().then(function () { return loadView(v.project.id); });
     }).catch(fail);
   }
 
@@ -306,8 +310,7 @@
     if (!window.confirm("Archive " + v.project.name + "? It and everything under it leave the lists. Nothing is deleted.")) { return; }
     post("/api/archive", { project_id: v.project.id }).then(function () {
       window.location.hash = "#/";
-      reload();
-      toast("Archived " + v.project.name, null, false, false);
+      return reload().then(function () { toast("Archived " + v.project.name, null, false, false); });
     }).catch(fail);
   }
 
@@ -515,7 +518,7 @@
   }
 
   function afterMove() {
-    reload();
+    reload().catch(fail);
     if (drawerOpen) { loadInbox(); }
     if (current) { loadView(current); }
   }
