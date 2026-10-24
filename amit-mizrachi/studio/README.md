@@ -46,6 +46,7 @@ every command, its options and an example.
 | `archive` | `project-studio archive 'Old work'` | archive a project and everything under it |
 | `unarchive` | `project-studio unarchive p_1a2b3c` | bring an archived project back (by id or id prefix; `list --all` shows them), with the sub-projects archived with it; refused inside a still-archived project or when an active sibling now has its name |
 | `delete` | `project-studio delete Scratch --yes` | delete an EMPTY project; without `--yes` it says what it would delete |
+| `remove-project` | `project-studio remove-project Scratch --yes` | remove a project that holds things: its runs and items go to its parent (a top-level one's to the Inbox), its sub-projects move up; nothing on disk changes. Without `--yes` it lists what moves where (y/N on a tty); prints the move id whose `undo` brings it all back |
 | `nest` | `project-studio nest Docs --under Beta` | a new parent (`--under`), or the top level (`--top`) |
 | `link` | `project-studio link Alpha Beta` | link two projects |
 | `unlink` | `project-studio unlink Alpha Beta` | remove the link between two projects; not linked changes nothing |
@@ -96,7 +97,14 @@ On an error stdout is `{"error": {"code", "message", ...}}` (an ambiguous name a
 
 Exit codes: 0 ok; 1 a studio error (`not_found`, `ambiguous`, `invalid_input`, `refused`, ...);
 2 a usage error (argparse prints the usage), or `confirm_needed`: `delete` without `--yes`, and
-`terminal` and `throw` without `--yes` when no tty can answer the y/N question.
+`terminal`, `throw` and `remove-project` without `--yes` when no tty can answer the y/N question.
+
+**Leaving, renaming and removing a project.** Every project view has a way back at its top left:
+"< Projects", or "< <parent>" in a sub-project; Esc and the browser's Back go the same way. Its
+"..." menu has **Rename** (the name turns into a field: Enter saves, Esc cancels), **Archive** and
+**Remove project...**: the dialog lists what is inside (sub-projects, night runs, other items) and
+where each goes, OK removes it (one `remove_project` call), the page goes to the parent (or home)
+and the toast's **Undo** brings the project back with the same id and everything in it.
 
 The studio is a local web server on `127.0.0.1` only. The home page is a grid of project cards
 that show only each project's night-run status; a click on a card opens the project view
@@ -158,6 +166,7 @@ Each tool is one SDK call:
 | `studio_unarchive` | `api.unarchive_project(project_id)` | writes; with the sub-projects archived with it |
 | `studio_rename` | `api.rename_project(project_id, name)` | writes |
 | `studio_delete` | `api.delete_project_guarded(project_id, confirmed)` | destructive; an empty project only. Without `confirmed` true it changes nothing and says what it would delete (`needs_confirm`) |
+| `studio_remove_project` | `api.remove_project(project_id, confirmed=confirm)` | destructive; a project that holds things: contents up to the parent (or the Inbox), sub-projects up, then the project goes; nothing on disk. `confirm` is required; false changes nothing and lists what moves where (`needs_confirm`). `move_id` is one `studio_undo` handle that brings it all back |
 | `studio_undo` | `api.undo_move(move_id)` | writes; puts back what a move, add, accept, remove, dismiss, restore or mark-done did |
 | `studio_rules` | `api.list_rules(project_id)` | reads |
 | `studio_rule_save` | `api.save_rule_from_move(move_id)` | writes; "Always file items like this here" |

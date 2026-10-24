@@ -38,6 +38,7 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `archive_project(project_id)` | `Project` | Hides it and everything under it from lists. Idempotent. |
 | `unarchive_project(project_id)` | `Project` | Clears only its own `archived_at`, so the sub-projects archived with it come back and one archived on its own before stays archived. Refused inside a still-archived project ("Unarchive <it> first.") and when an active sibling now has its name, any case ("Rename one of them first."). Idempotent. |
 | `delete_project(project_id)` | `DeleteResult` | Empty projects only (no sub-projects, no items); otherwise archive. |
+| `remove_project(project_id, confirmed=False)` | `ProjectRemoval` | A project that still holds things. Unless `confirmed`, changes nothing: `needs_confirm`, `sub_projects` ({id, name}), `runs` / `run_titles` (up to 5), `items` (the other items, dismissed and gone ones too) and a `message` listing what moves where. Confirmed, ONE transaction: its items move to the parent (`to_project_id`; a top-level project's to the Inbox, placed `inbox` there so a rule may file them again; a run's title/cwd-attached items keep that placement), its sub-projects to the parent or the top level (`parent_id`), each recorded as a move; its links and rules go; the project row is deleted. `move_id` is one `remove-project` ledger row: `undo_move` recreates the project (same id, name, parent, created_at) and puts back its items (with the placement each had), sub-projects, links and rules; refused when it is back already, its parent is gone or archived, its name is taken there, or an item or sub-project changed since (a purged item is skipped). Refused for the Inbox, an archived project, and a sub-project that would land next to an active project of its name (any case). Never touches a session, folder or PR. |
 | `delete_project_guarded(project_id, confirmed=False)` | `DeleteRequest` | The agent's delete: unless `confirmed`, changes nothing and returns `needs_confirm` with a `message` naming the project and its `links` / `rules` counts. Refused as `delete_project` is, before the ask. |
 | `export_json(dest=None)` | `Export` | The whole store minus the cache; written to `dest` (0600, atomic) when given. |
 
@@ -47,7 +48,7 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `add_item(kind, key, project_id, title=None)` | `MoveResult` | By hand (`placed_by = manual`). A known item is moved instead (`created` False). |
 | `move_item(item_id, project_id, expected_revision=None)` | `MoveResult` | By hand; a stale revision is refused; a run's auto-attached items follow (`followed`). |
 | `move(target_id, to_project_id, expected_revision=None)` | `MoveResult` | An item (`i_...`) or a project (`p_...`): the one call behind drop = move. A project's move gets a `move_id` too; `message` is the toast ("Moved to Project Studio"). |
-| `undo_move(move_id)` | `MoveResult` | An item's or a project's move, a dismissal (restores it and what went with it), a restore (dismisses them again) or a mark-done (takes the mark back). Refused ("Can't undo: <name> was moved again since." / "... was changed again since.") when it changed since. |
+| `undo_move(move_id)` | `MoveResult` | An item's or a project's move, a dismissal (restores it and what went with it), a restore (dismisses them again), a mark-done (takes the mark back) or a project's removal (brings it back, `kind` "remove-project", `move_id` None). Refused ("Can't undo: <name> was moved again since." / "... was changed again since.") when it changed since. |
 | `remove_item(item_id)` | `MoveResult` | Back to the Inbox, by hand. Never deletes the thing itself. |
 | `dismiss_item(item_id)` | `MoveResult` | Hides it from home, the project view's lists (into its "Dismissed" fold), the Inbox, `list` / `status` and their counts, and `find` unless asked. Deletes nothing; it keeps its project; no refresh clears it (a gone item stays dismissed). A run's auto-attached items go with it (`followed`). `kind` "dismiss", toast "Dismissed <title>"; `move_id` None when already dismissed. |
 | `restore_item(item_id)` | `MoveResult` | Shows it again, with what its newest dismissal took along. `kind` "restore"; `move_id` None when not dismissed. |
@@ -77,12 +78,15 @@ The Inbox can't be moved, archived, deleted, linked, or hold sub-projects.
 ## The move ledger
 
 Every undoable change is one `moves` row: `kind` (`store.MOVE_KINDS`: `move`, `dismiss`,
-`restore`, `mark-done`, `unmark-done`), the item or project, from / to, the `revision` it produced (a newer revision makes its
+`restore`, `mark-done`, `unmark-done`, `remove-project`), the item or project, from / to, the `revision` it produced (a newer revision makes its
 Undo stale), and `data_json`, what its Undo needs (a dismissal's `followed` items, a mark's `before` stamp). `items.undo`
 checks the revision and hands the row to `items.UNDO[kind]`. A new kind is: its name in
 `MOVE_KINDS`, a function that changes the item, bumps its revision and calls
 `items._record(conn, row, to_project, revision, kind, data)`, and one `UNDO` entry that puts it
-back (returning a `MoveResult` with that `kind`). No migration: `kind` has no CHECK and
+back (returning a `MoveResult` with that `kind`). A project's removal is the one kind with no
+item and no surviving project: its row's `project_id` is where the items went, `from_project` the
+removed id, `data_json` the project row, its items and sub-projects with the revision the removal
+gave each, and its links and rules; `items.PROJECT_UNDO` dispatches it before the item kinds. No migration: `kind` has no CHECK and
 `data_json` is free-form. `save_rule_from_move` learns only from a `move`.
 
 ## Items, placement and the unknown-vs-gone rule

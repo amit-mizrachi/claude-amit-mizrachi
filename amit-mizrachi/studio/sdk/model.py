@@ -7,6 +7,8 @@ the transactions. Rules kept here:
 - The Inbox (`store.INBOX_ID`) is top-level for ever: it can't be moved, archived, deleted,
   linked, or hold sub-projects.
 - Only an empty project (no sub-projects, no items) can be deleted; otherwise archive it.
+  A project that holds things is removed instead (`remove_plan`, done by `items.remove_project`):
+  what it holds moves up first, so the row deleted is empty too.
 - An archived project, and everything under it, is hidden from lists unless asked for.
   Unarchiving clears only that project's own `archived_at`, so what was archived on its own
   before stays archived.

@@ -194,7 +194,7 @@
   var ARROW = "\u2197 ";
   var current = null;     // the project the view shows, null on the home page
   var lastView = null;
-  var popOpen = null;     // "link" or "more" while a header menu is open
+  var popOpen = null;     // "link" or "more" while a header menu is open, "rename" while the name is edited
   var openFolds = {};     // "<project id>:<fold kind>" -> true once opened
   var hot = null;         // the session row just opened in Terminal
   var toastTimer = null;
@@ -324,13 +324,73 @@
     return add(wrap, add(pop, pick, add(el("div", "row2"), button("Cancel", "ghost", closePop), go)));
   }
 
-  function rename(v) {
-    closePop();
-    var name = window.prompt("Rename project", v.project.name);
-    if (name === null) { return; }
-    post("/api/rename", { project_id: v.project.id, name: name }).then(function () {
+  // Rename edits the name in place: Enter saves, Esc (or a click elsewhere) cancels.
+  function startRename() {
+    popOpen = "rename";
+    renderView(lastView);
+    var box = $("rename-box");
+    if (box) { box.focus(); box.select(); }
+  }
+
+  function nameField(v) {
+    var box = el("input", "rename");
+    box.id = "rename-box";
+    box.type = "text";
+    box.value = v.project.name;
+    box.maxLength = 120;
+    box.setAttribute("aria-label", "Project name (Enter saves, Esc cancels)");
+    box.addEventListener("click", function (e) { e.stopPropagation(); });
+    box.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closePop(); }
+      if (e.key === "Enter") { e.preventDefault(); saveName(v, box); }
+    });
+    return box;
+  }
+
+  function saveName(v, box) {
+    if (box.value.trim() === v.project.name) { closePop(); return; }
+    box.disabled = true;
+    post("/api/rename", { project_id: v.project.id, name: box.value }).then(function () {
+      popOpen = null;
       return reload().then(function () { return loadView(v.project.id); });
+    }).catch(function (err) { box.disabled = false; box.focus(); fail(err); });
+  }
+
+  // Remove project... : the server says what is inside and where it goes, the dialog lists it, and
+  // only an OK sends the confirmed call. Then the page goes to the parent (or home) with the Undo toast.
+  function removeProject(v) {
+    closePop();
+    post("/api/remove-project", { project_id: v.project.id }).then(function (r) {
+      if (!window.confirm(r.message)) { return null; }
+      return post("/api/remove-project", { project_id: v.project.id, confirmed: true });
+    }).then(function (r) {
+      if (!r) { return; }
+      window.location.hash = r.parent_id ? "#/p/" + encodeURIComponent(r.parent_id) : "#/";
+      moved(r);
+      afterMove();
     }).catch(fail);
+  }
+
+  // The way back: "< Projects" from a top-level project, "< <parent>" from a sub-project. Esc and
+  // the browser's Back go the same way (every view is its own #/p/<id> history entry).
+  function backHash(v) {
+    var up = v.crumbs[v.crumbs.length - 1];
+    return up ? "#/p/" + encodeURIComponent(up.id) : "#/";
+  }
+
+  function backButton(v) {
+    var up = v.crumbs[v.crumbs.length - 1];
+    var node = button("< " + (up ? up.name : "Projects"), "ghost back", function () { window.location.hash = backHash(v); });
+    node.title = "Back (Esc)";
+    return node;
+  }
+
+  function escapeBack(e) {
+    if (e.key !== "Escape" || e.defaultPrevented || !current || !lastView || picking) { return; }
+    if (popOpen) { closePop(); return; }
+    var tag = e.target && e.target.tagName;
+    if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") { return; }
+    window.location.hash = backHash(lastView);
   }
 
   function archive(v) {
@@ -383,12 +443,13 @@
     if (popOpen !== "more") { return wrap; }
     var pop = el("div", "pop");
     pop.addEventListener("click", function (e) { e.stopPropagation(); });
-    return add(wrap, add(pop, button("Rename...", null, function () { rename(v); }),
-      button("Archive", null, function () { archive(v); })));
+    return add(wrap, add(pop, button("Rename", null, startRename),
+      button("Archive", null, function () { archive(v); }),
+      button("Remove project...", null, function () { removeProject(v); })));
   }
 
   function crumb(v) {
-    var node = el("div", "crumb");
+    var node = add(el("div", "crumb"), backButton(v));
     var top = el("a", null, "Projects");
     top.href = "#/";
     node.appendChild(top);
@@ -402,7 +463,7 @@
 
   function header(v) {
     var p = v.project;
-    var h = add(el("div", "h"), el("h1", null, p.name), linkedLine(v),
+    var h = add(el("div", "h"), popOpen === "rename" ? nameField(v) : el("h1", null, p.name), linkedLine(v),
       p.archived_at ? el("span", "m", "Archived") : null, el("span", "grow"));
     if (!p.is_inbox && !p.archived_at) { add(h, linkMenu(v), moreMenu(v)); }
     if (p.archived_at) { h.appendChild(button("Unarchive", null, function (b) { unarchive(p.id, p.name, b); })); }
@@ -1065,6 +1126,7 @@
     window.addEventListener("hashchange", route);
     document.addEventListener("click", function () { if (popOpen) { closePop(); } });
     document.addEventListener("keydown", shortcut);
+    document.addEventListener("keydown", escapeBack);
     route();
     var events = new EventSource("/events");
     events.addEventListener("state", function (e) {
