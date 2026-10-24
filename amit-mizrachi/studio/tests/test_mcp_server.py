@@ -50,7 +50,7 @@ class McpServer(TempHome):
         self.assertFalse(tools["studio_create"]["annotations"]["readOnlyHint"])
         self.assertEqual(tools["studio_create"]["inputSchema"]["required"], ["name"])
         self.assertLessEqual(tools["studio_list"]["inputSchema"]["properties"]["limit"]["maximum"], 200)
-        for name in ("studio_delete", "studio_purge", "studio_rule_delete"):
+        for name in ("studio_delete", "studio_purge", "studio_rule_delete", "studio_throw_away"):
             self.assertTrue(tools[name]["annotations"]["destructiveHint"], name)
 
     def test_a_create_then_a_list_round_trips(self):

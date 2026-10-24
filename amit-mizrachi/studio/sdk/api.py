@@ -19,12 +19,12 @@ import tempfile
 from typing import Optional
 
 from . import (actions, attach, home as homepage, inboxview, items, model, projectview, refresh as scan, refs, server,
-               settings as user_settings, store)
+               settings as user_settings, store, throw)
 from .errors import InvalidInput, Refused
 from .results import (AttachResult, DeleteRequest, DeleteResult, Export, HomeState, InboxList, InboxView, Item, ItemList,
                       LinkResult, MoveChoices, MoveResult, OpenResult, Project, ProjectList, ProjectStatus, ProjectView,
                       PurgeResult, RefreshResult, Rule, RuleAdd, RuleList, Settings, StudioServer, TerminalCommand,
-                      TerminalOpen, UnlinkResult)
+                      TerminalOpen, ThrowAway, UnlinkResult)
 
 MAX_LIST_LIMIT = 1000
 
@@ -459,6 +459,31 @@ def purge_gone(item_id: Optional[str] = None, all_gone: Optional[bool] = None) -
     with store.write() as conn:
         ids = items.purge(conn, item_id)
     return PurgeResult(ids=ids, count=len(ids))
+
+
+def throw_away(item_id: str, confirmed: bool = False) -> ThrowAway:
+    """Throw away a night run: the ONE action in the studio that removes things. Unless `confirmed`,
+    it changes nothing and returns `needs_confirm` with what would go: the run's folder (to the
+    macOS Trash through Finder, never a plain delete), each worktree (`git worktree remove`, never
+    forced, so a worktree with changes is refused and every branch stays) and the number of
+    attached items. Confirmed, it does those steps in that order and then marks the run and its
+    attached items gone and purges them; nothing else in the store is touched. A step that fails
+    stops the rest (`Refused`, the message says what was done and what was not).
+
+    Refused before anything happens (with or without `confirmed`): an item that is not a night
+    run, a folder that is not inside a run root (symlinks resolved, `..` refused), a run whose
+    runner is alive or that has a live session (or when `claude agents` cannot say). It never
+    stops, kills or removes a session.
+    """
+    confirmed = _flag(confirmed, "confirmed")
+    with store.read() as conn:
+        found = throw.plan(conn, item_id)
+        version = store.version_of(conn)
+    if not confirmed:
+        return found
+    if version > store.SCHEMA_VERSION:
+        raise store.read_only_error(version)
+    return throw.execute(found)
 
 
 # ---------------------------------------------------------------- session start (ticket 03)

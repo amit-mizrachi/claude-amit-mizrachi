@@ -78,6 +78,32 @@ class DeleteRequest:
 
 
 @dataclass
+class ThrowWorktree:
+    """One worktree a throw removes with `git worktree remove` (never forced): its folder, its repo, its branch."""
+
+    path: str
+    repo_path: str
+    branch: str
+
+
+@dataclass
+class ThrowAway:
+    """What `throw_away` would do or did. `thrown` False with `needs_confirm`: nothing changed, and
+    `message` lists what goes: the run's `folder` (to the Trash, "" when it is no longer on this
+    Mac), each of `worktrees`, and the `items` attached items purged with the run."""
+
+    item_id: str
+    title: str
+    folder: str
+    worktrees: List[ThrowWorktree]
+    items: int
+    thrown: bool
+    needs_confirm: bool
+    message: str
+    done: List[str] = field(default_factory=list)
+
+
+@dataclass
 class Export:
     """The whole store as one JSON-ready document, and the file it was written to (if any)."""
 

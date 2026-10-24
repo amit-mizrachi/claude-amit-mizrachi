@@ -436,6 +436,7 @@
     }
     if (r.can_mark_done) { acts.appendChild(markDoneButton(r.item_id)); }
     acts.appendChild(dismissButton(r.item_id));
+    acts.appendChild(throwButton(r.item_id));
     var st = add(el("span", "st"), el("span", "w " + tone, r.word), r.detail ? el("span", null, r.detail) : null,
       r.bar.length ? bar(r.bar) : null);
     if (r.started) { add(st, el("span", null, "-"), el("span", null, r.started)); }
@@ -469,6 +470,35 @@
   function dismissButton(itemId) {
     var node = button("Dismiss", "ghost", function (b) { postItemMove("/api/dismiss", itemId, b); });
     node.title = "Hide it from every list. Deletes nothing; Restore it from Dismissed.";
+    return node;
+  }
+
+  // Throw away... is the one action that removes things: the server says what would go (or why
+  // not), the dialog lists it, and only an OK sends the confirmed call.
+  function throwList(r) {
+    var lines = ["Throw away " + r.title + "?", "", "This goes:"];
+    lines.push(r.folder ? "- the folder " + r.folder + " (to the Trash)" : "- no folder (it is no longer on this Mac)");
+    r.worktrees.forEach(function (t) {
+      lines.push("- the worktree " + t.path + " (git worktree remove; the branch " + (t.branch || "-") + " stays)");
+    });
+    lines.push("- the run and its " + r.items + " attached item" + (r.items === 1 ? "" : "s") + ", from the studio");
+    lines.push("", "A worktree with changes stops it before the folder moves. There is no Undo; the folder can come back from the Trash.");
+    return lines.join("\n");
+  }
+
+  function throwAway(itemId, btn) {
+    btn.disabled = true;
+    post("/api/throw", { item_id: itemId }).then(function (r) {
+      if (!window.confirm(throwList(r))) { return null; }
+      return post("/api/throw", { item_id: itemId, confirmed: true });
+    }).then(function (r) {
+      if (r) { toast(r.message, null, false, false); afterMove(); }
+    }).catch(fail).then(function () { btn.disabled = false; });
+  }
+
+  function throwButton(itemId) {
+    var node = button("Throw away...", "ghost", function (b) { throwAway(itemId, b); });
+    node.title = "Its folder to the Trash, its worktrees removed (never forced), the run out of the studio. Asks first.";
     return node;
   }
 

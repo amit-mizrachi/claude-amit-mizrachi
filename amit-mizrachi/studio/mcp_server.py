@@ -623,6 +623,44 @@ TOOLS = [
                         "idempotentHint": True, "openWorldHint": False},
     },
     {
+        "name": "studio_throw_away",
+        "title": "Throw away a night run",
+        "description": (
+            "The ONE studio action that removes things. Throws away a night run: its workspace folder "
+            "goes to the macOS Trash (recoverable), each of its worktrees is removed with git worktree "
+            "remove (never forced: a worktree with changes is refused, every branch and its commits "
+            "stay), then the run and its attached items are purged from the studio. confirm is "
+            "required: with confirm false it changes nothing and returns needs_confirm and a message "
+            "listing what would go - show that to the user, and call again with confirm true only "
+            "once they agree. Refused before anything happens for a run that is still running or has "
+            "a live session (the studio never stops one), and for a folder outside the run roots. A "
+            "step that fails stops the rest; the error says what was done and what was not."
+        ),
+        "inputSchema": {"type": "object", "required": ["item_id", "confirm"], "additionalProperties": False,
+                        "properties": {"item_id": ITEM_ID,
+                                       "confirm": {"type": "boolean",
+                                                   "description": "Really throw it away. false: only say what would go."}}},
+        "outputSchema": {
+            "type": "object",
+            "required": ["item_id", "title", "folder", "worktrees", "items", "thrown", "needs_confirm", "message", "done"],
+            "properties": {
+                "item_id": {"type": "string"}, "title": {"type": "string"},
+                "folder": {"type": "string", "description": "The folder that goes to the Trash; empty when it is no longer on this Mac."},
+                "worktrees": {"type": "array", "items": {"type": "object", "required": ["path", "repo_path", "branch"],
+                                                         "properties": {"path": {"type": "string"},
+                                                                        "repo_path": {"type": "string"},
+                                                                        "branch": {"type": "string"}}}},
+                "items": {"type": "integer", "description": "Attached items purged with the run."},
+                "thrown": {"type": "boolean"},
+                "needs_confirm": {"type": "boolean", "description": "True when nothing changed: ask, then call again with confirm true."},
+                "message": {"type": "string"},
+                "done": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        "annotations": {"title": "Throw away a night run", "readOnlyHint": False, "destructiveHint": True,
+                        "idempotentHint": False, "openWorldHint": True},
+    },
+    {
         "name": "studio_open",
         "title": "Open the studio",
         "description": (
@@ -744,6 +782,10 @@ def tool_purge(args):
     return api.purge_gone(args.get("item_id"), all_gone=args.get("all_gone", False))
 
 
+def tool_throw_away(args):
+    return api.throw_away(args["item_id"], confirmed=args["confirm"])
+
+
 def tool_open(args):
     return api.open_studio()
 
@@ -773,6 +815,7 @@ HANDLERS = {
     "studio_inbox": tool_inbox,
     "studio_accept": tool_accept,
     "studio_purge": tool_purge,
+    "studio_throw_away": tool_throw_away,
     "studio_open": tool_open,
 }
 SCHEMAS = {t["name"]: t["inputSchema"] for t in TOOLS}

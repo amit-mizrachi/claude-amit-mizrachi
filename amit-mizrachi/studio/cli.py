@@ -21,7 +21,7 @@ Output and exit codes, the same for every command:
 - 0 on success. 1 on an SDK error: `project-studio: <code>: <message>` on stderr, or with `--json`
   `{"error": {"code", "message", ...}}` on stdout (an ambiguous name adds `candidates`).
   2 on a usage error (argparse prints the usage on stderr), and when a command that needs `--yes`
-  did not get it (`delete`; `terminal` without a tty): the message says what it would have done,
+  did not get it (`delete`; `terminal` and `throw` without a tty): the message says what it would have done,
   code `confirm_needed`, on stderr or as `--json` error.
 - A move (`file`, `add`, `accept`, `nest`, `remove`, `dismiss`, `restore`, `mark-done`, `undo`) prints
   its move id and the `undo` command. `command <item>` prints only the command, so `$(project-studio command <item>)` works.
@@ -472,6 +472,28 @@ def run_terminal(args):
     return api.open_in_terminal(item_id, confirmed=True)
 
 
+def setup_throw(parser):
+    add_item_arg(parser)
+    add_yes(parser, "throw it away without asking")
+
+
+def run_throw(args):
+    """Without --yes: the plan, then y/N on a tty (confirm_needed without one)."""
+    item_id = item_ref(args.item)
+    result = api.throw_away(item_id, confirmed=args.yes)
+    if not result.needs_confirm:
+        return result
+    if not sys.stdin.isatty():
+        raise NeedsYes("%s Nothing was thrown away. Run again with --yes to do it." % result.message)
+    if not ask("%s Throw it away?" % result.message):
+        raise NeedsYes("Nothing was thrown away.")
+    return api.throw_away(item_id, confirmed=True)
+
+
+def text_throw(result):
+    return [result.message]
+
+
 def setup_settings(parser):
     parser.add_argument("name", nargs="?", choices=("terminal",), help="the setting: terminal")
     parser.add_argument("value", nargs="?", help="the new value: Terminal, iTerm or default; leave out to print it")
@@ -551,6 +573,9 @@ COMMANDS = [
     Command("mark-done", "Mark a night run done when its state files froze on a word no longer true. It shows Done, "
             "\"marked done by you\", until its files change again. Undoable.", "project-studio mark-done i_1a2b3c4d",
             lambda p: add_item_arg(p), lambda a: api.mark_done(item_ref(a.item)), text_move),
+    Command("throw", "Throw away a night run: its folder to the Trash, its worktrees removed with git worktree "
+            "remove (never forced), the run and its items out of the studio. Needs --yes or a y; refused while it runs.",
+            "project-studio throw i_1a2b3c4d --yes", setup_throw, run_throw, text_throw),
     Command("accept", "File an Inbox item into its suggested project. Undoable.", "project-studio accept i_1a2b3c4d",
             lambda p: add_item_arg(p), lambda a: api.accept_suggestion(item_ref(a.item)), text_move),
     Command("rule-save", "Always file items like this here: save a rule from a filing's move id.",

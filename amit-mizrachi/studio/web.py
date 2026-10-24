@@ -78,6 +78,7 @@ ACTIONS = {
     "/api/dismiss": lambda b: api.dismiss_item(b.get("item_id")),
     "/api/restore": lambda b: api.restore_item(b.get("item_id")),
     "/api/mark-done": lambda b: api.mark_done(b.get("item_id")),
+    "/api/throw": lambda b: api.throw_away(b.get("item_id"), b.get("confirmed") is True),
     "/api/rule": lambda b: api.save_rule_from_move(b.get("move_id")),
     "/api/rule/delete": lambda b: api.delete_rule(b.get("rule_id")),
     "/api/rule/add": lambda b: api.add_rule(b.get("project_id"), b.get("signal"), b.get("pattern"),

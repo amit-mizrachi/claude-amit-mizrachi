@@ -56,6 +56,7 @@ every command, its options and an example.
 | `dismiss` | `project-studio dismiss i_1a2b3c4d` | hide an item (a night run with its attached sessions, PRs, worktrees) from every list; it deletes nothing |
 | `restore` | `project-studio restore i_1a2b3c4d` | show a dismissed item again (`find --dismissed` and `show` list them) |
 | `mark-done` | `project-studio mark-done i_1a2b3c4d` | a night run whose state files froze on a word no longer true shows Done, "marked done by you", until its files change again |
+| `throw` | `project-studio throw i_1a2b3c4d --yes` | throw away a night run: its folder to the macOS Trash, its worktrees removed with `git worktree remove` (never forced), the run and its attached items purged. Without `--yes` it prints what goes and asks y/N on a tty (exit 2, `confirm_needed`, without one). Refused while its runner or a session of it is live. The one command that removes things, see below |
 | `accept` | `project-studio accept i_1a2b3c4d` | file an Inbox item into its suggested project |
 | `rule-save` | `project-studio rule-save 42` | "Always file items like this here", from a move id |
 | `rule-add` | `project-studio rule-add Shapes --workspace 'sis-*' --dry-run` | write a rule by pattern: `--workspace GLOB`, `--repo NAME [--branch-prefix eval/]` or `--cwd-prefix FOLDER`. Says how many Inbox items it files now and names up to 5; `--dry-run` saves nothing; `--apply` files them now, one `undo` line each. `*`, `/` and `~` alone are refused |
@@ -95,7 +96,7 @@ On an error stdout is `{"error": {"code", "message", ...}}` (an ambiguous name a
 
 Exit codes: 0 ok; 1 a studio error (`not_found`, `ambiguous`, `invalid_input`, `refused`, ...);
 2 a usage error (argparse prints the usage), or `confirm_needed`: `delete` without `--yes`, and
-`terminal` without `--yes` when no tty can answer the y/N question.
+`terminal` and `throw` without `--yes` when no tty can answer the y/N question.
 
 The studio is a local web server on `127.0.0.1` only. The home page is a grid of project cards
 that show only each project's night-run status; a click on a card opens the project view
@@ -111,7 +112,21 @@ early "CI red"): it shows Done, "marked done by you", everywhere, until the run'
 again; Undo takes the mark back. **Show archived** under the cards lists every archived project
 with **Unarchive** (an archived project's view has the button too), and the **x** after a name on
 the project view's "Linked: ..." line unlinks it. Light and dark mode follow
-the OS, with a manual toggle. The studio never stops, kills or removes a session.
+the OS, with a manual toggle. **Throw away...** on a run panel lists what goes (the folder, each
+worktree, the item count) in a confirm dialog and does it only on OK. The studio never stops, kills
+or removes a session.
+
+**The one thing the studio removes.** Everything else only reads, files, hides or purges its own
+records. A confirmed throw away (`throw --yes`, a y, `studio_throw_away` with `confirm` true, OK in
+the dialog) of a night run is the one exception, and it removes exactly this, in this order,
+stopping at the first step that fails with a message that says what was done and what was not:
+each of the run's worktrees with `git worktree remove` (never `--force`: git refuses one with
+changes, and every branch and its commits stay), then the run's folder to the macOS Trash through
+Finder (never a plain delete; the first time, macOS asks once to let the studio control Finder),
+then the run and its attached items from the store. Only a folder inside a run root
+(`PROJECT_STUDIO_ROOTS`, symlinks resolved, `..` refused) is accepted, and a run whose runner or a
+session of it is still live is refused before anything happens. A session found again later (its
+transcript stays) comes back as an Inbox item.
 
 It stops by itself after 30 minutes with no open page (`PROJECT_STUDIO_IDLE` seconds). It
 listens on `PROJECT_STUDIO_PORT`, else a free port. Inside Claude Code the plugin's `bin/` is on
@@ -149,6 +164,7 @@ Each tool is one SDK call:
 | `studio_inbox` | `api.inbox(limit)` | reads (refreshes due sources) |
 | `studio_accept` | `api.accept_suggestion(item_id)` | writes; files an Inbox item where its suggestion says |
 | `studio_purge` | `api.purge_gone(item_id, all_gone)` | destructive; one gone item, or every gone item only with `all_gone` true |
+| `studio_throw_away` | `api.throw_away(item_id, confirmed=confirm)` | destructive; the one tool that removes things (a night run's folder to the Trash, its worktrees, its store records). `confirm` is required; false changes nothing and says what would go (`needs_confirm`) |
 | `studio_open` | `api.open_studio()` | starts the web page, returns its URL |
 
 Nesting a project is `studio_move` with a `p_...` id.
@@ -169,7 +185,7 @@ that item's source failed to read: never report such an item as gone.
   - `settings.json` (0600) - the person's settings: `{"terminal": "iTerm"}`; no file means the defaults.
   - `studio.log` - the web server's log.
   - `open/` - the `.command` files Open in Terminal writes.
-- Nothing is purged by itself. An item whose source no longer lists it is marked gone (and keeps
+- Nothing is purged by itself, and nothing on disk is removed except by a confirmed throw away (above). An item whose source no longer lists it is marked gone (and keeps
   its home); `api.purge_gone()` deletes gone items only when asked. `api.export_json(dest)` writes
   the whole store as JSON.
 - Readers: `PROJECT_STUDIO_ROOTS` (else `NIGHT_WATCH_ROOTS`) for night-run workspaces,
