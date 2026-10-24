@@ -1,7 +1,8 @@
 """The studio's home page through the public SDK: a row's status words, at most 6 own runs, "+ n more",
 sub-project blocks (tree order, their own run line and runs, "in <sub-project>" on a deeper run,
-archived ones left out), the empty text, first run, a failed source's banner, the "Still reading"
-note while a slow source is read, and the 14-day Inbox window. The activity order and the quiet
+archived ones left out), the empty text, first run, a failed source's banner (kept through a read in
+flight, gone when the source reads fine), "Reading PRs..." in the header's status line while a slow
+source is read with nothing else in the state moving, and the 14-day Inbox window. The activity order and the quiet
 fold are in test_home_rows.py."""
 
 import os
@@ -213,11 +214,66 @@ class Home(Sources):
         self.assertLess(time.time() - started, 5)
         self.assertEqual([card.project.id for card in state.cards], [alpha.id])
         self.assertFalse(state.loading)
-        self.assertEqual((state.reading, state.reading_text), (["prs"], "Still reading PRs..."))
+        self.assertEqual((state.reading, state.reading_text, state.status_text),
+                         (["prs"], "Reading PRs...", "Reading PRs..."))
         self.write(gate, "1")
         worker.join(10)
         self.assertFalse(worker.is_alive())
         self.assertEqual((api.home().reading, api.home().reading_text), ([], ""))
+
+    def pr_project(self):
+        """A project holding a run whose repo has one open PR, read once; the `gh` on PATH waits for a gate."""
+        gate = self.slow_gh()
+        self.write(gate, "1")
+        repo, _ = self.git_repo("r", [])
+        ws = self.workspace("s-20261023", facts={"REPO_PATH": repo, "REPO_SLUG": "me/r", "BRANCH": "feat/a"},
+                            tags=DONE3)
+        self.prs("me/r", [{"number": 4, "title": "a", "headRefName": "feat/a", "state": "OPEN", "isDraft": True,
+                           "url": "https://github.com/me/r/pull/4", "updatedAt": "2026-10-20T00:00:00Z"}])
+        self.file([ws], api.create_project("P").id)
+        return gate
+
+    def read_slowly(self, gate):
+        """Start a forced refresh held at `gh` and return (the home state while PRs are read, the worker)."""
+        os.remove(gate)
+        worker = threading.Thread(target=api.refresh, kwargs={"force": True}, daemon=True)
+        worker.start()
+        self.addCleanup(worker.join, 10)
+        self.addCleanup(self.write, gate, "1")
+        deadline = time.time() + 10
+        while "prs" not in api.home().reading and time.time() < deadline:
+            time.sleep(0.05)
+        return api.home(), worker
+
+    def test_a_pr_read_shows_only_in_the_status_line_and_keeps_the_same_rows(self):
+        gate = self.pr_project()
+        before = api.home()
+        self.assertTrue(before.status_text.startswith("PRs "), before.status_text)
+        during, worker = self.read_slowly(gate)
+        self.assertEqual((during.reading, during.status_text), (["prs"], "Reading PRs..."))
+        self.write(gate, "1")
+        worker.join(10)
+        after = api.home()
+        self.assertEqual((after.reading, after.status_text), ([], after.source_age))
+        for state in (during, after):
+            self.assertEqual(state.cards, before.cards)
+            self.assertEqual((state.order, state.banners, state.quiet_text, state.archived),
+                             (before.order, before.banners, before.quiet_text, before.archived))
+
+    def test_a_failed_source_banner_stays_through_a_read_and_goes_when_it_reads_fine(self):
+        gate = self.pr_project()
+        fail = self.write(os.path.join(self.stub, "gh-fail"), "1")
+        api.refresh(force=True)
+        failed = [(b.source, b.key, b.error) for b in api.home().banners]
+        self.assertEqual([b[0] for b in failed], ["prs"])
+        during, worker = self.read_slowly(gate)
+        self.assertEqual([(b.source, b.key, b.error) for b in during.banners], failed)
+        self.write(gate, "1")
+        worker.join(10)
+        self.assertEqual([(b.source, b.key, b.error) for b in api.home().banners], failed)
+        os.remove(fail)
+        api.refresh(force=True)
+        self.assertEqual(api.home().banners, [])
 
     def unfiled(self, name, days_ago):
         """An artifact back in the Inbox whose last activity was `days_ago` days ago."""

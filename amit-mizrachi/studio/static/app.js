@@ -36,6 +36,39 @@
     return parent;
   }
   function clear(node) { while (node.firstChild) { node.removeChild(node.firstChild); } }
+  function keyed(node, key, sig) {
+    node.setAttribute("data-key", key);
+    if (sig !== undefined) { node.setAttribute("data-sig", sig); }
+    return node;
+  }
+  function text(node, value) { if (node.textContent !== value) { node.textContent = value; } }
+
+  // Puts the `fresh` nodes (each made with keyed()) into `box`, leaving alone every child whose key and
+  // data-sig are unchanged: a live update that changed nothing inserts and removes nothing, and a
+  // changed node is swapped in its own place. A fresh node with no data-sig is a list: its old self
+  // stays and its children are kept the same way (the home rows).
+  function keep(box, fresh) {
+    var old = {};
+    var wanted = {};
+    fresh.forEach(function (n) { wanted[n.getAttribute("data-key")] = true; });
+    Array.prototype.slice.call(box.children).forEach(function (n) {
+      var key = n.getAttribute("data-key");
+      if (key !== null && wanted[key] && !old[key]) { old[key] = n; } else { box.removeChild(n); }
+    });
+    fresh.forEach(function (n, i) {
+      var was = old[n.getAttribute("data-key")];
+      var put = n;
+      if (was && !n.hasAttribute("data-sig") && was.tagName === n.tagName && was.className === n.className) {
+        keep(was, Array.prototype.slice.call(n.children));
+        put = was;
+      } else if (was && was.getAttribute("data-sig") === n.getAttribute("data-sig")) {
+        put = was;
+      } else if (was) {
+        box.replaceChild(n, was);
+      }
+      if (box.children[i] !== put) { box.insertBefore(put, box.children[i] || null); }
+    });
+  }
   function $(id) { return document.getElementById(id); }
 
   function token() {
@@ -156,7 +189,8 @@
   // A project's full-width home row: name, status, runs in words, last activity; its own runs; then
   // a block per active sub-project. Names that do not fit end in "..." and show in full on hover.
   function card(c) {
-    var node = el("div", "card prow" + (ATTENTION[c.attention] ? " " + ATTENTION[c.attention] : ""));
+    var node = keyed(el("div", "card prow" + (ATTENTION[c.attention] ? " " + ATTENTION[c.attention] : "")),
+      c.project.id, JSON.stringify(c));
     var href = "#/p/" + encodeURIComponent(c.project.id);
     node.setAttribute("data-project-id", c.project.id);
     draggable(node, { id: c.project.id, name: c.project.name, revision: null });
@@ -193,7 +227,7 @@
     });
     var node = add(el("div", "banner"), el("b", null, "!"), el("span", null, b.text), el("span", "sp"), retry);
     node.title = b.error;
-    return node;
+    return keyed(node, b.source + " " + b.key, JSON.stringify(b));
   }
 
   function skeleton() {
@@ -201,8 +235,7 @@
     for (var i = 0; i < 4; i++) {
       grid.appendChild(add(el("div", "card prow"), el("div", "sk w60"), el("div", "sk w90"), el("div", "sk w40")));
     }
-    var frag = document.createDocumentFragment();
-    return add(frag, grid, el("p", "none loading", "Reading workspaces and sessions..."));
+    return add(keyed(el("div"), "skeleton", ""), grid, el("p", "none loading", "Reading workspaces and sessions..."));
   }
 
   function firstRun(text) {
@@ -212,7 +245,7 @@
     var inbox = el("button", "btn", "Open Inbox");
     inbox.type = "button";
     inbox.addEventListener("click", openInbox);
-    return add(el("div", "empty"), el("p", "lead", "No projects yet"), el("p", "txt", text),
+    return add(keyed(el("div", "empty"), "first-run", text), el("p", "lead", "No projects yet"), el("p", "txt", text),
       make, document.createTextNode(" "), inbox);
   }
 
@@ -1261,18 +1294,16 @@
   }
 
   function resortLink(s, shown) {
-    var slot = $("resort");
-    clear(slot);
-    if (!reordered(s, shown)) { return; }
+    if (!reordered(s, shown)) { keep($("resort"), []); return; }
     var link = button("Re-sort", "ghost", function () { pin(lastState); render(lastState); });
     link.title = "The activity order changed since the page loaded";
-    slot.appendChild(link);
+    keep($("resort"), [keyed(link, "resort", "")]);
   }
 
   function quietFold(s, rows) {
     var label = rows.length === s.cards.filter(function (c) { return c.quiet; }).length ? s.quiet_text
       : rows.length + (rows.length === 1 ? " quiet project" : " quiet projects");
-    var wrap = el("div", "quiet");
+    var wrap = keyed(el("div", "quiet"), "quiet", JSON.stringify([showQuiet, label, rows]));
     var fold = el("button", "fold", (showQuiet ? "\u25be " : "\u25b8 ") + label);
     fold.type = "button";
     fold.setAttribute("aria-expanded", showQuiet ? "true" : "false");
@@ -1290,16 +1321,13 @@
     if (!pinned) { pin(s); }
     var shown = placed(s);
     resortLink(s, shown);
-    var frag = document.createDocumentFragment();
-    var list = el("div", "prows");
+    var list = keyed(el("div", "prows"), "rows");
     shown.rows.forEach(function (c) { list.appendChild(card(c)); });
-    frag.appendChild(list);
-    if (shown.quiet.length) { frag.appendChild(quietFold(s, shown.quiet)); }
-    return frag;
+    return shown.quiet.length ? [list, quietFold(s, shown.quiet)] : [list];
   }
 
   function archivedList(s) {
-    var wrap = el("div", "archived");
+    var wrap = keyed(el("div", "archived"), "archived", JSON.stringify([showArchived, s.archived]));
     var label = (showArchived ? "Hide archived" : "Show archived") + " (" + s.archived.length + ")";
     wrap.appendChild(button(label, "ghost", function () { showArchived = !showArchived; render(lastState); }));
     if (!showArchived) { return wrap; }
@@ -1312,25 +1340,17 @@
     return wrap;
   }
 
+  // A poll or SSE update draws through keep(): the reading state is only the header's status line
+  // (`status_text`, a fixed-width spot), and the body changes only where the data did.
   function render(s) {
     lastState = s;
-    $("caption").textContent = s.caption;
-    $("age").textContent = s.source_age;
-    $("inbox-count").textContent = String(s.inbox_count);
-    var banners = $("banners");
-    clear(banners);
-    s.banners.forEach(function (b) { banners.appendChild(banner(b)); });
-    if (s.reading_text) { banners.appendChild(el("p", "none reading", s.reading_text)); }
-    var body = $("body");
-    clear(body);
-    if (s.loading) {
-      body.appendChild(skeleton());
-    } else if (s.first_run) {
-      body.appendChild(firstRun(s.first_run_text));
-    } else {
-      body.appendChild(homeRows(s));
-    }
-    if (!s.loading && s.archived && s.archived.length) { body.appendChild(archivedList(s)); }
+    text($("caption"), s.caption);
+    text($("age"), s.status_text);
+    text($("inbox-count"), String(s.inbox_count));
+    keep($("banners"), s.banners.map(banner));
+    var nodes = s.loading ? [skeleton()] : s.first_run ? [firstRun(s.first_run_text)] : homeRows(s);
+    if (!s.loading && s.archived && s.archived.length) { nodes.push(archivedList(s)); }
+    keep($("body"), nodes);
   }
 
   function live(on) {
