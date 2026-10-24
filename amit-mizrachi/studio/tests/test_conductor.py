@@ -211,6 +211,78 @@ class OpenConductor(Conductor):
         self.assertEqual(validate(opened["structuredContent"], tools["studio_terminal"]["outputSchema"]), [])
 
 
+def cli_run(*argv):
+    return subprocess.run([sys.executable, BIN] + list(argv), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, universal_newlines=True, timeout=60)
+
+
+class OldConductor(Conductor):
+    """Ticket 07: a run whose known conductor's transcript is older than sessions.RECENT_DAYS."""
+
+    def aged(self, path, days=sessions.RECENT_DAYS + 6):
+        then = time.time() - days * 86400
+        os.utime(path, (then, then))
+        return path
+
+    def old_run(self):
+        ws = self.run_with_file([SID_A])
+        self.aged(self.transcript_path(SID_A, ws))
+        return ws
+
+    def transcript_path(self, sid, cwd):
+        folder = "-" + cwd.strip("/").replace("/", "-")
+        return os.path.join(self.claude_home, "projects", folder, sid + ".jsonl")
+
+    def test_an_old_conductor_gets_its_item_attached_to_the_run(self):
+        ws = self.old_run()
+        found = self.items()
+        conductor = found[SID_A]
+        self.assertEqual((conductor.workspace_item_id, conductor.placed_by), (found[ws].id, "title"))
+        self.assertEqual(conductor.data["cwd"], ws)
+        home = api.create_project("Machina")
+        self.assertIn(conductor.id, api.move(found[ws].id, home.id).followed)
+        self.assertNotIn(conductor.id, [e.item.id for e in api.inbox().entries])   # after a refresh too
+        again = self.items()                                     # the next sessions read keeps it
+        self.assertFalse(again[SID_A].gone)
+        self.assertEqual((again[SID_A].id, again[SID_A].project_id), (conductor.id, home.id))
+        self.assertEqual(api.project_status(home.id, refresh=False).runs[0].conductor_item_id, conductor.id)
+
+    def test_home_the_view_and_the_terminal_command_open_it(self):
+        ws = self.old_run()
+        found = self.items()
+        home = api.create_project("Machina")
+        api.move(found[ws].id, home.id)
+        self.assertEqual(api.project_view(home.id).runs[0].conductor_item_id, found[SID_A].id)
+        card = [c for c in api.home().cards if c.project.id == home.id][0]
+        self.assertEqual(card.runs[0].conductor_item_id, found[SID_A].id)
+        self.assertIn("open-conductor", [a.id for a in api.run_actions(found[ws].id).actions])
+        cmd = api.terminal_command(found[ws].id, target="conductor")
+        self.assertEqual(cmd.command, "cd %s && claude --resume %s" % (ws, SID_A))
+        done = cli_run("command", found[ws].id, "--conductor")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.strip(), "cd %s && claude --resume %s" % (ws, SID_A))
+
+    def test_a_conductor_with_no_transcript_has_no_item_and_says_why(self):
+        ws = self.workspace("gone-20261023", files={"state/CONDUCTOR.session": SID_C + "\n"})
+        found = self.items()
+        self.assertNotIn(SID_C, found)
+        self.assertIsNone([r for r in api.project_status("inbox", refresh=False).runs
+                           if r.item_id == found[ws].id][0].conductor_item_id)
+        with self.assertRaises(Refused) as caught:
+            api.terminal_command(found[ws].id, target="conductor")
+        self.assertIn("no transcript on disk", str(caught.exception))
+        done = cli_run("command", found[ws].id, "--conductor")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("no transcript on disk", done.stderr + done.stdout)
+        call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": {"name": "studio_terminal", "arguments": {"item_id": found[ws].id, "target": "conductor"}}}
+        out = subprocess.run([sys.executable, SERVER], input=json.dumps(call) + "\n", stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, universal_newlines=True, timeout=60)
+        result = json.loads(out.stdout.splitlines()[0])["result"]
+        self.assertTrue(result["isError"])
+        self.assertIn("no transcript on disk", result["content"][0]["text"])
+
+
 if __name__ == "__main__":
     import unittest
     unittest.main()

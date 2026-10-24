@@ -71,6 +71,10 @@ def session_of(conn, item_id, target="session"):
         if r["kind"] not in WORKSPACE_KINDS:
             raise InvalidInput("Only a night run has a conductor.")
         found = conductor_row(conn, r)
+        sid = item_data(r).get("conductor_session_id")
+        if found is None and sid:
+            raise Refused("%s's conductor session %s has no transcript on disk any more, so it cannot be "
+                          "opened again." % (r["title"], sid))
         if found is None:
             raise Refused("%s has no known conductor session." % r["title"])
         return found

@@ -16,6 +16,11 @@ A run with no `CONDUCTOR.session` file gets its conductor from the conductor sca
 `bash <WS>/launch.sh` or `schedule.sh <WS>` and is not one of its ticket sessions (listed in a
 `state/<TAG>.session`, or named `ns-<slug>-<TAG>`). It joins the run's `sessions`, so it attaches
 by title like them.
+
+A run's conductor whose transcript is older than the transcripts reader's window
+(`sessions.RECENT_DAYS`) has no head in that read, so its head is read here from the index: the
+conductor gets its session item (attached to the run by title) however old it is. A conductor
+with no transcript on disk gets no item.
 """
 
 import os
@@ -23,7 +28,7 @@ import re
 import time
 
 from .readers.git import repo_of_path
-from .readers.sessions import iso, session_kind
+from .readers.sessions import iso, session_kind, transcript_head
 
 ACTIVE_SECONDS = 300        # an interactive transcript touched this recently may still be open
 DATE_SUFFIX = re.compile(r"-\d{8}(-\d+)?$")
@@ -187,7 +192,7 @@ class Inventory(object):
         agents = {r["session_id"]: r for r in self._data("agents", "all", [])}
         jobs = {r["session_id"]: r for r in self._data("jobs", "all", [])}
         trans = self._data("transcripts", "all", {}) or {}
-        index, meta = trans.get("index") or {}, trans.get("meta") or {}
+        index, meta = trans.get("index") or {}, self._with_old_conductors(trans, agents, jobs)
         ok = self.agents_ok and self._ok("jobs", "all") and self._ok("transcripts", "all")
         out = []
         for sid in sorted(set(agents) | set(jobs) | set(meta)):
@@ -196,6 +201,18 @@ class Inventory(object):
                 out.append(rec)
         self._mark("sessions", ok, [f.key for f in out] + list(index))
         return out
+
+    def _with_old_conductors(self, trans, agents, jobs):
+        """The transcripts read's heads, plus the head of each run's conductor that is on disk
+        (in the index) but too old to have one, so an old conductor still gets its item."""
+        index, meta = trans.get("index") or {}, dict(trans.get("meta") or {})
+        for ws in self.workspaces:
+            sid = ws.get("conductor_session_id") or ""
+            if sid in index and sid not in meta and sid not in agents and sid not in jobs:
+                head = transcript_head(index[sid][0])
+                if head is not None:
+                    meta[sid] = head
+        return meta
 
     def _session(self, sid, agent, job, head, where):
         kind = session_kind(head)

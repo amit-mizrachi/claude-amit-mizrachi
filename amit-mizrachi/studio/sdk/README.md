@@ -131,8 +131,11 @@ transcript once, from where it stopped, at most 32 MB a scan, newest first, for 
 `runner.sh start <WS>`, `bash <WS>/launch.sh` or `schedule.sh <WS>`; the newest such session that is
 not a ticket session (in a `state/<TAG>.session`, or named `ns-<slug>-<TAG>`) wins. Either way it is
 one of the run's `sessions`, so it attaches by title and follows the run; a read that names none
-keeps the stored one. `Run.conductor_item_id` (also on `HomeRun` and `ViewRun`) is its session
-item, None when unknown or gone; a run's "Open in Terminal" never picks it.
+keeps the stored one. A conductor whose transcript is older than the transcripts read's 14 days
+still gets its session item (its head is read from the transcript index), so Open conductor works
+for an old run; one with no transcript on disk gets none, and `terminal_command(target="conductor")`
+says so. `Run.conductor_item_id` (also on `HomeRun` and `ViewRun`) is its session item, None when
+unknown or gone; a run's "Open in Terminal" never picks it.
 
 A night sprint is `needs-you` / "CI red" when `state/ACCEPTANCE.verdict` is FAIL, unless its CI
 ticket later wrote `PASS at <same head>` to `state/CI.summary` (accept.sh writes FAIL when
