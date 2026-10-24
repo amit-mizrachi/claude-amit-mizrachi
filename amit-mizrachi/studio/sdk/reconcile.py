@@ -9,6 +9,8 @@ Placement, strongest first: manual > title > cwd/worktree > rule > Inbox.
 - Inbox: everything else.
 An archived project gets nothing new: a link or rule that points into one is skipped.
 
+A run keeps its known conductor (`conductor_session_id`) when a read finds none (a failed read).
+
 An item already placed by title or cwd follows its run; an Inbox item is filed again when a
 rule or a filed run now claims it; rule-placed items move only when a run claims them.
 
@@ -93,8 +95,9 @@ def reconcile(conn, inventory):
         if ident in seen:                          # one item found twice in a scan: the first one wins
             continue
         seen.add(ident)
-        data = json.dumps(dict(found.data, scope=found.scope, signals=found.signals), sort_keys=True)
         row = rows.get(ident)
+        data = json.dumps(dict(found.data, scope=found.scope, signals=found.signals, **_kept_conductor(found, row)),
+                          sort_keys=True)
         target, rung, wsid = placer.place(found.link, found.signals)
         if row is None:
             row = {"id": new_item_id(), "kind": found.kind, "key": found.key, "project_id": target,
@@ -121,6 +124,17 @@ def reconcile(conn, inventory):
         if key not in seen:
             counts["gone"] += _not_found(conn, row, inventory, stamp)
     return counts
+
+
+CONDUCTOR_KEYS = ("conductor_session_id", "conductor_session_ids")
+
+
+def _kept_conductor(found, row):
+    """The stored conductor of a run whose read now names none, so a failed read never drops it."""
+    if found.kind not in WORKSPACE_KINDS or row is None or found.data.get("conductor_session_id"):
+        return {}
+    old = item_data(row)
+    return {k: old[k] for k in CONDUCTOR_KEYS if old.get(k)} if old.get("conductor_session_id") else {}
 
 
 def _attached_scope(row, data, now):

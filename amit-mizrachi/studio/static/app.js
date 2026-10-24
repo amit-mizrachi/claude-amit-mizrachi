@@ -485,6 +485,14 @@
     return node;
   }
 
+  // "Open conductor": the session that set the run up and watches its runner, opened like any
+  // session (its item id), so it stays apart from "Open in Terminal" (the live ticket session).
+  function conductorButton(conductorItemId) {
+    var b = button(ARROW + "Open conductor", null, function (btn) { openInTerminal(conductorItemId, btn); });
+    b.title = "Open the session that conducts this run";
+    return b;
+  }
+
   function runPanel(r) {
     var tone = TONE[r.status] || "stale";
     var name = el("b", null, r.title);
@@ -495,6 +503,7 @@
     if (r.terminal_item_id) {
       acts.appendChild(button(ARROW + "Open in Terminal", null, function (b) { openInTerminal(r.terminal_item_id, b); }));
     }
+    if (r.conductor_item_id) { acts.appendChild(conductorButton(r.conductor_item_id)); }
     if (r.can_mark_done) { acts.appendChild(markDoneButton(r.item_id)); }
     acts.appendChild(dismissButton(r.item_id));
     acts.appendChild(throwButton(r.item_id));

@@ -122,6 +122,8 @@ RUN_SCHEMA = {
         "pr_text": {"type": "string", "description": "\"PR #12 draft - checks green\", or \"\""},
         "marked_done": {"type": "boolean", "description": "Done because studio_mark_done marked it, not its files "
                         "(reason \"marked done by you\")."},
+        "conductor_item_id": dict(NULLABLE_TEXT, description="The session item that conducts the run (set it up, "
+                                  "watches its runner); studio_terminal with target conductor opens it. null: unknown."),
     },
 }
 ITEMS = {"type": "array", "items": ITEM_SCHEMA}
@@ -710,6 +712,45 @@ TOOLS = [
                         "idempotentHint": False, "openWorldHint": True},
     },
     {
+        "name": "studio_terminal",
+        "title": "Open a session in the terminal",
+        "description": (
+            "Open a session again in the user's terminal app (the studio's terminal setting): claude attach "
+            "<short id> when claude agents lists it, else cd <its folder> && claude --resume <id>. item_id is "
+            "a session, or a night run: target session (the default) opens its live ticket session, target "
+            "conductor its conductor session (conductor_item_id in studio_status), e.g. the one waiting for "
+            "the user's picks at a plan gate. A session whose transcript changed in the last 5 minutes may be "
+            "open elsewhere: with confirm false nothing runs and needs_confirm comes back; ask, then call "
+            "again with confirm true. When the app does not open, the command is copied. Never stops, kills "
+            "or removes a session."
+        ),
+        "inputSchema": {"type": "object", "required": ["item_id"], "additionalProperties": False,
+                        "properties": {"item_id": ITEM_ID,
+                                       "target": {"type": "string", "enum": ["session", "conductor"],
+                                                  "description": "For a night run: its live ticket session "
+                                                                 "(default) or its conductor."},
+                                       "confirm": {"type": "boolean",
+                                                   "description": "Open it even when it may be open elsewhere."}}},
+        "outputSchema": {
+            "type": "object",
+            "required": ["command", "opened", "copied", "needs_confirm", "path", "message", "app"],
+            "properties": {
+                "command": {"type": "object", "required": ["item_id", "mode", "command", "session_id", "short", "cwd",
+                                                           "confirm"],
+                            "properties": {"item_id": {"type": "string"}, "mode": {"type": "string",
+                                                                                   "enum": ["attach", "resume"]},
+                                           "command": {"type": "string"}, "session_id": {"type": "string"},
+                                           "short": {"type": "string"}, "cwd": {"type": "string"},
+                                           "confirm": {"type": "string"}}},
+                "opened": {"type": "boolean"}, "copied": {"type": "boolean"},
+                "needs_confirm": {"type": "boolean", "description": "True when nothing ran: ask, then call again with confirm true."},
+                "path": NULLABLE_TEXT, "message": {"type": "string"}, "app": {"type": "string"},
+            },
+        },
+        "annotations": {"title": "Open a session in the terminal", "readOnlyHint": False, "destructiveHint": False,
+                        "idempotentHint": False, "openWorldHint": True},
+    },
+    {
         "name": "studio_open",
         "title": "Open the studio",
         "description": (
@@ -839,6 +880,11 @@ def tool_throw_away(args):
     return api.throw_away(args["item_id"], confirmed=args["confirm"])
 
 
+def tool_terminal(args):
+    return api.open_in_terminal(args["item_id"], confirmed=args.get("confirm", False),
+                                target=args.get("target", "session"))
+
+
 def tool_open(args):
     return api.open_studio()
 
@@ -870,6 +916,7 @@ HANDLERS = {
     "studio_accept": tool_accept,
     "studio_purge": tool_purge,
     "studio_throw_away": tool_throw_away,
+    "studio_terminal": tool_terminal,
     "studio_open": tool_open,
 }
 SCHEMAS = {t["name"]: t["inputSchema"] for t in TOOLS}

@@ -136,6 +136,8 @@ def text_status(result):
     head = ["%s  %s" % (path(result.project.path), result.project.id)]
     lines = section("Runs", [[short(r.item_id), r.status, r.title, r.progress_text, r.stage, r.reason, r.pr_text]
                              for r in result.runs])
+    lines += section("Conductors (%s terminal <run> --conductor)" % PROG,
+                     [[short(r.item_id), r.title, short(r.conductor_item_id)] for r in result.runs if r.conductor_item_id])
     lines += section("Inside", [[short(s.project.id), s.project.name, s.text] for s in result.sub_projects])
     lines += section("Sessions", [[short(i.id), i.kind, i.status or "-", i.title + (" (gone)" if i.gone else "")]
                                   for i in result.sessions])
@@ -474,9 +476,25 @@ def setup_purge(parser):
     parser.add_argument("item", nargs="?", help="one gone item's id or prefix; leave out for every gone item")
 
 
+def add_conductor(parser):
+    parser.add_argument("--conductor", action="store_true",
+                        help="a night run's conductor session (the one that set it up and watches it), "
+                             "not its live ticket session")
+
+
+def target_of(args):
+    return "conductor" if args.conductor else "session"
+
+
 def setup_terminal(parser):
     add_item_arg(parser)
+    add_conductor(parser)
     add_yes(parser, "open it even when its transcript changed in the last 5 minutes")
+
+
+def setup_command(parser):
+    add_item_arg(parser)
+    add_conductor(parser)
 
 
 def ask(question):
@@ -488,14 +506,14 @@ def ask(question):
 
 def run_terminal(args):
     item_id = item_ref(args.item)
-    result = api.open_in_terminal(item_id, confirmed=args.yes)
+    result = api.open_in_terminal(item_id, confirmed=args.yes, target=target_of(args))
     if not result.needs_confirm:
         return result
     if not sys.stdin.isatty():
         raise NeedsYes("%s Nothing ran. Run again with --yes to open it anyway." % result.message)
     if not ask("%s Open it anyway?" % result.message):
         raise NeedsYes("Nothing opened.")
-    return api.open_in_terminal(item_id, confirmed=True)
+    return api.open_in_terminal(item_id, confirmed=True, target=target_of(args))
 
 
 def setup_throw(parser):
@@ -623,14 +641,15 @@ COMMANDS = [
             setup_export, lambda a: api.export_json(a.dest), text_export),
     Command("purge", "Delete gone items for good: one, or every gone item.", "project-studio purge", setup_purge,
             lambda a: api.purge_gone(item_ref(a.item) if a.item else None), text_purge),
-    Command("terminal", "Open a session (or a night run's live session) in your terminal app (see settings). "
-            "Asks y/N when it may be open.",
+    Command("terminal", "Open a session (or a night run's live session; --conductor: its conductor) in your "
+            "terminal app (see settings). Asks y/N when it may be open.",
             "project-studio terminal i_1a2b3c4d", setup_terminal, run_terminal, text_terminal),
     Command("settings", "Print or set a setting. terminal: the app Open in Terminal uses (Terminal, iTerm, default).",
             "project-studio settings terminal iTerm", setup_settings, run_settings, text_settings),
-    Command("command", "Print only the command that opens a session again, for $(...) and scripts.",
-            "project-studio command i_1a2b3c4d", lambda p: add_item_arg(p),
-            lambda a: api.terminal_command(item_ref(a.item)), text_command),
+    Command("command", "Print only the command that opens a session again (--conductor: a run's conductor), "
+            "for $(...) and scripts.",
+            "project-studio command i_1a2b3c4d --conductor", setup_command,
+            lambda a: api.terminal_command(item_ref(a.item), target_of(a)), text_command),
     Command("open-item", "Open an item: a URL in the browser, a folder in Finder, a file in its app.",
             "project-studio open-item i_1a2b3c4d --target plan", setup_open_item,
             lambda a: api.open_target(item_ref(a.item), a.target), text_open_item),

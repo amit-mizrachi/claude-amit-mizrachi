@@ -138,8 +138,25 @@ def marked_done(item):
     return bool(stamp) and item.kind in WORKSPACE_KINDS and str(item.data.get("changed_at") or "") <= stamp
 
 
-def to_run(item, prs, artifacts):
-    """A run item as a `Run`, with its newest PR and its plan artifact."""
+def session_ids(conn):
+    """{session id: item id} of every session item not gone: what a run's conductor id points at."""
+    return {r["key"]: r["id"] for r in conn.execute("SELECT id, key FROM items WHERE gone_at IS NULL AND kind IN "
+                                                    "('session-bg', 'session-interactive')")}
+
+
+def conductor_row(conn, run_row):
+    """The session item that conducts run row `run_row` (its newest `conductor_session_id`), or None."""
+    sid = item_data(run_row).get("conductor_session_id")
+    if not sid:
+        return None
+    found = conn.execute("SELECT * FROM items WHERE gone_at IS NULL AND key = ? AND kind IN "
+                         "('session-bg', 'session-interactive')", (sid,)).fetchone()
+    return dict(found) if found else None
+
+
+def to_run(item, prs, artifacts, sessions=None):
+    """A run item as a `Run`, with its newest PR, its plan artifact and (from `sessions`, the
+    `session_ids` map) its conductor's item id."""
     from .home import _progress_text, pr_text   # home imports this module
     d = item.data
     arts = sorted((a for a in artifacts if a.workspace_item_id == item.id), key=lambda a: not a.data.get("plan"))
@@ -157,7 +174,8 @@ def to_run(item, prs, artifacts):
               status=status, reason=reason, progress=d.get("progress"),
               stage=str(d.get("stage") or ""), stages=d.get("stages") or [], pr=pr,
               artifact_url=arts[0].data.get("url", "") if arts else "", started_at=str(d.get("started_at") or ""),
-              updated_at=str(d.get("updated_at") or ""), gone=item.gone, marked_done=marked)
+              updated_at=str(d.get("updated_at") or ""), gone=item.gone, marked_done=marked,
+              conductor_item_id=(sessions or {}).get(d.get("conductor_session_id") or "") or None)
     run.progress_text, run.pr_text = _progress_text(run), pr_text(pr)
     return run
 
@@ -185,7 +203,8 @@ def status(conn, project_id):
     prs, arts = by_kind.get("pr", []), by_kind.get("artifact", [])
     every_pr = [to_item(dict(r), tree) for r in conn.execute("SELECT * FROM items WHERE kind = 'pr' AND "
                                                              "dismissed_at IS NULL")]
-    runs = rank_runs([to_run(i, every_pr, arts) for k in WORKSPACE_KINDS for i in by_kind.get(k, [])])
+    known = session_ids(conn)
+    runs = rank_runs([to_run(i, every_pr, arts, known) for k in WORKSPACE_KINDS for i in by_kind.get(k, [])])
     subs = []
     for child in sorted(tree.children.get(project_id, []), key=lambda c: tree.rows[c]["name"].lower()):
         if tree.rows[child]["archived_at"]:

@@ -64,9 +64,9 @@ every command, its options and an example.
 | `rule-delete` | `project-studio rule-delete r_1a2b3c4d5e6f` | delete one rule; what it filed stays |
 | `export` | `project-studio export ~/studio.json` | the whole store as JSON, printed or written to a file |
 | `purge` | `project-studio purge` | delete gone items for good (one, or all) |
-| `terminal` | `project-studio terminal i_1a2b3c4d` | Open in Terminal (in your terminal app, see `settings`); asks y/N when the session may be open elsewhere |
+| `terminal` | `project-studio terminal i_1a2b3c4d` | Open in Terminal (in your terminal app, see `settings`); asks y/N when the session may be open elsewhere. `--conductor` on a night run: its conductor session (`status` lists them under "Conductors") |
 | `settings` | `project-studio settings terminal iTerm` | print the settings, or set one: `terminal` is `Terminal`, `iTerm` or `default` |
-| `command` | `eval "$(project-studio command i_1a2b3c4d)"` | print only the command that opens a session again |
+| `command` | `eval "$(project-studio command i_1a2b3c4d)"` | print only the command that opens a session again (`--conductor`: a night run's conductor) |
 | `open-item` | `project-studio open-item i_1a2b3c4d --target plan` | open a URL, folder or file with `open` |
 
 References: a project is its id, a unique id prefix (4+ characters, the `p_` optional) or its
@@ -110,7 +110,10 @@ The studio is a local web server on `127.0.0.1` only. The home page is a grid of
 that show only each project's night-run status; a click on a card opens the project view
 (runs, sessions, everything else), where a session row's **Open in Terminal** opens Terminal on
 `claude attach <id>` (a background session) or `cd <cwd> && claude --resume <id>` (an
-interactive one), or copies that command. The **Inbox** drawer files items by drag, by **Move
+interactive one), or copies that command. A run panel's **Open conductor** opens the same way the
+session that set the run up and watches its runner (from the run's `state/CONDUCTOR.session`,
+which night-sprint writes, else the session whose transcript ran its `runner.sh start`); its
+**Open in Terminal** stays the live ticket session. The **Inbox** drawer files items by drag, by **Move
 to...** or by **Accept** on a suggestion, with **Undo** on every move. **Dismiss** on a run panel
 or an item row hides it (a run with its attached items) from the cards, the project view's lists,
 the Inbox and the counts, and deletes nothing; it waits in the **Dismissed** fold at the bottom of
@@ -176,6 +179,7 @@ Each tool is one SDK call:
 | `studio_accept` | `api.accept_suggestion(item_id)` | writes; files an Inbox item where its suggestion says |
 | `studio_purge` | `api.purge_gone(item_id, all_gone)` | destructive; one gone item, or every gone item only with `all_gone` true |
 | `studio_throw_away` | `api.throw_away(item_id, confirmed=confirm)` | destructive; the one tool that removes things (a night run's folder to the Trash, its worktrees, its store records). `confirm` is required; false changes nothing and says what would go (`needs_confirm`) |
+| `studio_terminal` | `api.open_in_terminal(item_id, confirmed=confirm, target=target)` | opens a session (or a night run's live ticket session; `target` `conductor`: its conductor, `conductor_item_id` in `studio_status`) in the terminal app; `confirm` when it may be open elsewhere. Never stops a session |
 | `studio_open` | `api.open_studio()` | starts the web page, returns its URL |
 
 Nesting a project is `studio_move` with a `p_...` id.
