@@ -88,20 +88,29 @@
     return node;
   }
 
-  function runLine(run) {
+  // A home run line. A run waiting on you keeps its Open plan, with the buttons its `quick` names
+  // beside it (Open conductor); every line has the "..." menu (and right-click), and drags onto
+  // another project's row or block to move there. `from` is the project it lives in.
+  function runLine(run, from) {
     var tone = TONE[run.status] || "stale";
     var line = el("div", run.gone ? "run dim" : "run");
     var name = el("span", "nm", run.title);
     name.title = run.title;
     add(line, el("span", "g " + tone, run.glyph), name);
+    var acts = el("span", "ra");
     if (run.open_plan_url) {
       var plan = el("a", "btn pri", "Open plan");
       plan.href = run.open_plan_url;
       plan.target = "_blank";
       plan.rel = "noopener noreferrer";
       plan.addEventListener("click", function (e) { e.stopPropagation(); });
-      line.appendChild(plan);
+      acts.appendChild(plan);
     }
+    quickButtons(run, acts);
+    line.appendChild(add(acts, menuButton(run)));
+    withMenu(line, run);
+    line.setAttribute("data-item-id", run.item_id);
+    draggable(line, { id: run.item_id, name: run.title, revision: null, from: from });
     var st = add(el("span", "st"), el("span", "w " + tone, run.word));
     if (run.sub_project) {
       var tag = el("span", "in", run.sub_project);
@@ -115,9 +124,9 @@
   }
 
   // The runs of a home row or block, laid across the width: several per line, each in a cell of its own.
-  function runCells(runs) {
+  function runCells(runs, from) {
     var grid = el("div", "runs");
-    runs.forEach(function (run) { grid.appendChild(runLine(run)); });
+    runs.forEach(function (run) { grid.appendChild(runLine(run, from || run.sub_project_id)); });
     return grid;
   }
 
@@ -131,9 +140,11 @@
     var head = add(el("div", "bh"), el("span", "g " + tone, s.glyph), name,
       s.word ? el("span", "w " + tone, s.word) : null, el("span", "sub", s.text),
       s.inside ? el("span", "sub", s.inside) : null);
-    var node = add(el("div", "block"), head, s.runs.length ? runCells(s.runs) : null,
-      s.more ? el("span", "more", s.more) : null);
+    var node = add(el("div", "block"), head, s.runs.length ? runCells(s.runs.map(function (r) {
+      return r.sub_project_id ? r : Object.assign({}, r, { sub_project_id: s.project_id });
+    })) : null, s.more ? el("span", "more", s.more) : null);
     node.setAttribute("data-project-id", s.project_id);
+    dropTarget(node, s.project_id, true);
     node.setAttribute("role", "link");
     node.tabIndex = 0;
     function go(e) { e.stopPropagation(); window.location.hash = href; }
@@ -160,7 +171,7 @@
     node.appendChild(add(el("div", "ct"), el("span", "g " + tone, c.glyph), title,
       c.word ? el("span", "w " + tone, c.word) : null, el("span", "sub", c.counts),
       el("span", "age", c.last_activity)));
-    if (c.runs.length) { node.appendChild(runCells(c.runs)); }
+    if (c.runs.length) { node.appendChild(runCells(c.runs, c.project.id)); }
     if (c.more) { node.appendChild(el("span", "more", c.more)); }
     if (c.pr) { node.appendChild(prLine(c.pr)); }
     if (c.sub_projects.length) {
@@ -497,38 +508,28 @@
       document.createTextNode(t.name), el("span", "sub", t.text));
     node.type = "button";
     node.setAttribute("data-project-id", t.project_id);
+    dropTarget(node, t.project_id);
     node.addEventListener("click", function () { window.location.hash = "#/p/" + encodeURIComponent(t.project_id); });
     return node;
   }
 
-  // "Open conductor": the session that set the run up and watches its runner, opened like any
-  // session (its item id), so it stays apart from "Open in Terminal" (the live ticket session).
-  function conductorButton(conductorItemId) {
-    var b = button(ARROW + "Open conductor", null, function (btn) { openInTerminal(conductorItemId, btn); });
-    b.title = "Open the session that conducts this run";
-    return b;
-  }
-
-  function runPanel(r) {
+  // A run panel: the buttons its `quick` names, then the "..." menu (and right-click) with all its
+  // `actions`; it drags onto a sub-project's tile or section to move there. `from`: its project.
+  function runPanel(r, from) {
     var tone = TONE[r.status] || "stale";
     var name = el("b", null, r.title);
     name.title = r.title;
     var acts = el("span", "acts");
-    if (r.has_plan) { acts.appendChild(button("Open plan", null, function (b) { openItem(r.item_id, "plan", b); })); }
-    if (r.has_pr) { acts.appendChild(button("Open PR", null, function (b) { openItem(r.item_id, "pr", b); })); }
-    if (r.terminal_item_id) {
-      acts.appendChild(button(ARROW + "Open in Terminal", null, function (b) { openInTerminal(r.terminal_item_id, b); }));
-    }
-    if (r.conductor_item_id) { acts.appendChild(conductorButton(r.conductor_item_id)); }
-    if (r.can_mark_done) { acts.appendChild(markDoneButton(r.item_id)); }
-    acts.appendChild(dismissButton(r.item_id));
-    acts.appendChild(throwButton(r.item_id));
+    quickButtons(r, acts);
+    acts.appendChild(menuButton(r));
     var st = add(el("span", "st"), el("span", "w " + tone, r.word), r.detail ? el("span", null, r.detail) : null,
       r.bar.length ? bar(r.bar) : null);
     if (r.started) { add(st, el("span", null, "-"), el("span", null, r.started)); }
     if (r.pr) { add(st, el("span", null, "-"), prLine(r.pr)); }
     var node = add(el("div", r.gone ? "runbig dim" : "runbig"), el("span", "g " + tone, r.glyph), name, acts, st);
     node.setAttribute("data-item-id", r.item_id);
+    withMenu(node, r);
+    draggable(node, { id: r.item_id, name: r.title, revision: null, from: from });
     return node;
   }
 
@@ -587,16 +588,101 @@
     }).catch(fail).then(function () { btn.disabled = false; });
   }
 
-  function throwButton(itemId) {
-    var node = button("Throw away...", "ghost", function (b) { throwAway(itemId, b); });
-    node.title = "Its folder to the Trash, its worktrees removed (never forced), the run out of the studio. Asks first.";
+  // ------------------------------------------------------------------ a night run's actions menu
+
+  // What each run action does (sdk/runmenu.py lists which apply): each calls what its button always
+  // did. The page draws only the run's `actions`: as the "..." menu, and as buttons for `quick`.
+  var RUN_ACTS = {
+    "open-plan": function (a, b) { openItem(a.target_id, "plan", b); },
+    "open-pr": function (a, b) { openItem(a.target_id, "pr", b); },
+    "open-terminal": function (a, b) { openInTerminal(a.target_id, b); },
+    "open-conductor": function (a, b) { openInTerminal(a.target_id, b); },
+    "move": function (a) { openPicker(a.target_id); },
+    "mark-done": function (a, b) { postItemMove("/api/mark-done", a.target_id, b); },
+    "dismiss": function (a, b) { postItemMove("/api/dismiss", a.target_id, b); },
+    "restore": function (a, b) { postItemMove("/api/restore", a.target_id, b); },
+    "throw-away": function (a, b) { throwAway(a.target_id, b); }
+  };
+  var ACT_LOOK = { "open-terminal": [ARROW, null], "open-conductor": [ARROW, null], dismiss: ["", "ghost"],
+    restore: ["", "ghost"], "throw-away": ["", "ghost"] };
+  var menuFor = null;     // the run whose actions menu is open
+
+  function quickButtons(run, into) {
+    run.actions.forEach(function (a) {
+      if (run.quick.indexOf(a.id) < 0 || !RUN_ACTS[a.id]) { return; }
+      var look = ACT_LOOK[a.id] || ["", null];
+      var node = button(look[0] + a.label, look[1], function (b) { RUN_ACTS[a.id](a, b); });
+      node.title = a.hint;
+      into.appendChild(node);
+    });
+  }
+
+  function closeMenu() {
+    if (!menuFor) { return; }
+    menuFor = null;
+    clear($("runmenu"));
+    $("runmenu").hidden = true;
+  }
+
+  function openMenu(run, x, y, back) {
+    closeMenu();
+    menuFor = run.item_id;
+    var box = $("runmenu");
+    var list = el("div", "rmenu");
+    list.setAttribute("role", "menu");
+    list.setAttribute("aria-label", "Actions for " + run.title);
+    list.addEventListener("click", function (e) { e.stopPropagation(); });
+    run.actions.forEach(function (a) {
+      if (!RUN_ACTS[a.id]) { return; }
+      if (a.destructive) { list.appendChild(el("hr")); }
+      var item = button(a.label, a.destructive ? "danger" : null, function () {
+        closeMenu();
+        if (back.focus) { back.focus(); }
+        RUN_ACTS[a.id](a, back);
+      });
+      item.setAttribute("role", "menuitem");
+      item.title = a.hint;
+      list.appendChild(item);
+    });
+    list.addEventListener("keydown", function (e) {
+      var items = list.querySelectorAll("button");
+      var at = Array.prototype.indexOf.call(items, document.activeElement);
+      if (e.key === "Escape" || e.key === "Tab") {
+        e.preventDefault();
+        closeMenu();
+        if (back.focus) { back.focus(); }
+      } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        items[(at + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus();
+      }
+    });
+    box.appendChild(list);
+    box.hidden = false;
+    list.style.left = Math.max(8, Math.min(x, window.innerWidth - list.offsetWidth - 8)) + "px";
+    list.style.top = Math.max(8, y + list.offsetHeight + 8 > window.innerHeight ? y - list.offsetHeight : y) + "px";
+    var first = list.querySelector("button");
+    if (first) { first.focus(); }
+  }
+
+  function menuButton(run) {
+    var node = button("\u22ef", "ghost more", function (b) {
+      if (menuFor === run.item_id) { closeMenu(); return; }
+      var at = b.getBoundingClientRect();
+      openMenu(run, at.left, at.bottom + 4, b);
+    });
+    node.title = "Actions (or right-click the run)";
+    node.setAttribute("aria-label", "Actions for " + run.title);
+    node.setAttribute("aria-haspopup", "menu");
     return node;
   }
 
-  function markDoneButton(itemId) {
-    var node = button("Mark done", null, function (b) { postItemMove("/api/mark-done", itemId, b); });
-    node.title = "Its files froze on a word no longer true. Shows Done until they change again.";
-    return node;
+  // Right-click on a run line or panel opens the same menu where the pointer is.
+  function withMenu(node, run) {
+    node.addEventListener("contextmenu", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      openMenu(run, e.clientX, e.clientY, node.querySelector(".more") || node);
+    });
   }
 
   function itemRow(r, dismissed) {
@@ -659,11 +745,12 @@
     var node = add(el("div", "subsec"), subHead(v, g, key, open));
     node.style.marginLeft = ((g.depth - 1) * 20) + "px";
     node.setAttribute("data-project-id", g.project_id);
+    dropTarget(node, g.project_id, true);
     if (!open) { return { node: node, open: false }; }
     var all = !!subMore[key];
     var shown = all ? g.runs : g.runs.slice(0, g.shown);
     var body = el("div", "subbody");
-    shown.forEach(function (r) { body.appendChild(runPanel(r)); });
+    shown.forEach(function (r) { body.appendChild(runPanel(r, g.project_id)); });
     if (!g.runs.length) { body.appendChild(el("p", "none", "No night runs here.")); }
     if (g.more && !all) {
       body.appendChild(button(g.more, "ghost", function () { subMore[key] = true; renderView(lastView); }));
@@ -702,7 +789,7 @@
     if (v.runs.length || v.sub_runs.length) {
       var total = v.sub_runs.reduce(function (n, g) { return n + g.runs.length; }, v.runs.length);
       var runs = sec("Night runs", total);
-      v.runs.forEach(function (r) { runs.appendChild(runPanel(r)); });
+      v.runs.forEach(function (r) { runs.appendChild(runPanel(r, v.project.id)); });
       subSections(v, runs);
     }
     if (v.sessions.length && !v.sessions_folded) {
@@ -750,6 +837,7 @@
 
   function route() {
     current = projectId();
+    closeMenu();
     popOpen = null;
     hot = null;
     showDrawer(window.location.hash === "#/inbox");
@@ -770,7 +858,7 @@
 
   // ------------------------------------------------------------------ moving: drag, the Inbox drawer, Undo, the picker
 
-  var dragged = null;     // {id, name, revision} while a card or an Inbox row is dragged
+  var dragged = null;     // {id, name, revision, from} while a card, a run or an Inbox row is dragged
   var picking = false;    // the "Move to..." / "Set parent" picker is open
   var pending = null;     // the newest home state that arrived while frozen
   var drawerOpen = false;
@@ -857,25 +945,31 @@
   function draggable(node, what) {
     node.draggable = true;
     node.addEventListener("dragstart", function (e) {
+      e.stopPropagation();     // a run line drags alone, not the row around it
+      closeMenu();
       dragged = what;
       node.classList.add("drag");
       e.dataTransfer.effectAllowed = "move";
       e.dataTransfer.setData("text/plain", what.name);
       if (e.dataTransfer.setDragImage) { e.dataTransfer.setDragImage(ghost(what.name), 12, 12); }
     });
-    node.addEventListener("dragend", function () {
+    node.addEventListener("dragend", function (e) {
+      e.stopPropagation();
       node.classList.remove("drag");
       dragged = null;
-      var drops = document.querySelectorAll(".card.drop");
+      var drops = document.querySelectorAll(".drop");
       for (var i = 0; i < drops.length; i++) { drops[i].classList.remove("drop"); }
       window.setTimeout(thaw, 0);
     });
   }
 
-  // DropTarget: a card takes an Inbox row (file it there) or another card (move under it).
-  function dropTarget(node, projectId) {
-    function ok() { return dragged && dragged.id !== projectId; }
+  // DropTarget: a card, a sub-project block, tile or section takes an Inbox row or a run (move it
+  // there) or another card (move under it); not what is dragged, nor a run onto its own project.
+  // `inner`: it sits inside another target, and keeps the drop to itself.
+  function dropTarget(node, projectId, inner) {
+    function ok() { return dragged && dragged.id !== projectId && dragged.from !== projectId; }
     node.addEventListener("dragover", function (e) {
+      if (inner && dragged) { e.stopPropagation(); }
       if (!ok()) { return; }
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
@@ -885,6 +979,7 @@
       if (!node.contains(e.relatedTarget)) { node.classList.remove("drop"); }
     });
     node.addEventListener("drop", function (e) {
+      if (inner) { e.stopPropagation(); }
       e.preventDefault();
       node.classList.remove("drop");
       if (!ok()) { return; }
@@ -1160,7 +1255,7 @@
     return { rows: cards.filter(function (c) { return !foldsQuiet(c); }), quiet: cards.filter(foldsQuiet) };
   }
 
-  function moved(s, shown) {
+  function reordered(s, shown) {
     var ids = shown.rows.concat(shown.quiet).map(function (c) { return c.project.id; });
     return ids.join(" ") !== s.order.join(" ") || shown.quiet.some(function (c) { return !c.quiet; });
   }
@@ -1168,7 +1263,7 @@
   function resortLink(s, shown) {
     var slot = $("resort");
     clear(slot);
-    if (!moved(s, shown)) { return; }
+    if (!reordered(s, shown)) { return; }
     var link = button("Re-sort", "ghost", function () { pin(lastState); render(lastState); });
     link.title = "The activity order changed since the page loaded";
     slot.appendChild(link);
@@ -1263,7 +1358,9 @@
     });
     themeLabel();
     window.addEventListener("hashchange", route);
-    document.addEventListener("click", function () { if (popOpen) { closePop(); } });
+    document.addEventListener("click", function () { closeMenu(); if (popOpen) { closePop(); } });
+    window.addEventListener("scroll", closeMenu, true);
+    window.addEventListener("resize", closeMenu);
     document.addEventListener("keydown", shortcut);
     document.addEventListener("keydown", escapeBack);
     route();

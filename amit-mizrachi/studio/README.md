@@ -57,6 +57,7 @@ every command, its options and an example.
 | `dismiss` | `project-studio dismiss i_1a2b3c4d` | hide an item (a night run with its attached sessions, PRs, worktrees) from every list; it deletes nothing |
 | `restore` | `project-studio restore i_1a2b3c4d` | show a dismissed item again (`find --dismissed` and `show` list them) |
 | `mark-done` | `project-studio mark-done i_1a2b3c4d` | a night run whose state files froze on a word no longer true shows Done, "marked done by you", until its files change again |
+| `actions` | `project-studio actions i_1a2b3c4d` | what a night run's actions menu offers now, one line each: id (`open-plan`, `open-pr`, `open-terminal`, `open-conductor`, `move`, `mark-done`, `dismiss` or `restore`, `throw-away`), label and the command that does it; `--json` is `api.run_actions`'s shape. Changes nothing, so an agent can ask first |
 | `throw` | `project-studio throw i_1a2b3c4d --yes` | throw away a night run: its folder to the macOS Trash, its worktrees removed with `git worktree remove` (never forced), the run and its attached items purged. Without `--yes` it prints what goes and asks y/N on a tty (exit 2, `confirm_needed`, without one). Refused while its runner or a session of it is live. The one command that removes things, see below |
 | `accept` | `project-studio accept i_1a2b3c4d` | file an Inbox item into its suggested project |
 | `rule-save` | `project-studio rule-save 42` | "Always file items like this here", from a move id |
@@ -136,7 +137,15 @@ early "CI red"): it shows Done, "marked done by you", everywhere, until the run'
 again; Undo takes the mark back. **Show archived** under the cards lists every archived project
 with **Unarchive** (an archived project's view has the button too), and the **x** after a name on
 the project view's "Linked: ..." line unlinks it. Light and dark mode follow
-the OS, with a manual toggle. **Throw away...** on a run panel lists what goes (the folder, each
+the OS, with a manual toggle. Every night run line on home and every run panel in a project view
+has the same actions menu, **...** or a right-click on the run, drawn only from `api.run_actions`'s
+list: Open plan, Open PR, Open in Terminal, Open conductor (each when there is one), **Move to...**
+(the picker; the run's attached items follow, Undo in the toast), Mark done (Blocked or Waiting on
+you), Dismiss (Restore once dismissed) and Throw away... last. A run panel also shows all of them
+but Move to... as buttons; a home line waiting on you keeps its **Open plan** and gains **Open
+conductor** beside it when the conductor is known. A run also moves by drag: from a home line onto
+another project's row or sub-project block, or from a run panel onto a sub-project's tile or
+section. **Throw away...** on a run panel lists what goes (the folder, each
 worktree, the item count) in a confirm dialog and does it only on OK. The studio never stops, kills
 or removes a session.
 
@@ -177,6 +186,7 @@ Each tool is one SDK call:
 | `studio_remove` | `api.remove_item(item_id)` | writes; back to the Inbox, never deletes the thing |
 | `studio_dismiss` | `api.dismiss_item(item_id)` | writes; hides an item (a run with its attached items) from every list, never deletes anything |
 | `studio_restore` | `api.restore_item(item_id)` | writes; shows a dismissed item again |
+| `studio_run_actions` | `api.run_actions(item_id)` | read-only; what a night run's actions menu offers now, in menu order (id, label, `destructive` / `needs_confirm` only for throw-away, `target_id`, hint); other kinds refused |
 | `studio_mark_done` | `api.mark_done(item_id)` | writes; a night run shows Done, "marked done by you", until its files change; other kinds refused |
 | `studio_archive` | `api.archive_project(project_id)` | writes |
 | `studio_unarchive` | `api.unarchive_project(project_id)` | writes; with the sub-projects archived with it |

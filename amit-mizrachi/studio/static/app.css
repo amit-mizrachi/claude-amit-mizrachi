@@ -136,6 +136,14 @@ code{font-family:var(--mono);font-size:12px;background:rgba(127,127,127,.25);pad
 .card[draggable=true]{cursor:grab}
 .card.drop{background:var(--blue-3);outline:2px solid var(--blue-9);outline-offset:-1px}
 .card.drag{opacity:.5;border-style:dashed}
+.block.drop,.mini.drop,.subsec.drop{background:var(--blue-3);outline:2px solid var(--blue-9);outline-offset:-1px}
+.run.drag,.runbig.drag{opacity:.5}
+.run .ra{display:flex;gap:var(--space-1);align-items:center;justify-content:flex-end}
+.btn.more{padding:0 6px;min-height:0;line-height:1.4}
+.rmenu{position:fixed;z-index:20;min-width:190px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-3);padding:var(--space-1);display:flex;flex-direction:column;gap:2px;box-shadow:0 4px 16px rgba(0,0,0,.18)}
+.rmenu .btn{justify-content:flex-start;border-color:transparent;background:none}.rmenu .btn:hover,.rmenu .btn:focus-visible{background:var(--bg-ui)}
+.rmenu .btn.danger{color:var(--red-11)}
+.rmenu hr{border:0;border-top:1px solid var(--border);margin:2px 0;width:100%}
 .dragghost{position:fixed;left:-1000px;top:-1000px;background:var(--bg);color:var(--text);border:1px solid var(--blue-9);border-radius:var(--radius-3);padding:4px 10px;font-size:var(--font-size-1);box-shadow:0 4px 12px rgba(0,0,0,.18);white-space:nowrap;pointer-events:none}
 .scrim{position:fixed;inset:0;z-index:10;background:rgba(0,0,0,.3);display:flex;align-items:flex-start;justify-content:center;padding:12vh var(--space-4) 0}
 .dlg{width:100%;max-width:380px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-5);padding:var(--space-4);box-shadow:0 8px 28px rgba(0,0,0,.2)}

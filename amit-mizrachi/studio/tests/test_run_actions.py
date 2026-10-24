@@ -4,6 +4,7 @@ on home's run lines and the project view's panels; the CLI's `actions` and the M
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -231,3 +232,24 @@ class ActionsOverMcp(RunMenu):
                          ids(api.run_actions(self.live.id).actions))
         self.assertTrue(out[2]["result"]["isError"])
         self.assertIn("unknown argument(s): extra", out[3]["result"]["content"][0]["text"])
+
+
+class ThePageDrawsOnlyTheList(RunMenu):
+    def script(self):
+        with open(os.path.join(PLUGIN, "studio", "static", "app.js")) as fh:
+            return fh.read()
+
+    def test_every_action_id_has_a_page_handler_and_panels_draw_from_actions(self):
+        from sdk import runmenu
+        script = self.script()
+        block = re.search(r"var RUN_ACTS = \{(.*?)\n  \};", script, re.S).group(1)
+        self.assertEqual(sorted(re.findall(r'^    "?([a-z-]+)"?:', block, re.M)), sorted(runmenu.LABELS))
+        panel = re.search(r"function runPanel\(r, from\) \{(.*?)\n  \}\n", script, re.S).group(1)
+        self.assertIn("quickButtons(r, acts);", panel)
+        self.assertIn("withMenu(node, r);", panel)
+        for old in ("r.has_plan", "r.has_pr", "r.terminal_item_id", "r.can_mark_done"):
+            self.assertNotIn(old, panel)
+
+    def test_the_move_toast_has_one_name_so_undo_shows_after_a_move(self):
+        """Ticket 04's re-sort check was also called `moved`, which replaced the move toast."""
+        self.assertEqual(len(re.findall(r"function moved\(", self.script())), 1)
