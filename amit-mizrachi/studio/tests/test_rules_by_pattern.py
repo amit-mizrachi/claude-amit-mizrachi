@@ -146,7 +146,8 @@ class Patterns(Inbox):
         for signal, text in (("workspace", ""), ("workspace", "  "), ("cwd", ""), ("repo-branch", "")):
             with self.assertRaises(InvalidInput, msg=(signal, text)):
                 api.add_rule(self.shapes.id, signal, text)
-        for signal, text in (("workspace", "*"), ("workspace", "?*"), ("cwd", "/"), ("cwd", "~")):
+        for signal, text in (("workspace", "*"), ("workspace", "?*"), ("cwd", "/"), ("cwd", "~"),
+                             ("cwd", os.path.dirname(os.path.expanduser("~")))):
             with self.assertRaises(Refused, msg=(signal, text)):
                 api.add_rule(self.shapes.id, signal, text)
         self.assertEqual(api.list_rules().rules, [])

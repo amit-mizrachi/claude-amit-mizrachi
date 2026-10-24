@@ -47,8 +47,10 @@ def for_signals(signals):
 
 
 def _too_wide(cwd):
-    """"/" and the home folder hold every session: a cwd rule there would catch them all."""
-    return (cwd.rstrip("/") or "/") in ("/", os.path.expanduser("~").rstrip("/"))
+    """"/", the home folder and any folder above it hold every session: a cwd rule there would catch them all."""
+    folder = cwd.rstrip("/") or "/"
+    home = os.path.expanduser("~").rstrip("/")
+    return folder in ("/", home) or home.startswith(folder + "/")
 
 
 def check(signal, pattern):

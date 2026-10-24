@@ -79,11 +79,13 @@ class DeleteRequest:
 
 @dataclass
 class ThrowWorktree:
-    """One worktree a throw removes with `git worktree remove` (never forced): its folder, its repo, its branch."""
+    """One worktree a throw removes with `git worktree remove` (never forced): its folder, its repo, its
+    branch, and the gitignored entries in it (`ignored`, relative paths), which git deletes for good."""
 
     path: str
     repo_path: str
     branch: str
+    ignored: List[str] = field(default_factory=list)
 
 
 @dataclass

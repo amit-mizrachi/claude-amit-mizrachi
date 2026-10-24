@@ -480,9 +480,14 @@
     lines.push(r.folder ? "- the folder " + r.folder + " (to the Trash)" : "- no folder (it is no longer on this Mac)");
     r.worktrees.forEach(function (t) {
       lines.push("- the worktree " + t.path + " (git worktree remove; the branch " + (t.branch || "-") + " stays)");
+      var ignored = t.ignored || [];
+      if (ignored.length) {
+        lines.push("  git deletes its " + ignored.length + " ignored file" + (ignored.length === 1 ? "" : "s") +
+                   " for good, not to the Trash (" + ignored.slice(0, 3).join(", ") + (ignored.length > 3 ? ", ..." : "") + ")");
+      }
     });
     lines.push("- the run and its " + r.items + " attached item" + (r.items === 1 ? "" : "s") + ", from the studio");
-    lines.push("", "A worktree with changes stops it before the folder moves. There is no Undo; the folder can come back from the Trash.");
+    lines.push("", "A worktree with changes stops it before the folder moves; ignored files in a worktree do not. There is no Undo; the folder can come back from the Trash.");
     return lines.join("\n");
   }
 

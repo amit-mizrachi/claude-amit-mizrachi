@@ -629,7 +629,9 @@ TOOLS = [
             "The ONE studio action that removes things. Throws away a night run: its workspace folder "
             "goes to the macOS Trash (recoverable), each of its worktrees is removed with git worktree "
             "remove (never forced: a worktree with changes is refused, every branch and its commits "
-            "stay), then the run and its attached items are purged from the studio. confirm is "
+            "stay; gitignored files in a worktree are not changes to git and are deleted for good, "
+            "each worktree's ignored lists them), then the run and its attached items are purged "
+            "from the studio. confirm is "
             "required: with confirm false it changes nothing and returns needs_confirm and a message "
             "listing what would go - show that to the user, and call again with confirm true only "
             "once they agree. Refused before anything happens for a run that is still running or has "
@@ -649,7 +651,9 @@ TOOLS = [
                 "worktrees": {"type": "array", "items": {"type": "object", "required": ["path", "repo_path", "branch"],
                                                          "properties": {"path": {"type": "string"},
                                                                         "repo_path": {"type": "string"},
-                                                                        "branch": {"type": "string"}}}},
+                                                                        "branch": {"type": "string"},
+                                                                        "ignored": {"type": "array",
+                                                                                    "items": {"type": "string"}}}}},
                 "items": {"type": "integer", "description": "Attached items purged with the run."},
                 "thrown": {"type": "boolean"},
                 "needs_confirm": {"type": "boolean", "description": "True when nothing changed: ask, then call again with confirm true."},

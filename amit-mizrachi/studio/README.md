@@ -121,7 +121,9 @@ records. A confirmed throw away (`throw --yes`, a y, `studio_throw_away` with `c
 the dialog) of a night run is the one exception, and it removes exactly this, in this order,
 stopping at the first step that fails with a message that says what was done and what was not:
 each of the run's worktrees with `git worktree remove` (never `--force`: git refuses one with
-changes, and every branch and its commits stay), then the run's folder to the macOS Trash through
+changes, and every branch and its commits stay; git does not count gitignored files such as `.env` or
+`.scratch/` as changes and deletes them for good, not to the Trash, so the plan and the dialog name
+them first), then the run's folder to the macOS Trash through
 Finder (never a plain delete; the first time, macOS asks once to let the studio control Finder),
 then the run and its attached items from the store. Only a folder inside a run root
 (`PROJECT_STUDIO_ROOTS`, symlinks resolved, `..` refused) is accepted, and a run whose runner or a

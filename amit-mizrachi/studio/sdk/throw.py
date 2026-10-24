@@ -8,6 +8,9 @@ Rules kept here:
     `..` part refused, the root itself refused, the folder itself a symlink refused, and a folder
     with no `state/` (or `phases/PHASE_CHAIN`) is no workspace;
   - a worktree holds the folder (removing it would delete the folder outright);
+  - git cannot say which ignored files a worktree holds. `git worktree remove` does not count
+    gitignored files as changes and deletes them for good (never to the Trash), so the plan names
+    them (`ThrowWorktree.ignored`) and the message says so;
   - the run's runner (`watch.sh`) is alive in any of its state folders;
   - a session of the run is live: `claude agents` lists it (by id, or by a cwd inside the folder or
     a worktree) in a state that is not finished, or an attached interactive session's transcript
@@ -28,9 +31,10 @@ Rules kept here:
 
 import glob
 import os
+import sqlite3
 
 from . import store
-from .errors import Refused
+from .errors import Refused, StudioError
 from .inventory import ACTIVE_SECONDS
 from .items import purge, row as item_row
 from .projectview import FINISHED
@@ -89,8 +93,29 @@ def worktrees_of(conn, run_id, folder):
             raise Refused("The worktree %s has no repo the studio knows, so nothing was thrown away." % tree.path)
         if folder and _inside(folder, os.path.realpath(tree.path)):
             raise Refused("The worktree %s holds the run's folder, so nothing was thrown away." % tree.path)
+        tree.ignored = ignored_in(tree)
         out.append(tree)
     return out
+
+
+def _listed(tree):
+    """False only when git answers and no longer lists the worktree (the throw then skips it)."""
+    read = git.worktrees(tree.repo_path)
+    return not read.ok or os.path.realpath(tree.path) in {os.path.realpath(w["path"]) for w in read.records}
+
+
+def ignored_in(tree):
+    """The gitignored entries in the worktree `tree` (a folder that holds only ignored files is one
+    entry, `name/`); git deletes them with the worktree. [] when it is gone or git no longer lists it."""
+    path = tree.path
+    if not os.path.isdir(path) or not _listed(tree):
+        return []
+    ok, out, error = commands.run(["git", "-C", path, "ls-files", "-z", "--others", "--ignored", "--exclude-standard",
+                                   "--directory"], timeout=STEP_TIMEOUT)
+    if not ok:
+        raise Refused("Can't tell which ignored files git would delete with the worktree %s (%s), so nothing was "
+                      "thrown away." % (path, error))
+    return [p for p in out.split("\0") if p]
 
 
 def _state_dirs(folder):
@@ -144,8 +169,16 @@ def _what_goes(title, folder, trees, count):
         parts.append("%d worktree%s %s removed with git worktree remove (%s; the branches stay)"
                      % (len(trees), "" if len(trees) == 1 else "s", "is" if len(trees) == 1 else "are",
                         ", ".join(t.path for t in trees)))
+    for t in trees:
+        if t.ignored:
+            parts.append("git deletes the %d ignored file%s in %s for good, not to the Trash (%s)"
+                         % (len(t.ignored), "" if len(t.ignored) == 1 else "s", t.path, _first(t.ignored)))
     parts.append("the run and its %d attached item%s leave the studio for good" % (count, "" if count == 1 else "s"))
     return "This throws away %s: %s." % (title, "; ".join(parts))
+
+
+def _first(names, shown=3):
+    return ", ".join(names[:shown]) + (", ..." if len(names) > shown else "")
 
 
 def plan(conn, item_id):
@@ -217,9 +250,13 @@ def execute(found):
         if not ok:
             raise Refused(_stopped("could not move %s to the Trash (%s)" % (found.folder, error), done, [store_step]))
         done.append("moved %s to the Trash" % found.folder)
-    with store.write() as conn:
-        key = item_row(conn, found.item_id)["key"]
-        ids = forget(conn, found.item_id, key, [t.repo_path for t in found.worktrees])
+    try:
+        with store.write() as conn:
+            key = item_row(conn, found.item_id)["key"]
+            ids = forget(conn, found.item_id, key, [t.repo_path for t in found.worktrees])
+    except (StudioError, sqlite3.Error) as exc:
+        raise Refused(_stopped("the studio could not update its store (%s)" % exc, done,
+                               [store_step + " (the next refresh marks them gone)"]))
     done.append("purged the run and %d attached item%s" % (len(ids) - 1, "" if len(ids) == 2 else "s"))
     return ThrowAway(item_id=found.item_id, title=found.title, folder=found.folder, worktrees=found.worktrees,
                      items=len(ids) - 1, thrown=True, needs_confirm=False,

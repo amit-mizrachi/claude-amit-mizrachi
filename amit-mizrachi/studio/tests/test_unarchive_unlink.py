@@ -66,6 +66,12 @@ class UnarchiveThroughTheSdk(Tree):
         self.assertIsNone(api.unarchive_project(self.old.id).archived_at)
         self.assertEqual(self.active(), ["Inbox", "Alpha", "Docs", "Old", "Beta"])
 
+    def test_an_active_sub_project_under_an_archived_parent_is_refused(self):
+        with self.assertRaises(Refused) as caught:
+            api.unarchive_project(self.docs.id)
+        self.assertEqual(str(caught.exception), "Can't unarchive Docs: it is inside Alpha, which is archived. "
+                                                "Unarchive Alpha first.")
+
     def test_an_archived_project_is_found_by_id_prefix_and_an_unknown_id_is_not_found(self):
         self.assertEqual(api.resolve_project(self.alpha.id[:8]).id, self.alpha.id)
         with self.assertRaises(NotFound):

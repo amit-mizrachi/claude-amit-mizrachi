@@ -248,13 +248,13 @@ def unarchive_project(conn, project_id):
     cleared, so a sub-project archived on its own before stays archived. Returns True when it changed."""
     tree = Tree(conn)
     row = tree.row(project_id)
-    if not row["archived_at"]:
-        return False
     archived = [p for p in tree.ancestors(project_id) if tree.rows[p]["archived_at"]]
     if archived:
         parent = tree.rows[archived[0]]["name"]
         raise Refused("Can't unarchive %s: it is inside %s, which is archived. Unarchive %s first."
                       % (row["name"], parent, parent))
+    if not row["archived_at"]:
+        return False
     twin = tree.sibling_named(row["parent_id"], row["name"], skip=project_id)
     if twin:
         raise Refused("Can't unarchive %s: an active project named %s already exists there. Rename one of them first."

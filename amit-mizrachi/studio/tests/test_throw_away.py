@@ -6,6 +6,7 @@ calls Finder."""
 
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 from unittest import mock
@@ -116,6 +117,30 @@ class ThrowThroughTheSdk(Throwing):
         self.assertIn(self.ws, message.split("Not done:")[1])
         self.assertEqual(self.trashed, [])
         self.assertTrue(os.path.isdir(self.ws) and os.path.isdir(self.ticket_wt))
+        self.assertIn(self.ws, self.stored())
+
+    def test_the_plan_names_the_ignored_files_git_deletes_with_a_worktree(self):
+        os.makedirs(os.path.join(self.repo, ".git", "info"), exist_ok=True)
+        with open(os.path.join(self.repo, ".git", "info", "exclude"), "a") as fh:
+            fh.write(".env\n")
+        self.write(os.path.join(self.ticket_wt, ".env"), "SECRET=x\n")
+        plan = self.throw(False)
+        by_path = {t.path: t for t in plan.worktrees}
+        self.assertEqual((by_path[self.ticket_wt].ignored, by_path[self.wt].ignored), ([".env"], []))
+        self.assertIn("git deletes the 1 ignored file in %s for good, not to the Trash (.env)" % self.ticket_wt,
+                      plan.message)
+        self.assert_untouched()
+
+    def test_a_failed_store_step_says_the_worktrees_and_the_folder_already_went(self):
+        with mock.patch.object(throw, "forget", side_effect=sqlite3.OperationalError("database is locked")):
+            with self.assertRaises(Refused) as caught:
+                self.throw(True)
+        message = str(caught.exception)
+        self.assertIn("could not update its store (database is locked)", message)
+        done = message.split("Done:")[1].split("Not done:")[0]
+        self.assertIn("removed worktree %s" % self.wt, done)
+        self.assertIn("moved %s to the Trash" % self.ws, done)
+        self.assertIn("still in the studio (the next refresh marks them gone)", message.split("Not done:")[1])
         self.assertIn(self.ws, self.stored())
 
     def test_a_run_whose_runner_is_alive_is_refused(self):
