@@ -27,6 +27,7 @@ Output and exit codes, the same for every command:
   its move id and the `undo` command. `command <item>` prints only the command, so `$(project-studio command <item>)` works.
 - `project-studio` alone is `open`, and `open | status | stop` print what they printed before.
 - `remove-project` prints what moved where, its move id and the `undo` command that brings it all back.
+- `actions <run>` prints the run's actions menu, one line each: id, label, the command that does it.
 - `rule-add` prints the rule and, with `--apply`, one move id and `undo` command per filed item;
   `--dry-run` saves nothing. `--branch-prefix` without `--repo` is a usage error (exit 2).
 
@@ -273,6 +274,22 @@ def text_command(result):
 
 def text_open_item(result):
     return [result.message]
+
+
+# The command line that does each run action, so `actions` says what to type next.
+ACTION_COMMANDS = {"open-plan": "open-item {run} --target plan", "open-pr": "open-item {run} --target pr",
+                   "open-terminal": "terminal {target}", "open-conductor": "terminal {run} --conductor",
+                   "move": "file {run} <project>", "mark-done": "mark-done {run}", "dismiss": "dismiss {run}",
+                   "restore": "restore {run}", "throw-away": "throw {run}"}
+
+
+def text_actions(result):
+    """The run, then one line per action that applies: its id, label and the command that does it."""
+    rows = [[a.id, a.label, "%s %s" % (PROG, ACTION_COMMANDS.get(a.id, a.id).format(run=result.item_id,
+                                                                                    target=a.target_id))
+             + ("  (removes things; asks first)" if a.destructive else "")] for a in result.actions]
+    head = "%s  %s%s  %s" % (result.title, result.word, " (dismissed)" if result.dismissed else "", result.item_id)
+    return [head] + ["  " + line for line in table(rows)]
 
 
 def text_settings(result):
@@ -648,6 +665,10 @@ COMMANDS = [
     Command("mark-done", "Mark a night run done when its state files froze on a word no longer true. It shows Done, "
             "\"marked done by you\", until its files change again. Undoable.", "project-studio mark-done i_1a2b3c4d",
             lambda p: add_item_arg(p), lambda a: api.mark_done(item_ref(a.item)), text_move),
+    Command("actions", "List what a night run's actions menu offers now (open plan / PR / terminal / conductor, "
+            "move, mark done, dismiss, throw away), each with the command that does it. Changes nothing.",
+            "project-studio actions i_1a2b3c4d", lambda p: add_item_arg(p),
+            lambda a: api.run_actions(item_ref(a.item)), text_actions),
     Command("throw", "Throw away a night run: its folder to the Trash, its worktrees removed with git worktree "
             "remove (never forced), the run and its items out of the studio. Needs --yes or a y; refused while it runs.",
             "project-studio throw i_1a2b3c4d --yes", setup_throw, run_throw, text_throw),

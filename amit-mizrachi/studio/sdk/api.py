@@ -18,13 +18,13 @@ import os
 import tempfile
 from typing import Optional
 
-from . import (actions, attach, home as homepage, inboxview, items, model, projectview, refresh as scan, refs, server,
-               settings as user_settings, store, throw)
+from . import (actions, attach, home as homepage, inboxview, items, model, projectview, refresh as scan, refs, runmenu,
+               server, settings as user_settings, store, throw)
 from .errors import InvalidInput, Refused
 from .results import (AttachResult, DeleteRequest, DeleteResult, Export, HomeState, InboxList, InboxView, Item, ItemList,
                       LinkResult, MoveChoices, MoveResult, OpenResult, Project, ProjectList, ProjectStatus, ProjectView,
-                      ProjectRemoval, PurgeResult, RefreshResult, Rule, RuleAdd, RuleList, Settings, StudioServer, TerminalCommand,
-                      TerminalOpen, ThrowAway, UnlinkResult)
+                      ProjectRemoval, PurgeResult, RefreshResult, Rule, RuleAdd, RuleList, RunActions, Settings, StudioServer,
+                      TerminalCommand, TerminalOpen, ThrowAway, UnlinkResult)
 
 MAX_LIST_LIMIT = 1000
 
@@ -679,6 +679,20 @@ def inbox_view(limit: Optional[int] = INBOX_VIEW_LIMIT) -> InboxView:
     limit = _limit(limit)
     with store.read() as conn:
         return inboxview.state(conn, limit)
+
+
+def run_actions(item_id: str) -> RunActions:
+    """What a night run's actions menu offers now, in menu order: the same list its home line and its
+    project view panel carry (`HomeRun.actions`, `ViewRun.actions`). Each `RunAction` has an `id`
+    (open-plan, open-pr, open-terminal, open-conductor, move, mark-done, dismiss or restore,
+    throw-away), its `label`, `destructive` and `needs_confirm` (both only for throw-away, the one
+    action that removes things), `target_id` (the run, or the session open-terminal / open-conductor
+    opens) and a `hint`. Open plan / PR / in Terminal / conductor only when there is one to open;
+    Mark done only for a Blocked or Waiting-on-you run; Restore instead of Dismiss for a dismissed run.
+    It reads the store and changes nothing. `Refused` for an item that is not a night run.
+    """
+    with store.read() as conn:
+        return runmenu.of(conn, item_id)
 
 
 def move_choices(target_id: str) -> MoveChoices:

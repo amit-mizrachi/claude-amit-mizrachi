@@ -10,6 +10,8 @@ Every rule the project view shows lives here, not in the web server or the page 
 - The project's own attach rules are listed, strongest signal first, each one deletable.
 - A Blocked or Waiting-on-you run panel offers "Mark done" (`can_mark_done`); a run marked done
   shows Done, "marked done by you", until its files change.
+- Each run panel carries its "..." menu, `actions`: `runmenu.for_run`'s list, the same one home's
+  run lines and `run_actions` give; the buttons on the panel are drawn from it too.
 - Under the project's own run panels, each active sub-project (at every depth, one indent per
   level) is a section: its header (glyph and word of its top run, counts in words over it and
   everything under it, "2 blocked, 1 running, 4 done") and its own run panels, at most 5 before
@@ -23,7 +25,7 @@ import os
 import time
 
 from . import cache, items, model, store
-from .actions import run_session
+from .runmenu import for_run, live_session, panel_quick
 from .reconcile import WORKSPACE_KINDS
 from .home import GLYPHS, WORDS, _active_children, _progress_text, _stage_bar, clock, pr_text
 from .results import ProjectView, RunGroup, ViewFold, ViewRow, ViewRun, ViewSession, ViewTile
@@ -93,17 +95,19 @@ def _detail(run):
 
 
 def view_run(conn, run, arts):
-    live = run_session(conn, run.item_id) if not run.gone else None
+    live = live_session(conn, run)
     has_plan = any(a.workspace_item_id == run.item_id for a in arts) or bool(run.artifact_url)
+    menu = for_run(run, has_plan, live)
     started = clock(run.started_at) if run.status != "done" else ""
     return ViewRun(item_id=run.item_id, title=run.title, status=run.status, glyph=GLYPHS.get(run.status, "?"),
                    word=WORDS.get(run.status, run.status.title()), detail=_detail(run),
                    bar=_stage_bar(run) if run.status != "needs-you" else [],
                    started="started %s" % started if started else "", pr=pr_text(run.pr),
                    has_plan=has_plan, has_pr=bool(run.pr and run.pr.get("url")),
-                   terminal_item_id=live["id"] if live else None, gone=run.gone,
+                   terminal_item_id=live, gone=run.gone,
                    can_mark_done=run.status in ("needs-you", "blocked") and not run.gone,
-                   conductor_item_id=run.conductor_item_id if not run.gone else None)
+                   conductor_item_id=run.conductor_item_id if not run.gone else None,
+                   actions=menu, quick=panel_quick(menu))
 
 
 def tile_state(runs):

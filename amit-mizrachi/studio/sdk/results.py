@@ -395,6 +395,34 @@ class PurgeResult:
 
 
 @dataclass
+class RunAction:
+    """One entry of a night run's actions menu ("..." and right-click, `sdk/runmenu.py`). `id` is what
+    the page, the CLI and an agent act on: open-plan, open-pr, open-terminal, open-conductor, move,
+    mark-done, dismiss, restore, throw-away. `target_id` is the item the action takes: the run itself,
+    or for open-terminal / open-conductor the session item to open."""
+
+    id: str
+    label: str                      # "Open plan", "Move to...", "Throw away..."
+    destructive: bool               # it removes something (only throw-away)
+    needs_confirm: bool             # it asks first, with what would go (only throw-away)
+    target_id: str
+    hint: str = ""                  # one line on what it does, the button's tooltip
+
+
+@dataclass
+class RunActions:
+    """What `run_actions` returns: the run and the actions that apply to it now, in menu order."""
+
+    item_id: str
+    title: str
+    status: str
+    word: str                       # "Blocked", "Waiting on you", ...
+    project_id: str
+    dismissed: bool
+    actions: List[RunAction]
+
+
+@dataclass
 class HomeRun:
     """One run line on a home card. `glyph` is night-watch's; `bar` has one cell per ticket:
     d done, r running, b blocked, w waiting on you, '' to do. `open_plan_url` is set only for a run
@@ -414,6 +442,8 @@ class HomeRun:
     sub_project_id: str = ""        # the card's sub-project the run lives in (or under), '' for the card's own
     sub_project: str = ""           # its tag: "in Machina decision units", '' for the card's own
     conductor_item_id: Optional[str] = None   # the run's conductor session, None when unknown
+    actions: List[RunAction] = field(default_factory=list)   # its "..." menu, `run_actions`'s list
+    quick: List[str] = field(default_factory=list)   # the ids of `actions` drawn as buttons on it too
 
 
 @dataclass
@@ -537,6 +567,8 @@ class ViewRun:
     gone: bool
     can_mark_done: bool = False     # a Blocked or Waiting-on-you run shows "Mark done"
     conductor_item_id: Optional[str] = None
+    actions: List[RunAction] = field(default_factory=list)   # its "..." menu, `run_actions`'s list
+    quick: List[str] = field(default_factory=list)   # the ids of `actions` drawn as buttons on it too
 
 
 @dataclass

@@ -114,15 +114,18 @@ def _progress_text(run):
     return progress.get("text") or ""
 
 
-def home_run(run):
-    """A run as one card line: glyph, name, status word, reason, "T03 of 5", stage bar, Open plan."""
+def home_run(run, actions=None):
+    """A run as one card line: glyph, name, status word, reason, "T03 of 5", stage bar, Open plan, and
+    its "..." menu (`actions`, `runmenu.for_run`'s list)."""
+    from .runmenu import home_quick   # runmenu imports this module
     url = run.artifact_url if run.artifact_url.startswith(("https://", "http://")) else ""
     return HomeRun(item_id=run.item_id, title=run.title, status=run.status, glyph=GLYPHS.get(run.status, "?"),
                    word=WORDS.get(run.status, run.status.title()),
                    reason=run.reason if run.status in ("needs-you", "done") else "", progress=_progress_text(run) if run.status != "needs-you" else "",
                    bar=_stage_bar(run) if run.status != "needs-you" else [],
                    open_plan_url=url if run.status == "needs-you" else "", pr=pr_text(run.pr), gone=run.gone,
-                   conductor_item_id=run.conductor_item_id)
+                   conductor_item_id=run.conductor_item_id, actions=list(actions or []),
+                   quick=home_quick(run, actions or []))
 
 
 def _more_text(hidden):
@@ -214,16 +217,16 @@ def _status_words(status):
     return GLYPHS.get(status, "?"), WORDS.get(status, status.title())
 
 
-def _card_run(tree, pid, run):
+def _card_run(tree, pid, run, menus):
     """A run as a line in `pid`'s row or block, tagged "in <sub-project>" when it lives under `pid`."""
-    line = home_run(run)
+    line = home_run(run, menus.get(run.item_id))
     holder = _holder(tree, pid, run.project_id)
     if holder:
         line.sub_project_id, line.sub_project = holder, "in %s" % tree.rows[holder]["name"]
     return line
 
 
-def _block(tree, sub, runs):
+def _block(tree, sub, runs, menus):
     """A sub-project as a block in its parent's row; `runs` (ranked) are those of it and everything under it."""
     from .projectview import tile_state   # projectview imports this module
     status, text = tile_state(runs)
@@ -231,25 +234,26 @@ def _block(tree, sub, runs):
     deeper = len(_active_children(tree, sub))
     return HomeSubProject(project_id=sub, name=tree.rows[sub]["name"], status=status, glyph=glyph, word=word,
                           text=text, inside="%d inside" % deeper if deeper else "",
-                          runs=[_card_run(tree, sub, r) for r in runs[:MAX_SUB_RUNS]],
+                          runs=[_card_run(tree, sub, r, menus) for r in runs[:MAX_SUB_RUNS]],
                           more=_more_text(runs[MAX_SUB_RUNS:]))
 
 
-def _card(tree, pid, runs, rank, now):
-    """`pid`'s row; `runs` (ranked) are those of it and everything under it."""
+def _card(tree, pid, runs, rank, now, menus):
+    """`pid`'s row; `runs` (ranked) are those of it and everything under it; `menus` each run's actions."""
     from .projectview import tile_state   # projectview imports this module
     project = tree.project(pid)
     own = [r for r in runs if r.project_id == pid]
     blocks = []
     for sub in _active_children(tree, pid):
         homes = set(items.subtree(tree, sub))
-        blocks.append(_block(tree, sub, [r for r in runs if r.project_id in homes]))
+        blocks.append(_block(tree, sub, [r for r in runs if r.project_id in homes], menus))
     status, counts = tile_state(runs)
     glyph, word = _status_words(status)
     pr = next((pr_text(r.pr) for r in runs[:MAX_RUNS] if pr_text(r.pr)), "")
     changed = max([r.updated_at for r in runs] + [project.updated_at])
     quiet, then = rank[pid]
-    return HomeCard(project=project, sub_projects=blocks, runs=[home_run(r) for r in own[:MAX_RUNS]],
+    return HomeCard(project=project, sub_projects=blocks,
+                    runs=[home_run(r, menus.get(r.item_id)) for r in own[:MAX_RUNS]],
                     more=_more_text(own[MAX_RUNS:]), pr=pr,
                     attention=status if status in ("needs-you", "blocked") else "",
                     empty="No night runs yet" if not runs else "", changed_at=changed, status=status,
@@ -258,21 +262,24 @@ def _card(tree, pid, runs, rank, now):
 
 
 def _cards(conn, now):
+    from . import runmenu   # runmenu imports this module
     tree = model.Tree(conn)
     shown = "dismissed_at IS NULL"
     every_pr = [items.to_item(dict(r), tree) for r in conn.execute("SELECT * FROM items WHERE kind = 'pr' AND " + shown)]
     arts = [items.to_item(dict(r), tree) for r in conn.execute("SELECT * FROM items WHERE kind = 'artifact' AND " + shown)]
-    runs_by_home, known = {}, items.session_ids(conn)
+    runs_by_home, known, menus = {}, items.session_ids(conn), {}
+    plans = {a.workspace_item_id for a in arts if not a.gone}
     marks = ",".join("?" * len(WORKSPACE_KINDS))
     for r in conn.execute("SELECT * FROM items WHERE gone_at IS NULL AND %s AND kind IN (%s)" % (shown, marks),
                           WORKSPACE_KINDS):
         run = items.to_run(items.to_item(dict(r), tree), every_pr, arts, known)
         runs_by_home.setdefault(run.project_id, []).append(run)
+        menus[run.item_id] = runmenu.for_run(run, run.item_id in plans, runmenu.live_session(conn, run))
     rank = ranking(conn, tree, now)
     tops = [pid for pid in tree.children.get(None, []) if not tree.rows[pid]["archived_at"] and pid != store.INBOX_ID]
     tops.sort(key=lambda pid: rank_key(tree, rank, pid))
     return [_card(tree, pid, items.rank_runs([r for home in items.subtree(tree, pid)
-                                              for r in runs_by_home.get(home, [])]), rank, now) for pid in tops]
+                                              for r in runs_by_home.get(home, [])]), rank, now, menus) for pid in tops]
 
 
 def quiet_text(cards):

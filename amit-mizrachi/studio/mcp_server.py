@@ -147,6 +147,33 @@ GROUP_SCHEMA = {
     },
 }
 ITEMS = {"type": "array", "items": ITEM_SCHEMA}
+RUN_ACTION_IDS = ["open-plan", "open-pr", "open-terminal", "open-conductor", "move", "mark-done", "dismiss", "restore",
+                  "throw-away"]
+RUN_ACTIONS_SCHEMA = {
+    "type": "object",
+    "required": ["item_id", "title", "status", "word", "project_id", "dismissed", "actions"],
+    "properties": {
+        "item_id": {"type": "string"},
+        "title": {"type": "string"},
+        "status": {"type": "string"},
+        "word": {"type": "string", "description": "The status as the page says it: \"Blocked\", \"Waiting on you\"."},
+        "project_id": {"type": "string"},
+        "dismissed": {"type": "boolean"},
+        "actions": {"type": "array", "description": "What applies now, in menu order.", "items": {
+            "type": "object",
+            "required": ["id", "label", "destructive", "needs_confirm", "target_id", "hint"],
+            "properties": {
+                "id": {"type": "string", "enum": RUN_ACTION_IDS},
+                "label": {"type": "string"},
+                "destructive": {"type": "boolean", "description": "It removes things: only throw-away."},
+                "needs_confirm": {"type": "boolean", "description": "It asks first: only throw-away."},
+                "target_id": {"type": "string", "description": "The item the action takes: the run, or for "
+                              "open-terminal / open-conductor the session item to open."},
+                "hint": {"type": "string"},
+            },
+        }},
+    },
+}
 MOVE_ID = {"type": "integer", "minimum": 1, "description": "The move_id a move, add, accept or remove returned."}
 RULE_SCHEMA = {
     "type": "object",
@@ -452,6 +479,25 @@ TOOLS = [
         "outputSchema": MOVE_SCHEMA,
         "annotations": {"title": "Mark a night run done", "readOnlyHint": False, "destructiveHint": False,
                         "idempotentHint": True, "openWorldHint": False},
+    },
+    {
+        "name": "studio_run_actions",
+        "title": "What a night run's actions menu offers",
+        "description": (
+            "Ask first: list the actions that apply to a night run now, in the order the studio's \"...\" "
+            "menu shows them, each with id, label, target_id and a hint. open-plan / open-pr: studio has a "
+            "plan page or PR to open; open-terminal: studio_terminal on target_id (its live ticket session); "
+            "open-conductor: studio_terminal with target conductor; move: studio_move (its sessions, PRs "
+            "and worktrees follow, studio_undo puts it back); mark-done: studio_mark_done (only Blocked or "
+            "Waiting on you); dismiss / restore: studio_dismiss / studio_restore; throw-away: "
+            "studio_throw_away, the one destructive action (destructive and needs_confirm true). Changes "
+            "nothing. Refused for an item that is not a night run."
+        ),
+        "inputSchema": {"type": "object", "required": ["item_id"], "additionalProperties": False,
+                        "properties": {"item_id": ITEM_ID}},
+        "outputSchema": RUN_ACTIONS_SCHEMA,
+        "annotations": {"title": "What a night run's actions menu offers", "readOnlyHint": True,
+                        "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
     },
     {
         "name": "studio_archive",
@@ -856,6 +902,10 @@ def tool_mark_done(args):
     return api.mark_done(args["item_id"])
 
 
+def tool_run_actions(args):
+    return api.run_actions(args["item_id"])
+
+
 def tool_archive(args):
     return api.archive_project(args["project_id"])
 
@@ -935,6 +985,7 @@ HANDLERS = {
     "studio_dismiss": tool_dismiss,
     "studio_restore": tool_restore,
     "studio_mark_done": tool_mark_done,
+    "studio_run_actions": tool_run_actions,
     "studio_archive": tool_archive,
     "studio_unarchive": tool_unarchive,
     "studio_rename": tool_rename,
@@ -1028,7 +1079,8 @@ def handle(req):
                 "studio_accept / studio_link / studio_unlink / studio_remove / studio_archive / "
                 "studio_unarchive / studio_delete change the tree; studio_dismiss hides an item (a night run with its attached items) from every list "
                 "without deleting anything, studio_restore shows it again; studio_mark_done marks a night run "
-                "whose state files froze on a stale word done; studio_undo takes a move_id back; "
+                "whose state files froze on a stale word done; studio_run_actions lists what a night run's actions "
+                "menu offers now (ask it first); studio_undo takes a move_id back; "
                 "studio_rules / studio_rule_save / "
                 "studio_rule_delete manage filing rules; studio_purge drops gone items. studio_delete and "
                 "studio_purge are destructive: studio_delete only says what it would delete until called "
