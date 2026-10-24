@@ -59,7 +59,8 @@ ITEM_SCHEMA = {
         "placed_by": {"type": "string", "enum": list(store.PLACED_BY)},
         "workspace_item_id": NULLABLE_TEXT,
         "revision": {"type": "integer"},
-        "status": {"type": "string", "description": "From the item's reader; \"unknown\" when its source failed."},
+        "status": {"type": "string", "description": "From the item's reader; \"unknown\" when its source failed. "
+                   "A night run's is its one status (in-review, merged, needs-you, ...), as home shows it."},
         "gone": {"type": "boolean"},
         "gone_at": NULLABLE_TEXT,
         "seen_at": NULLABLE_TEXT,
@@ -108,8 +109,13 @@ RUN_SCHEMA = {
         "kind": {"type": "string", "enum": ["night-sprint", "night-marathon"]},
         "title": {"type": "string"},
         "project_id": {"type": "string"},
-        "status": {"type": "string", "enum": ["needs-you", "blocked", "running", "paused", "pending", "done", "unknown"]},
-        "reason": {"type": "string"},
+        "status": {"type": "string", "enum": list(api.RUN_STATUSES),
+                   "description": "Its one status, the same on every surface (needs-you is Waiting on you)."},
+        "reason": {"type": "string", "description": "One short reason: \"merge conflict with main: merge "
+                   "origin/main\", \"PR #733 open, checks green\", \"T11 of 13 blocked: ...\"."},
+        "word": {"type": "string", "description": "Its status in words: Waiting on you, Blocked, Running, Paused, "
+                 "In review, Merged, Done, Unknown."},
+        "glyph": {"type": "string"},
         "progress": {"type": ["object", "null"], "description": "{current, index, total, text: \"T03 of 5\"}"},
         "stage": {"type": "string"},
         "stages": {"type": "array", "items": {"type": "object"}},
@@ -287,7 +293,9 @@ TOOLS = [
             "Find Project Studio items - Claude sessions (bg and interactive), night sprints, night "
             "marathons, artifacts, PRs, worktrees - whose title, key, name, cwd or branch holds "
             "query. Refreshes due sources first. kind keeps one kind; project_id keeps items in that "
-            "project or under it. Gone items only with include_gone. Bounded: total and truncated."
+            "project or under it. Gone items only with include_gone. A night run's status is its one "
+            "status, the same word home shows; status keeps only night runs with it (in-review, merged, "
+            "needs-you = waiting on you, ...). Bounded: total and truncated."
         ),
         "inputSchema": {
             "type": "object",
@@ -312,12 +320,14 @@ TOOLS = [
         "name": "studio_status",
         "title": "Project status",
         "description": (
-            "A project's night runs (status, reason, progress like \"T03 of 5\", stage, PR state, plan "
-            "artifact) ranked needs-you > blocked > running > latest, plus its sessions, PRs, "
+            "A project's night runs (each with its one status - Waiting on you, Blocked, Running, Paused, In "
+            "review, Merged, Done - as `status`/`word` and a short `reason` like \"merge conflict with main: "
+            "merge origin/main\", progress like \"T03 of 5\", stage, PR state, plan artifact) ranked "
+            "needs-you > blocked > running > latest, plus its sessions, PRs, "
             "worktrees and artifacts, rolled up over its sub-projects, and each source's state (a "
             "failed source keeps its last-good data and shows its error). `groups` holds the runs again by "
             "active sub-project, in tree order at every depth (a sub-project, then its own at depth + 1): its "
-            "header (status word, counts in words like \"2 blocked, 1 running, 4 done\" over it and everything "
+            "header (status word rolled up worst first, counts in words like \"2 blocked, 1 running, 4 done\" over it and everything "
             "under it, `open` when a needs-you, blocked or running run is in it) and its OWN runs. Refreshes due "
             "sources first. Each list holds at most `limit` entries; `totals` counts them all and `truncated` "
             "says one was cut."
@@ -863,7 +873,7 @@ def tool_create(args):
 def tool_find(args):
     return api.find_items(query=args.get("query"), kind=args.get("kind"), project_id=args.get("project_id"),
                           include_gone=args.get("include_gone", False), limit=args.get("limit", LIST_DEFAULT),
-                          include_dismissed=args.get("include_dismissed", False))
+                          include_dismissed=args.get("include_dismissed", False), status=args.get("status"))
 
 
 def tool_status(args):

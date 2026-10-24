@@ -24,12 +24,11 @@ Every rule the project view shows lives here, not in the web server or the page 
 import os
 import time
 
-from . import cache, items, model, store
+from . import cache, items, model, runstatus, store
 from .runmenu import for_run, has_plan as run_has_plan, live_session, panel_quick
 from .reconcile import WORKSPACE_KINDS
-from .home import GLYPHS, WORDS, _active_children, _progress_text, _stage_bar, clock, pr_text
+from .home import MOVING, _active_children, _progress_text, _stage_bar, clock, pr_text
 from .results import ProjectView, RunGroup, ViewFold, ViewRow, ViewRun, ViewSession, ViewTile
-from .runwords import run_counts_text
 
 FINISHED = ("done", "finished", "completed", "failed", "error", "stopped", "exited")
 SESSION_GLYPHS = {"running": "\u25cf", "done": "\u2713", "pending": "\u00b7", "unknown": "\u25cb"}
@@ -87,11 +86,12 @@ def view_session(item, now):
 # ---------------------------------------------------------------- runs and tiles
 
 def _detail(run):
-    if run.status in ("needs-you", "blocked"):
+    """Where a running or paused run is ("REDRAW - T03 of 5"); every other status's reason."""
+    if run.status not in MOVING:
         return run.reason
     current = (run.progress or {}).get("current") or ""
     stage = run.stage if run.stage and run.stage != current else ""
-    return _join(run.reason if run.status == "done" else "", stage, _progress_text(run))
+    return _join(stage, _progress_text(run))
 
 
 def view_run(conn, run, arts):
@@ -99,38 +99,31 @@ def view_run(conn, run, arts):
     live = live_session(conn, run)
     has_plan = run_has_plan(run, arts)
     menu = for_run(run, has_plan, live)
-    started = clock(run.started_at) if run.status != "done" else ""
-    return ViewRun(item_id=run.item_id, title=run.title, status=run.status, glyph=GLYPHS.get(run.status, "?"),
-                   word=WORDS.get(run.status, run.status.title()), detail=_detail(run),
+    started = clock(run.started_at) if run.status not in runstatus.SETTLED else ""
+    return ViewRun(item_id=run.item_id, title=run.title, status=run.status, glyph=run.glyph,
+                   word=run.word, detail=_detail(run),
                    bar=_stage_bar(run) if run.status != "needs-you" else [],
                    started="started %s" % started if started else "", pr=pr_text(run.pr),
                    has_plan=has_plan, has_pr=bool(run.pr and run.pr.get("url")),
                    terminal_item_id=live, gone=run.gone,
-                   can_mark_done=run.status in ("needs-you", "blocked") and not run.gone,
+                   can_mark_done=run.status in runstatus.MARKABLE and not run.gone,
                    conductor_item_id=run.conductor_item_id if not run.gone else None,
                    actions=menu, quick=panel_quick(menu))
 
 
-def tile_state(runs):
-    """(status, text) for a project's ranked runs: ("pending", "no runs"), ("blocked", "2 blocked,
-    1 running, 4 done"), ("done", "2 done"). The status is the top run's."""
-    if not runs:
-        return "pending", "no runs"
-    return runs[0].status or "unknown", run_counts_text(runs)
-
-
 def view_tile(sub):
-    status = "pending" if not sub.runs else sub.top_status or "unknown"
-    glyph = "\u00b7" if status == "pending" else GLYPHS.get(status, "?")
+    status = runstatus.NO_RUNS if not sub.runs else sub.top_status or "unknown"
+    glyph = runstatus.roll_up_words(status)[0]
     return ViewTile(project_id=sub.project.id, name=sub.project.name, status=status, glyph=glyph, text=sub.text)
 
 
 def run_lines(conn, project_ids):
-    """Each project's night-run line, rolled up over its active sub-projects as its tile says it:
-    "2 blocked, 1 running, 4 done", "no runs". The Inbox gets none."""
+    """Each project's night-run line, rolled up over its active sub-projects as its row says it, worst
+    first ("1 waiting on you, 1 in review, 1 merged"), "no runs". The Inbox gets none."""
     tree = model.Tree(conn)
+    prs = items.every_pr(conn, tree)
     marks = ",".join("?" * len(WORKSPACE_KINDS))
-    every = [items.to_run(items.to_item(dict(r), tree), [], [])
+    every = [items.to_run(items.to_item(dict(r), tree), prs, [])
              for r in conn.execute("SELECT * FROM items WHERE dismissed_at IS NULL AND kind IN (%s)" % marks,
                                    WORKSPACE_KINDS)]
     lines = {}
@@ -138,7 +131,7 @@ def run_lines(conn, project_ids):
         if pid == store.INBOX_ID:
             continue
         homes = set(items.subtree(tree, pid))
-        lines[pid] = run_counts_text([r for r in every if r.project_id in homes])
+        lines[pid] = runstatus.counts_text([r for r in every if r.project_id in homes])
     return lines
 
 
@@ -161,11 +154,11 @@ def run_groups(tree, project_id, runs, panel=None):
             under = set(items.subtree(tree, child))
             mine = [r for r in runs if r.project_id in under]
             own = [r for r in mine if r.project_id == child]
-            status, text = tile_state(mine)
+            status, text = runstatus.roll_up(mine), runstatus.counts_text(mine)
+            glyph, word = runstatus.roll_up_words(status)
             hidden = len(own) - SECTION_RUNS
             out.append(RunGroup(project_id=child, name=tree.rows[child]["name"], parent_id=pid, depth=depth,
-                                status=status, glyph="\u00b7" if status == "pending" else GLYPHS.get(status, "?"),
-                                word="" if status == "pending" else WORDS.get(status, status.title()), text=text,
+                                status=status, glyph=glyph, word=word, text=text,
                                 open=any(r.status in OPEN_STATUSES and not r.gone for r in mine),
                                 runs=[panel(r) if panel else r for r in own], shown=min(len(own), SECTION_RUNS),
                                 more="+ %d more" % hidden if hidden > 0 else ""))

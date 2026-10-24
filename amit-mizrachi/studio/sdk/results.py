@@ -307,14 +307,28 @@ class InboxList:
 
 
 @dataclass
+class RunStatus:
+    """A night run's one status (`runstatus.decide`): `key` (needs-you, blocked, running, paused,
+    in-review, merged, done, unknown), its `word` ("Waiting on you", "In review"), one short
+    `reason` ("merge conflict with main: merge origin/main", "PR #733 open, checks green") and
+    its `glyph`."""
+
+    key: str
+    word: str
+    reason: str
+    glyph: str
+
+
+@dataclass
 class Run:
-    """One night run, as a card or a run panel shows it."""
+    """One night run, as a card or a run panel shows it. `status`, `word`, `reason` and `glyph`
+    are `runstatus.decide`'s answer, the same on every surface."""
 
     item_id: str
     kind: str
     title: str
     project_id: str
-    status: str                     # needs-you, blocked, running, paused, pending, done, unknown
+    status: str                     # needs-you, blocked, running, paused, in-review, merged, done, unknown
     reason: str
     progress: Optional[Dict[str, Any]]   # {"current": "T03", "index": 3, "total": 5, "text": "T03 of 5"}
     stage: str
@@ -328,6 +342,8 @@ class Run:
     pr_text: str = ""               # "PR #12 draft - checks green", or ""
     marked_done: bool = False       # Done because a person marked it, not its files ("marked done by you")
     conductor_item_id: Optional[str] = None   # the session that conducts the run ("Open conductor"), None unknown
+    word: str = ""                  # "Waiting on you", "In review", ...: `runstatus.WORDS[status]`
+    glyph: str = ""
 
 
 @dataclass

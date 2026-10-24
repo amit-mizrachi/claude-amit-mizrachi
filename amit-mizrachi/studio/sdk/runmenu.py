@@ -16,14 +16,13 @@ Rules kept here, in menu order:
   beside its Open plan; on a project view panel, every action but Move to... (the menu and drag).
 """
 
-from . import items, model
+from . import items, model, runstatus
 from .actions import run_session
 from .errors import Refused
-from .home import WORDS
 from .reconcile import WORKSPACE_KINDS
 from .results import RunAction, RunActions
 
-MARKABLE = ("needs-you", "blocked")
+MARKABLE = runstatus.MARKABLE
 HOME_QUICK = {"needs-you": ("open-conductor",)}   # a home line's buttons beside its Open plan, by status
 MENU_ONLY = ("move",)                              # a run panel shows every other action as a button too
 HINTS = {
@@ -100,12 +99,11 @@ def of(conn, item_id):
                                                                                                       r["kind"])))
     tree = model.Tree(conn)
     item = items.to_item(r, tree)
-    prs = [items.to_item(dict(p), tree) for p in conn.execute("SELECT * FROM items WHERE kind = 'pr' AND "
-                                                              "dismissed_at IS NULL")]
+    prs = items.every_pr(conn, tree)
     arts = [items.to_item(dict(a), tree) for a in conn.execute("SELECT * FROM items WHERE kind = 'artifact' AND "
                                                                "workspace_item_id = ? AND dismissed_at IS NULL", (r["id"],))]
     run = items.to_run(item, prs, arts, items.session_ids(conn))
     return RunActions(item_id=run.item_id, title=run.title, status=run.status,
-                      word=WORDS.get(run.status, run.status.title()), project_id=run.project_id,
+                      word=run.word, project_id=run.project_id,
                       dismissed=bool(item.dismissed), actions=for_run(run, has_plan(run, arts), live_session(conn, run),
                                                                       bool(item.dismissed)))

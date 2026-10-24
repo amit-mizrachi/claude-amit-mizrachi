@@ -16,7 +16,7 @@ import os
 import threading
 import time
 
-from . import cache, store
+from . import cache, runstatus, store
 from .inventory import Inventory
 from .readers import git, runs, sessions
 from .reconcile import WORKSPACE_KINDS, item_data, reconcile
@@ -113,7 +113,7 @@ def run_reads(entries, folders, repo_paths, now, force, slow=True):
     else:
         workspaces = Inventory(entries, now).workspaces
         for ws in workspaces:
-            if ws.get("status") != "done":                       # live runs only, every 2 s
+            if ws.get("status") not in runstatus.SETTLED:        # live runs only, every 2 s
                 plan.add("workspace", ws["path"], lambda p=ws["path"]: _one_workspace(p))
     previous = entries.get(("transcripts", "all"))
     plan.add("agents", "all", sessions.agents)

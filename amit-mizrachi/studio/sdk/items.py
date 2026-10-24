@@ -26,7 +26,7 @@ import re
 import time
 from collections import Counter
 
-from . import cache, model, rules, store
+from . import cache, model, rules, runstatus, store
 from .errors import InvalidInput, NotFound, Refused
 from .reconcile import AUTO_LINK, WORKSPACE_KINDS, item_data, new_item_id
 from .results import (InboxEntry, Item, MoveResult, ProjectRemoval, Rule, RuleAdd, RuleFiling, RulePreview,
@@ -99,8 +99,9 @@ def _recency(item):
     return data.get("last_active") or data.get("updated_at") or item.seen_at or ""
 
 
-def find(conn, query, kind, project_id, include_gone, include_dismissed=False):
-    """Matching items, newest activity first, gone ones last; dismissed ones only when asked (after the rest)."""
+def find(conn, query, kind, project_id, include_gone, include_dismissed=False, status=None):
+    """Matching items, newest activity first, gone ones last; dismissed ones only when asked (after the rest).
+    A night run's `status` is its one status (`runstatus`); `status` keeps the runs with that key."""
     tree = model.Tree(conn)
     homes = set(subtree(tree, tree.row(project_id)["id"])) if project_id else None
     out = []
@@ -112,6 +113,9 @@ def find(conn, query, kind, project_id, include_gone, include_dismissed=False):
             continue
         if _matches(r, query):
             out.append(to_item(r, tree))
+    with_run_status(out, every_pr(conn, tree))
+    if status:
+        out = [i for i in out if i.kind in WORKSPACE_KINDS and i.status == status]
     out.sort(key=_recency, reverse=True)
     out.sort(key=lambda i: (i.dismissed, i.gone))
     return out
@@ -128,7 +132,7 @@ def _pr_of(run_id, prs):
             "url": p.get("url"), "good_at": p.get("good_at"), "checks": p.get("checks")}
 
 
-MARKED_DONE = "marked done by you"     # the reason a run marked done by hand shows
+MARKED_DONE = runstatus.MARKED_DONE    # the reason a run marked done by hand shows
 
 
 def marked_done(item):
@@ -164,20 +168,37 @@ def to_run(item, prs, artifacts, sessions=None):
     if pr is None and d.get("pr_url"):
         pr = {"key": "", "number": None, "state": "", "draft": False, "url": d["pr_url"], "good_at": None,
               "checks": None}
-    status, reason = item.status or "unknown", str(d.get("reason") or "")
-    if status in ("blocked", "needs-you") and pr and pr.get("state") == "merged":
-        status, reason = "done", "PR merged"     # its state files froze before the merge; the merge ended it
-    marked = marked_done(item) and status != "done"
-    if marked:
-        status, reason = "done", MARKED_DONE
+    marked = marked_done(item)
+    found = runstatus.decide(d, pr, marked)
+    marked = found.reason == MARKED_DONE and marked
     run = Run(item_id=item.id, kind=item.kind, title=item.title, project_id=item.project_id,
-              status=status, reason=reason, progress=d.get("progress"),
+              status=found.key, reason=found.reason, word=found.word, glyph=found.glyph, progress=d.get("progress"),
               stage=str(d.get("stage") or ""), stages=d.get("stages") or [], pr=pr,
               artifact_url=arts[0].data.get("url", "") if arts else "", started_at=str(d.get("started_at") or ""),
               updated_at=str(d.get("updated_at") or ""), gone=item.gone, marked_done=marked,
               conductor_item_id=(sessions or {}).get(d.get("conductor_session_id") or "") or None)
     run.progress_text, run.pr_text = _progress_text(run), pr_text(pr)
     return run
+
+
+def every_pr(conn, tree):
+    """Every PR item that is not dismissed: what a run's status reads its PR from."""
+    return [to_item(dict(r), tree) for r in conn.execute("SELECT * FROM items WHERE kind = 'pr' AND "
+                                                         "dismissed_at IS NULL")]
+
+
+def run_status(item, prs):
+    """A night run item's one status key (`runstatus.decide`) with its newest PR among `prs`."""
+    return to_run(item, prs, []).status
+
+
+def with_run_status(found, prs):
+    """`found` items with each night run's `status` set to its one status key (`run_status`), so
+    `find`, the Inbox and every list say what home says."""
+    for item in found:
+        if item.kind in WORKSPACE_KINDS:
+            item.status = run_status(item, prs)
+    return found
 
 
 def rank_runs(runs):
@@ -187,7 +208,6 @@ def rank_runs(runs):
 
 
 def status(conn, project_id):
-    from .projectview import tile_state   # projectview imports this module
     tree = model.Tree(conn)
     project = tree.project(project_id)
     homes = subtree(tree, project_id)
@@ -201,18 +221,17 @@ def status(conn, project_id):
         found.sort(key=_recency, reverse=True)
         found.sort(key=lambda i: i.gone)
     prs, arts = by_kind.get("pr", []), by_kind.get("artifact", [])
-    every_pr = [to_item(dict(r), tree) for r in conn.execute("SELECT * FROM items WHERE kind = 'pr' AND "
-                                                             "dismissed_at IS NULL")]
+    prs_all = every_pr(conn, tree)
     known = session_ids(conn)
-    runs = rank_runs([to_run(i, every_pr, arts, known) for k in WORKSPACE_KINDS for i in by_kind.get(k, [])])
+    runs = rank_runs([to_run(i, prs_all, arts, known) for k in WORKSPACE_KINDS for i in by_kind.get(k, [])])
     subs = []
     for child in sorted(tree.children.get(project_id, []), key=lambda c: tree.rows[c]["name"].lower()):
         if tree.rows[child]["archived_at"]:
             continue
         mine = [r for r in runs if r.project_id in set(subtree(tree, child))]
-        active, top = sum(1 for r in mine if r.status in RUN_RANK), mine[0].status if mine else None
+        active, top = sum(1 for r in mine if r.status in RUN_RANK), runstatus.roll_up(mine) if mine else None
         subs.append(SubProject(project=tree.project(child), runs=len(mine), runs_active=active, top_status=top,
-                               text=tile_state(mine)[1]))
+                               text=runstatus.counts_text(mine)))
     sessions = by_kind.get("session-bg", []) + by_kind.get("session-interactive", [])
     sessions.sort(key=_recency, reverse=True)
     sessions.sort(key=lambda i: i.gone)
@@ -454,11 +473,13 @@ def mark_done(conn, item_id):
     if r["kind"] not in WORKSPACE_KINDS:
         raise Refused("Only a night run can be marked done; %s is %s." % (r["title"], NOT_A_RUN.get(r["kind"],
                                                                                                     r["kind"])))
-    item = to_item(r, model.Tree(conn))
+    tree = model.Tree(conn)
+    item = to_item(r, tree)
     if marked_done(item):
         return _unchanged(conn, r, "mark-done", "%s is already marked done" % r["title"])
-    if item.status == "done":
-        return _unchanged(conn, r, "mark-done", "%s is already done" % r["title"])
+    found = run_status(item, every_pr(conn, tree))
+    if found not in runstatus.MARKABLE:
+        return _unchanged(conn, r, "mark-done", "%s is already %s" % (r["title"], runstatus.WORDS[found].lower()))
     return _set_mark(conn, r, store.now_iso(), "mark-done", "Marked %s done" % r["title"])
 
 
@@ -715,6 +736,7 @@ def inbox(conn, now=None):
     rows = [dict(r) for r in conn.execute("SELECT * FROM items WHERE project_id = ? AND gone_at IS NULL AND "
                                           "dismissed_at IS NULL", (store.INBOX_ID,)) if recent(r, now)]
     entries = [InboxEntry(item=to_item(r, tree), suggestion=suggest(conn, r, tree, filed)) for r in rows]
+    with_run_status([e.item for e in entries], every_pr(conn, tree))
     entries.sort(key=lambda e: _recency(e.item), reverse=True)
     return entries
 

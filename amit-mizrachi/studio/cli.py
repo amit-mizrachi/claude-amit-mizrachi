@@ -130,7 +130,7 @@ def view_run_row(r):
 
 
 def status_run_row(r):
-    return [short(r.item_id), r.status, r.title, r.progress_text, r.stage, r.reason, r.pr_text]
+    return [short(r.item_id), r.word, r.title, r.reason, r.progress_text, r.pr_text]
 
 
 def text_view(view):
@@ -370,6 +370,8 @@ def setup_find(parser):
     parser.add_argument("--project", help="keep items in this project or under it")
     parser.add_argument("--gone", action="store_true", help="include gone items")
     parser.add_argument("--dismissed", action="store_true", help="include dismissed items (marked, listed last)")
+    parser.add_argument("--status", help="only night runs with this status: %s (needs-you is waiting on you)"
+                        % ", ".join(api.RUN_STATUSES))
     add_limit(parser, LIST_LIMIT)
     add_no_refresh(parser)
 
@@ -611,7 +613,7 @@ COMMANDS = [
     Command("find", "List items that match, newest activity first.", "project-studio find alpha --kind session-bg",
             setup_find, lambda a: api.find_items(query=a.query, kind=a.kind, project_id=project_ref(a.project),
                                                  include_gone=a.gone, limit=a.limit, refresh=not a.no_refresh,
-                                                 include_dismissed=a.dismissed),
+                                                 include_dismissed=a.dismissed, status=a.status),
             text_find),
     Command("inbox", "List unfiled items, newest first, with the suggested project.", "project-studio inbox --limit 20",
             setup_inbox, lambda a: api.inbox(limit=a.limit, refresh=not a.no_refresh), text_inbox),

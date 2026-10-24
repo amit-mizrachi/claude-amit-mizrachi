@@ -22,7 +22,8 @@
   if (saved === "light" || saved === "dark") { root.setAttribute("data-theme", saved); }
 
   // CSS class names of the mockup, per SDK status word and card attention.
-  var TONE = { "needs-you": "wait", blocked: "blk", running: "run_", done: "done", pending: "pend", paused: "pend", unknown: "stale" };
+  var TONE = { "needs-you": "wait", blocked: "blk", running: "run_", "in-review": "rev", merged: "done", done: "done",
+    pending: "pend", paused: "pend", unknown: "stale" };
   var ATTENTION = { "needs-you": "attn", blocked: "bad" };
 
   function el(tag, cls, text) {

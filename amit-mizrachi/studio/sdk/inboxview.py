@@ -13,7 +13,7 @@ Every rule the drawer and the picker show lives here, not in the web server or t
 import time
 
 from . import items, model, store
-from .home import WORDS
+from .runstatus import WORDS
 from .projectview import span
 from .reconcile import WORKSPACE_KINDS
 from .results import InboxRow, InboxView, MoveChoice, MoveChoices
@@ -27,6 +27,8 @@ TOP_LEVEL = "Top level"
 
 
 def _fact(item, now):
+    """A night run's status word (`item.status` is its one status, `items.with_run_status`), a PR's
+    state, else how long ago it was active."""
     data = item.data
     if item.kind in WORKSPACE_KINDS:
         return WORDS.get(item.status, item.status.capitalize())

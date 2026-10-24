@@ -19,6 +19,7 @@ import tempfile
 from typing import Optional
 
 from . import (actions, attach, home as homepage, inboxview, items, model, projectview, refresh as scan, refs, runmenu,
+               runstatus,
                server, settings as user_settings, store, throw)
 from .errors import InvalidInput, Refused
 from .results import (AttachResult, DeleteRequest, DeleteResult, Export, HomeState, InboxList, InboxView, Item, ItemList,
@@ -27,6 +28,7 @@ from .results import (AttachResult, DeleteRequest, DeleteResult, Export, HomeSta
                       TerminalCommand, TerminalOpen, ThrowAway, UnlinkResult)
 
 MAX_LIST_LIMIT = 1000
+RUN_STATUSES = runstatus.KEYS   # a night run's one status key (`runstatus`): what `find_items(status=)` takes
 
 
 def _optional_id(value, name):
@@ -282,10 +284,12 @@ def _maybe_refresh(fresh, slow=True):
 
 def find_items(query: Optional[str] = None, kind: Optional[str] = None, project_id: Optional[str] = None,
                include_gone: bool = False, limit: Optional[int] = None, refresh: bool = True,
-               include_dismissed: bool = False) -> ItemList:
+               include_dismissed: bool = False, status: Optional[str] = None) -> ItemList:
     """Items whose title, key, name, cwd or branch holds `query` (any case), newest activity first,
     gone ones last. `kind` keeps one kind; `project_id` keeps items in that project or under it.
     Dismissed items are left out unless `include_dismissed` (then they come last, `dismissed` True).
+    A night run's `status` is its one status (`runstatus.decide`, as home shows it); `status`
+    ("in-review", "waiting-on-you", "Merged", ...) keeps only the night runs with it.
     Refreshes due sources first unless `refresh` is False.
     """
     if query is not None and not isinstance(query, str):
@@ -294,9 +298,12 @@ def find_items(query: Optional[str] = None, kind: Optional[str] = None, project_
         raise InvalidInput("kind must be one of: %s." % ", ".join(store.ITEM_KINDS))
     project_id, limit = _optional_id(project_id, "project_id"), _limit(limit)
     include_gone, include_dismissed = _flag(include_gone, "include_gone"), _flag(include_dismissed, "include_dismissed")
+    key = runstatus.parse(status) if status is not None else None
+    if status is not None and key is None:
+        raise InvalidInput("status must be one of: %s." % ", ".join(runstatus.KEYS))
     _maybe_refresh(refresh)
     with store.read() as conn:
-        found = items.find(conn, query, kind, project_id, include_gone, include_dismissed)
+        found = items.find(conn, query, kind, project_id, include_gone, include_dismissed, key)
     shown, total, truncated = _page(found, limit)
     return ItemList(items=shown, total=total, truncated=truncated)
 

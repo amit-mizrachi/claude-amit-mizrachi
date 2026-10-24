@@ -6,7 +6,7 @@ Every rule the home page shows lives here, not in the web server or the page scr
   update). Ties go by name (any case), then id. A project with no runs and nothing new in
   `QUIET_DAYS` days (nor made in them) is quiet: quiet rows come last, and the page folds them
   into "n quiet projects". `order` is the row order; the page keeps it from the load on.
-- A row says its status (its top run's), its night runs in words ("2 blocked, 1 running, 4 done")
+- A row says its status (its runs rolled up worst first, `runstatus.roll_up`), its night runs in words ("2 blocked, 1 running, 4 done")
   and its last activity ("12 min ago"), then at most 6 of its OWN runs, ranked needs-you >
   blocked > running > paused > latest change, then "+ n more".
 - Each active sub-project is a block inside its parent's row, in tree order: glyph, status word,
@@ -23,7 +23,7 @@ Every rule the home page shows lives here, not in the web server or the page scr
 
 import time
 
-from . import cache, items, model, store
+from . import cache, items, model, runstatus, store
 from .reconcile import WORKSPACE_KINDS, item_data
 from .results import HomeBanner, HomeCard, HomeRun, HomeState, HomeSubProject
 
@@ -31,10 +31,6 @@ MAX_RUNS = 6           # a row's own runs before "+ n more"
 MAX_SUB_RUNS = 3       # a sub-project block's runs before "+ n more"
 QUIET_DAYS = 14        # no runs and nothing new for longer: the row folds into "n quiet projects"
 ACTIVITY_KEYS = ("changed_at", "last_active", "updated_at", "started_at")   # an item's activity stamps
-GLYPHS = {"needs-you": "!", "blocked": "\u2717", "running": "\u25cf", "paused": "\u2016", "pending": "\u25cb",
-          "done": "\u2713", "unknown": "?"}
-WORDS = {"needs-you": "Waiting on you", "blocked": "Blocked", "running": "Running", "paused": "Paused",
-         "pending": "Pending", "done": "Done", "unknown": "Unknown"}
 COMMANDS = {"prs": "gh pr list", "agents": "claude agents", "jobs": "the jobs folder",
             "transcripts": "the session transcripts", "conductors": "the conductor scan",
             "worktrees": "git worktree list",
@@ -107,21 +103,24 @@ def _progress_text(run):
         return progress.get("text") or ""
     settled = _stage_bar(run).count("d")
     stage = next((s for s in run.stages if s.get("name") == run.stage), {})
-    if run.status == "done":
+    if run.status in runstatus.SETTLED:
         return "%d of %d" % (settled, total)
     if run.status == "blocked" and stage.get("status") == "blocked" and not _ticket(run.stage):
         return "at %s - %d of %d done" % (run.stage, settled, total)
     return progress.get("text") or ""
 
 
+MOVING = ("running", "paused")      # a line says where it is ("T03 of 5"); every other status says its reason
+
+
 def home_run(run, actions=None):
-    """A run as one card line: glyph, name, status word, reason, "T03 of 5", stage bar, Open plan, and
-    its "..." menu (`actions`, `runmenu.for_run`'s list)."""
+    """A run as one card line: glyph, name, status word, reason (or "T03 of 5" while it runs), stage
+    bar, Open plan, and its "..." menu (`actions`, `runmenu.for_run`'s list)."""
     from .runmenu import home_quick   # runmenu imports this module
     url = run.artifact_url if run.artifact_url.startswith(("https://", "http://")) else ""
-    return HomeRun(item_id=run.item_id, title=run.title, status=run.status, glyph=GLYPHS.get(run.status, "?"),
-                   word=WORDS.get(run.status, run.status.title()),
-                   reason=run.reason if run.status in ("needs-you", "done") else "", progress=_progress_text(run) if run.status != "needs-you" else "",
+    return HomeRun(item_id=run.item_id, title=run.title, status=run.status, glyph=run.glyph, word=run.word,
+                   reason=run.reason if run.status not in MOVING else "",
+                   progress=_progress_text(run) if run.status in MOVING else "",
                    bar=_stage_bar(run) if run.status != "needs-you" else [],
                    open_plan_url=url if run.status == "needs-you" else "", pr=pr_text(run.pr), gone=run.gone,
                    conductor_item_id=run.conductor_item_id, actions=list(actions or []),
@@ -131,7 +130,7 @@ def home_run(run, actions=None):
 def _more_text(hidden):
     if not hidden:
         return ""
-    tail = ", all done" if all(r.status == "done" for r in hidden) else ""
+    tail = ", all done" if all(r.status in ("merged", "done") for r in hidden) else ""
     return "+ %d more%s" % (len(hidden), tail)
 
 
@@ -210,13 +209,6 @@ def _holder(tree, pid, home):
     return next((p for p in [home] + tree.ancestors(home) if tree.rows[p]["parent_id"] == pid), None)
 
 
-def _status_words(status):
-    """(glyph, word) for a row's or block's status; a middle dot and '' with no runs."""
-    if status == "pending":
-        return "\u00b7", ""
-    return GLYPHS.get(status, "?"), WORDS.get(status, status.title())
-
-
 def _card_run(tree, pid, run, menus):
     """A run as a line in `pid`'s row or block, tagged "in <sub-project>" when it lives under `pid`."""
     line = home_run(run, menus.get(run.item_id))
@@ -228,9 +220,8 @@ def _card_run(tree, pid, run, menus):
 
 def _block(tree, sub, runs, menus):
     """A sub-project as a block in its parent's row; `runs` (ranked) are those of it and everything under it."""
-    from .projectview import tile_state   # projectview imports this module
-    status, text = tile_state(runs)
-    glyph, word = _status_words(status)
+    status, text = runstatus.roll_up(runs), runstatus.counts_text(runs)
+    glyph, word = runstatus.roll_up_words(status)
     deeper = len(_active_children(tree, sub))
     return HomeSubProject(project_id=sub, name=tree.rows[sub]["name"], status=status, glyph=glyph, word=word,
                           text=text, inside="%d inside" % deeper if deeper else "",
@@ -240,15 +231,14 @@ def _block(tree, sub, runs, menus):
 
 def _card(tree, pid, runs, rank, now, menus):
     """`pid`'s row; `runs` (ranked) are those of it and everything under it; `menus` each run's actions."""
-    from .projectview import tile_state   # projectview imports this module
     project = tree.project(pid)
     own = [r for r in runs if r.project_id == pid]
     blocks = []
     for sub in _active_children(tree, pid):
         homes = set(items.subtree(tree, sub))
         blocks.append(_block(tree, sub, [r for r in runs if r.project_id in homes], menus))
-    status, counts = tile_state(runs)
-    glyph, word = _status_words(status)
+    status, counts = runstatus.roll_up(runs), runstatus.counts_text(runs)
+    glyph, word = runstatus.roll_up_words(status)
     pr = next((pr_text(r.pr) for r in runs[:MAX_RUNS] if pr_text(r.pr)), "")
     changed = max([r.updated_at for r in runs] + [project.updated_at])
     quiet, then = rank[pid]
@@ -265,7 +255,7 @@ def _cards(conn, now):
     from . import runmenu   # runmenu imports this module
     tree = model.Tree(conn)
     shown = "dismissed_at IS NULL"
-    every_pr = [items.to_item(dict(r), tree) for r in conn.execute("SELECT * FROM items WHERE kind = 'pr' AND " + shown)]
+    every_pr = items.every_pr(conn, tree)
     arts = [items.to_item(dict(r), tree) for r in conn.execute("SELECT * FROM items WHERE kind = 'artifact' AND " + shown)]
     runs_by_home, known, menus = {}, items.session_ids(conn), {}
     marks = ",".join("?" * len(WORKSPACE_KINDS))

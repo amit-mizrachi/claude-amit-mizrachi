@@ -12,7 +12,7 @@ import sys
 
 from sdk import api
 from sdk.results import Run
-from sdk.runwords import run_counts_text
+from sdk.runstatus import counts_text as run_counts_text
 
 from .support import Sources
 from .test_cli import BIN

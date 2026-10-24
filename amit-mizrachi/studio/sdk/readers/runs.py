@@ -6,8 +6,12 @@ reconcile can attach children: its session ids, its slugs (session titles `ns-<s
 its branches (`<BRANCH>` and per-ticket `<BRANCH>--<TAG>`), its worktrees (`<WORKTREE>`,
 per-ticket `<WORKTREE>-<TAG>`, `state/<TAG>.cwd`) and its artifacts (`state/ARTIFACT.url`).
 
-Status words: needs-you, blocked, running, paused, pending, done, unknown. An old-format
-workspace (no `.next` files) and one that fails to read are `unknown`, never dropped.
+The reader decides no status. `run_state` records what the state files say (a gate waiting on a
+person, a PAUSED line, every BLOCKED or ABANDONED stage with its detail, the acceptance verdict and
+CI summary, finished, started, whether the runner is alive) and `runstatus.decide` turns it, with
+the run's PR, into the one status every surface shows; `status` / `reason` hold what the files
+alone give (`runstatus.files_status`). An old-format workspace (no `.next` files) and one that
+fails to read are `unknown`, never dropped.
 `changed_at` is the newest change to the run's state files (an EVENTS.log line, a `.status` file
 rewritten): a mark-done made before it is out of date (`items.marked_done`).
 
@@ -26,50 +30,36 @@ import os
 import re
 
 from . import commands
+from .. import runstatus
 from .git import Read
 from .sessions import iso
 from .workspace import Sprint, World, facts, mtime, read1, tag_state, walk_chain
 
 TICKET = re.compile(r"^T\d+$")
-CI_PASS = re.compile(r"^PASS at ([0-9a-f]{7,40})\b")
-NO_CI = re.compile(r"\bno CI\b|\b0 checks\b|\bno checks\b", re.I)
 
 
 def _one_line(ws, name, fallback=""):
     return read1(os.path.join(ws, name)) or fallback
 
 
-def _ci_red(sp):
-    """True for a FAIL acceptance verdict that the CI ticket did not overrule. accept.sh writes FAIL
-    whenever `gh pr checks` exits 1, which it also does on a PR with no checks at all; the CI ticket
-    runs later and writes "PASS at <sha>" to state/CI.summary when nothing at that head is red."""
-    if sp.acceptance != "FAIL":
-        return False
-    words = sp.acceptance_line.split(" ")
-    sha, passed = words[1] if len(words) > 1 else "", CI_PASS.match(sp.ci_summary)
-    return not (sha and passed and (sha.startswith(passed.group(1)) or passed.group(1).startswith(sha)))
+def _stopped(sprints):
+    """[{"stage", "detail"}] for every stage of `sprints` that is BLOCKED or ABANDONED, in order."""
+    out = []
+    for sp in sprints:
+        for stage in sp.stages:
+            text = read1(os.path.join(sp.state, stage.tags[-1] + ".status")) if stage.tags else ""
+            if stage.status == "blocked" or text.upper().startswith("ABANDONED"):
+                detail = re.sub(r"^(BLOCKED|ABANDONED):?\s*", "", stage.detail or text, flags=re.I)
+                out.append({"stage": stage.name, "detail": detail})
+    return out
 
 
-def _sprint_status(sp):
-    """(status, reason) for one sprint workspace."""
-    if not sp.stages:
-        return "unknown", "old format: no .next files"
-    if glob.glob(os.path.join(sp.state, "*.waiting-on-user")):
-        return "needs-you", "waiting on you"
-    if sp.paused and sp.paused.split(" ")[0].lower().startswith("auth"):
-        return "needs-you", "login needed"
-    for stage in sp.stages:
-        if stage.status == "blocked":
-            return "blocked", re.sub(r"^BLOCKED:?\s*", "", stage.detail, flags=re.I) or "blocked"
-    if _ci_red(sp):                                # night-watch's two other "needs you" alerts
-        return "needs-you", "CI red"
-    if sp.finished:
-        return "done", "no CI" if NO_CI.search(sp.ci_summary) else ""
-    if sp.started and not sp.runner:               # nothing advances, revives or resumes a pause
-        return "needs-you", "runner stopped"
-    if sp.paused:
-        return "paused", "waiting for capacity"
-    return ("running", "") if sp.started else ("pending", "")
+def _sprint_state(sp):
+    """What one sprint's state files say, as `runstatus.decide` reads it (`run_state`)."""
+    waiting = "waiting on you" if glob.glob(os.path.join(sp.state, "*.waiting-on-user")) else ""
+    return {"chain": bool(sp.stages), "error": "", "waiting": waiting, "paused": sp.paused,
+            "blocked": _stopped([sp]), "acceptance": sp.acceptance_line, "ci_summary": sp.ci_summary,
+            "finished": sp.finished, "started": sp.started, "runner": bool(sp.runner)}
 
 
 def _progress(sp, facts_env):
@@ -211,11 +201,11 @@ def read_sprint(ws, world):
     env = facts(ws)
     rec = _base(ws, "night-sprint", env)
     sp = Sprint(ws, world)
-    rec["status"], rec["reason"] = _sprint_status(sp)
     rec.update(progress=_progress(sp, env), stage=_current_stage(sp), stages=_stages(sp),
-               pr_url=sp.pr, acceptance=sp.acceptance,
+               pr_url=sp.pr, acceptance=sp.acceptance, run_state=_sprint_state(sp),
                started_at=iso(sp.started_at()), updated_at=iso(sp.last_event or mtime(sp.state)),
                changed_at=_changed_at([sp.state]))
+    _files_status(rec)
     rec.update(_joins(ws, [ws]))
     rec.update(_conductor_fields([sp.state]))
     rec["artifacts"] = _artifacts(ws, [ws], False)
@@ -247,22 +237,16 @@ def read_marathon(ws, world):
     if not build_sprints:
         stages.append({"name": "Build", "status": "pending"})
     every = [research] + build_sprints
-    blocked = [(s, sp) for sp in every for s in sp.stages if s.status == "blocked"]
-    if picks_waiting:
-        status, reason = "needs-you", "plan gate"
-    elif blocked:
-        status, reason = "blocked", re.sub(r"^BLOCKED:?\s*", "", blocked[0][0].detail, flags=re.I) or "blocked"
-    elif all(st["status"] in ("done", "skipped") for st in stages):
-        status, reason = "done", ""
-    elif any(st["status"] != "pending" for st in stages):
-        status, reason = "running", ""
-    else:
-        status, reason = "pending", ""
     build = build_sprints[-1] if build_sprints else None
+    state = {"chain": True, "error": "",
+             "waiting": "plan gate" if picks_waiting else "", "paused": "", "blocked": _stopped(every),
+             "acceptance": build.acceptance_line if build else "", "ci_summary": build.ci_summary if build else "",
+             "finished": all(st["status"] in ("done", "skipped") for st in stages),
+             "started": any(st["status"] != "pending" for st in stages), "runner": None}
     current = next((st["name"] for st in stages if st["status"] not in ("done", "skipped")), stages[-1]["name"])
     starts = [sp.started_at() for sp in every if sp.started_at()]
     acts = [mtime(os.path.join(pstate, "EVENTS.log"))] + [sp.last_event for sp in every]
-    rec.update(status=status, reason=reason, stages=stages, stage=current,
+    rec.update(run_state=state, stages=stages, stage=current,
                progress=_progress(build, facts(build.ws)) if build else None,
                pr_url=build.pr if build else "", acceptance=build.acceptance if build else "",
                started_at=iso(min(starts) if starts else 0), updated_at=iso(max(acts)),
@@ -275,7 +259,15 @@ def read_marathon(ws, world):
     rec.update(_joins(ws, [ws] + builds))
     rec.update(_conductor_fields([pstate, os.path.join(ws, "state")] + [os.path.join(b, "state") for b in builds]))
     rec["artifacts"] = _artifacts(ws, [ws] + builds, True)
+    _files_status(rec)
     return rec
+
+
+def _files_status(rec):
+    """`status` and `reason` as the state files alone say them (`runstatus.files_status`); every
+    surface shows `runstatus.decide` with the run's PR instead."""
+    found = runstatus.files_status(rec)
+    rec["status"], rec["reason"] = found.key, found.reason
 
 
 def read_workspace(ws, world):
@@ -295,6 +287,7 @@ def unknown_workspace(ws, reason, error=""):
     """A record for a folder whose status can't be read: kept, listed, status `unknown`."""
     rec = _base(ws, "night-sprint", facts(ws))
     rec.update(status="unknown", reason=reason, error=error, progress=None, stage="", stages=[], pr_url="",
+               run_state={"chain": False, "error": reason},
                acceptance="", started_at="", updated_at=iso(mtime(ws)), sessions=[], branches=[],
                worktrees=[], repo_slugs=[], artifacts=[], conductor_session_ids=[], conductor_session_id="")
     return rec
