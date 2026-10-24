@@ -35,7 +35,7 @@ def ids(actions):
 
 class RunMenu(Sources):
     """In Alpha: a running run with a plan, a PR, a live ticket session and a known conductor; a
-    blocked run with none of those; a run waiting on you (CI red) with its conductor known. A loose
+    blocked run with none of those; a run waiting on you (a gate) with its conductor known. A loose
     session in the Inbox."""
 
     def setUp(self):
@@ -46,7 +46,7 @@ class RunMenu(Sources):
                                              "state/CONDUCTOR.session": SID_C + "\n"})
         self.stuck_ws = self.workspace("stuck-20261024", tags=(("T01", "DONE"), ("T02", "BLOCKED: tests red")))
         self.wait_ws = self.workspace("wait-20261024", tags=(("T01", "DONE"),),
-                                      files={"state/ACCEPTANCE.verdict": "FAIL abc1234 required checks failing\n",
+                                      files={"state/T01.waiting-on-user": "plan gate\n",
                                              "state/CONDUCTOR.session": SID_C + "\n"})
         self.agents([agent(SID_A, "ns-live-20261024-T02", self.live_ws)])
         self.old(self.transcript(SID_A, self.live_ws, title="ns-live-20261024-T02"))

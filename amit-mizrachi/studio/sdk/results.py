@@ -366,7 +366,7 @@ class RunGroup:
     name: str
     parent_id: str                  # the project (or section) it sits under
     depth: int                      # 1 for a direct sub-project, 2 for one below it, ...
-    status: str                     # its top run's status, "pending" with no runs
+    status: str                     # its runs rolled up worst first (`runstatus.roll_up`), "pending" with no runs
     glyph: str
     word: str                       # "Blocked", "Running", ...; '' with no runs
     text: str                       # "2 blocked, 1 running, 4 done", "no runs"
@@ -493,7 +493,7 @@ class HomeCard:
     attention: str                  # needs-you, blocked or ''
     empty: str
     changed_at: str
-    status: str = "pending"         # its top run's status over it and its sub-projects, pending with no runs
+    status: str = "pending"         # its runs' status rolled up worst first over it and its sub-projects, pending with no runs
     glyph: str = "\u00b7"
     word: str = ""                  # "Blocked", "Running", ...; '' with no runs
     counts: str = "no runs"         # its runs and its sub-projects' in words: "2 blocked, 1 running, 4 done"
@@ -553,11 +553,11 @@ class StudioServer:
 
 @dataclass
 class ViewTile:
-    """One sub-project tile in "Inside <n>": glyph by its top run status, and "1 run done" / "no runs"."""
+    """One sub-project tile in "Inside <n>": glyph by its runs rolled up worst first, and "1 run done" / "no runs"."""
 
     project_id: str
     name: str
-    status: str                     # its top run's status, "pending" when it has no runs
+    status: str                     # its runs rolled up worst first, "pending" when it has no runs
     glyph: str
     text: str
 

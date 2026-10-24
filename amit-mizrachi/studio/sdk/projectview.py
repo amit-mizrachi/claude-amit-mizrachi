@@ -13,7 +13,7 @@ Every rule the project view shows lives here, not in the web server or the page 
 - Each run panel carries its "..." menu, `actions`: `runmenu.for_run`'s list, the same one home's
   run lines and `run_actions` give; the buttons on the panel are drawn from it too.
 - Under the project's own run panels, each active sub-project (at every depth, one indent per
-  level) is a section: its header (glyph and word of its top run, counts in words over it and
+  level) is a section: its header (glyph and word of its runs rolled up worst first, counts in words over it and
   everything under it, "2 blocked, 1 running, 4 done") and its own run panels, at most 5 before
   "+ n more". It starts open when a needs-you, blocked or running run is in it or under it.
   Archived sub-projects are left out.
@@ -144,7 +144,7 @@ OPEN_STATUSES = ("needs-you", "blocked", "running")  # a section with one of the
 def run_groups(tree, project_id, runs, panel=None):
     """One `RunGroup` per active sub-project of `project_id`, at every depth, in tree order (a
     sub-project, then its own sub-projects, one level deeper): its header (status glyph and word of
-    its top run, counts in words over it and everything under it, whether it starts open) and its
+    its runs rolled up worst first, counts in words over it and everything under it, whether it starts open) and its
     OWN runs, ranked as `runs` are. `panel(run)` turns each run into what the caller shows (a
     `ViewRun` for the page); None keeps the `Run`."""
     out = []

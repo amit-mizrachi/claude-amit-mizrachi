@@ -15,6 +15,15 @@ Three ways in, all over the same data:
 | the `project-studio` MCP server (`studio_*` tools) | agents | `studio/mcp_server.py`, registered in `.mcp.json` |
 | the SessionStart hook | every new session, silently | `hooks/attach-session.sh` -> `studio/session_hook.py` |
 
+**One status per night run.** Every night run reads the same on home, the project view, `status`,
+`show`, `list`, `find`, the Inbox and the MCP tools: Waiting on you, Blocked, Running, Paused, In
+review, Merged or Done (Unknown only when its files cannot be read), with one short reason ("plan
+gate", "merge conflict with main: merge origin/main", "T11 of 13 blocked: tests red", "PR #733
+open, checks green", "PR #24 open, no CI", "PR #738 merged"). One SDK function decides it from the
+run's state files and its PR (`sdk/runstatus.py`, rules in [`sdk/README.md`](sdk/README.md)); a
+project says the worst of its runs, and the counts use the same words, worst first ("1 waiting on
+you, 1 in review, 1 merged").
+
 All three are thin adapters. ALL logic - the tree, placement, readers, the cache, rules, what a
 card or a row shows - lives in the SDK, `studio/sdk/`, and each adapter parses its input, calls
 ONE function of `sdk.api`, and serialises the result. The SDK's full contract (every function,
@@ -34,10 +43,10 @@ every command, its options and an example.
 | (none), `open` | `project-studio` | start the studio if it is not running (or restart an older version), open it |
 | `stop` | `project-studio stop` | ask the running studio to stop |
 | `status` | `project-studio status` | whether the studio runs, and where |
-| `status <project>` | `project-studio status 'Project Studio'` | a project's night runs and items |
+| `status <project>` | `project-studio status 'Project Studio'` | a project's night runs (each with its one status word and reason, "Waiting on you  merge conflict with main: merge origin/main") and items |
 | `list` | `project-studio list --by activity` | the project tree with each project's night runs in words ("2 blocked, 1 running, 4 done"); `--by activity` puts the latest activity first, as home does, and says when ("12 min ago"); `--all` adds archived ones |
 | `show` | `project-studio show p_1a2b3c` | one project's view: sub-projects, its own runs, then each sub-project's runs under an "In <name>" heading (one indent per level), sessions, PRs, rules; `--json` has them as `sub_runs` |
-| `find` | `project-studio find alpha --kind session-bg` | items that match, newest activity first (`--gone`, `--dismissed` include those) |
+| `find` | `project-studio find alpha --kind session-bg` | items that match, newest activity first (`--gone`, `--dismissed` include those); `--status in-review` (or `needs-you`, `blocked`, `merged`, ...) keeps the night runs with that status |
 | `inbox` | `project-studio inbox --limit 20` | unfiled items with the suggested project |
 | `refresh` | `project-studio refresh --force` | re-read the sources; say what changed and what failed |
 | `rules` | `project-studio rules --project 'Shapes evals'` | the filing rules |

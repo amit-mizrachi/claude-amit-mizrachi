@@ -61,11 +61,11 @@ class Home(Sources):
 
     def test_a_run_blocked_after_its_last_ticket_names_the_blocked_stage(self):
         ws = self.workspace("ci-20261023", tags=(("T01", "DONE"), ("T02", "DONE"),
-                                                 ("CI", "BLOCKED: PR conflicts with main")))
+                                                 ("CI", "BLOCKED: tests red after 3 fixes")))
         p = api.create_project("P")
         self.file([ws], p.id)
         [run] = api.home().cards[0].runs
-        self.assertEqual((run.word, run.progress, run.bar), ("Blocked", "at CI - 2 of 2 done", ["d", "d"]))
+        self.assertEqual((run.word, run.reason, run.bar), ("Blocked", "CI blocked: tests red after 3 fixes", ["d", "d"]))
         [status_run] = api.project_status(p.id, refresh=False).runs
         self.assertEqual(status_run.progress_text, "at CI - 2 of 2 done")
 
@@ -74,7 +74,7 @@ class Home(Sources):
         p = api.create_project("P")
         self.file([ws], p.id)
         [run] = api.home().cards[0].runs
-        self.assertEqual((run.word, run.progress), ("Blocked", "T01 of 1"))
+        self.assertEqual((run.word, run.reason), ("Blocked", "T01 of 1 blocked: repo archived"))
 
     def test_a_merged_pr_ends_a_blocked_or_waiting_run(self):
         facts = {"REPO_SLUG": "me/r", "BRANCH": "feat/a"}
@@ -89,8 +89,8 @@ class Home(Sources):
         card = api.home().cards[0]
         self.assertEqual(card.attention, "")
         lines = {r.title: (r.word, r.reason, r.progress) for r in card.runs}
-        self.assertEqual(lines, {"m-20261023": ("Done", "PR merged", "1 of 2"),
-                                 "c-20261023": ("Done", "PR merged", "3 of 3")})
+        self.assertEqual(lines, {"m-20261023": ("Merged", "PR #4 merged", ""),
+                                 "c-20261023": ("Merged", "PR #5 merged", "")})
 
     def test_at_most_six_runs_then_the_rest_as_text(self):
         running = self.workspace("live-20261023", tags=(("T01", "DONE"), ("T02", ""), ("T03", None)))

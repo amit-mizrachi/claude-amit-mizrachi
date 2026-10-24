@@ -27,7 +27,7 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | Function | Returns | Notes |
 |---|---|---|
 | `create_project(name, parent_id=None)` | `Project` | Refused under the Inbox or an archived parent, or for an active sibling's name (any case). |
-| `list_projects(parent_id=None, top_level=False, include_archived=False, limit=None, with_runs=False, by="tree")` | `ProjectList` | Inbox first, then by path. `total` counts every match; `truncated` says the limit cut some. `with_runs` fills `run_lines` (id -> "2 blocked, 1 running, 4 done" / "no runs", `runwords.run_counts_text` over it and its sub-projects; none for the Inbox), the CLI's `list` line. `by="activity"` orders it as `home` orders its rows (`home.by_activity`: latest activity first, quiet ones last, ties by name; the Inbox stays first and a listed project's sub-projects stay under it in tree order) and fills `last_activity` (id -> "12 min ago" / "no activity yet"). Any other `by` is `InvalidInput`. |
+| `list_projects(parent_id=None, top_level=False, include_archived=False, limit=None, with_runs=False, by="tree")` | `ProjectList` | Inbox first, then by path. `total` counts every match; `truncated` says the limit cut some. `with_runs` fills `run_lines` (id -> "2 blocked, 1 running, 4 done" / "no runs", `runstatus.counts_text` over it and its sub-projects; none for the Inbox), the CLI's `list` line. `by="activity"` orders it as `home` orders its rows (`home.by_activity`: latest activity first, quiet ones last, ties by name; the Inbox stays first and a listed project's sub-projects stay under it in tree order) and fills `last_activity` (id -> "12 min ago" / "no activity yet"). Any other `by` is `InvalidInput`. |
 | `get_project(project_id)` | `Project` | Archived or not. |
 | `resolve_project(ref)` | `Project` | What a person types: the exact id, then a unique id prefix (4+ characters, the `p_` optional), then a name (any case) among active projects. A unique name beats a prefix that matches several ids. `NotFound`, or `Ambiguous` with `candidates` ({id, name, parent_path}, at most 20). |
 | `resolve_item(ref)` | `Item` | The exact id or a unique id prefix (4+ characters, the `i_` optional); no title matching. `NotFound`, or `Ambiguous` with `candidates` ({id, title, kind, project_path}, at most 20). |
@@ -43,7 +43,7 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `export_json(dest=None)` | `Export` | The whole store minus the cache; written to `dest` (0600, atomic) when given. |
 
 | `refresh(force=False)` | `RefreshResult` | Runs the due readers, stores what they said, reconciles. `sources` shows each reader's state. |
-| `find_items(query=None, kind=None, project_id=None, include_gone=False, limit=None, refresh=True, include_dismissed=False)` | `ItemList` | Text match on title, key, name, cwd, branch; `project_id` includes its sub-projects. Dismissed items only with `include_dismissed` (last, `dismissed` True). |
+| `find_items(query=None, kind=None, project_id=None, include_gone=False, limit=None, refresh=True, include_dismissed=False, status=None)` | `ItemList` | Text match on title, key, name, cwd, branch; `project_id` includes its sub-projects. Dismissed items only with `include_dismissed` (last, `dismissed` True). A night run's `status` is its one status (`runstatus`); `status` (a key of `RUN_STATUSES` or its word, "In review") keeps only night runs with it, anything else is `InvalidInput`. |
 | `project_status(project_id, refresh=True, limit=None)` | `ProjectStatus` | Runs (status, reason, "T03 of 5", stage, PR, artifact; `progress_text` and `pr_text` are the words home and show use) ranked needs-you > blocked > running > paused > latest; sessions, PRs, worktrees, artifacts; rolled up over sub-projects (each `SubProject.text` is its tile's line: "no runs", "1 blocked, 2 done"). `groups`: the same runs by active sub-project, `RunGroup`s as the project view's `sub_runs` (below) but each with every one of its `Run`s. `limit` caps each list (a group's runs too); `totals` and `truncated` say what was cut. |
 | `add_item(kind, key, project_id, title=None)` | `MoveResult` | By hand (`placed_by = manual`). A known item is moved instead (`created` False). |
 | `move_item(item_id, project_id, expected_revision=None)` | `MoveResult` | By hand; a stale revision is refused; a run's auto-attached items follow (`followed`). |
@@ -52,7 +52,7 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `remove_item(item_id)` | `MoveResult` | Back to the Inbox, by hand. Never deletes the thing itself. |
 | `dismiss_item(item_id)` | `MoveResult` | Hides it from home, the project view's lists (into its "Dismissed" fold), the Inbox, `list` / `status` and their counts, and `find` unless asked. Deletes nothing; it keeps its project; no refresh clears it (a gone item stays dismissed). A run's auto-attached items go with it (`followed`). `kind` "dismiss", toast "Dismissed <title>"; `move_id` None when already dismissed. |
 | `restore_item(item_id)` | `MoveResult` | Shows it again, with what its newest dismissal took along. `kind` "restore"; `move_id` None when not dismissed. |
-| `mark_done(item_id)` | `MoveResult` | A night run whose state files froze on a stale word is Done, reason "marked done by you" (`Run.marked_done`), on home, the project view, `status` and `list`, ranked as done; its stage bar stays as the files say. A later change in its files (reader's `changed_at` newer than the mark) drops it. Other kinds raise `Refused`. `kind` "mark-done", toast "Marked <title> done"; `move_id` None when already marked or already done. |
+| `mark_done(item_id)` | `MoveResult` | A night run whose state files froze on a stale word is Done, reason "marked done by you" (`Run.marked_done`), on home, the project view, `status` and `list`, ranked as done; its stage bar stays as the files say. A later change in its files (reader's `changed_at` newer than the mark) drops it. Other kinds raise `Refused`. `kind` "mark-done", toast "Marked <title> done"; `move_id` None when already marked or not Blocked / Waiting on you ("already merged"). |
 | `throw_away(item_id, confirmed=False)` | `ThrowAway` | The ONE function that removes things (`sdk/throw.py`). Unless `confirmed` it changes nothing: `needs_confirm`, `folder`, `worktrees` ({path, repo_path, branch, ignored}), `items` (attached) and a `message` listing them; `ignored` names the gitignored entries in a worktree, which `git worktree remove` deletes for good (not to the Trash). Confirmed: each worktree `git worktree remove` (never forced), then the folder to the Trash through Finder (`osascript`, path as its argument; it must leave its place), then one transaction that marks the run and its attached items gone, purges them and drops the cache rows that listed the folder and worktrees. A failing step stops the rest (`Refused`: "Stopped: ... Done: ... Not done: ..."). Refused before anything: not a night run, a folder not inside a run root (symlinks resolved, `..`, the root itself, a symlink, no `state/`), a worktree holding the folder, git unable to list a worktree's ignored files, a live runner, a live session, or `claude agents` failing. Never stops, kills or removes a session. |
 | `inbox(limit=None, refresh=True)` | `InboxList` | Each entry has a `suggestion` with its `reason`, or None. |
 | `accept_suggestion(item_id)` | `MoveResult` | Files an Inbox item where its suggestion says. |
@@ -137,16 +137,40 @@ for an old run; one with no transcript on disk gets none, and `terminal_command(
 says so. `Run.conductor_item_id` (also on `HomeRun` and `ViewRun`) is its session item, None when
 unknown or gone; a run's "Open in Terminal" never picks it.
 
-A night sprint is `needs-you` / "CI red" when `state/ACCEPTANCE.verdict` is FAIL, unless its CI
-ticket later wrote `PASS at <same head>` to `state/CI.summary` (accept.sh writes FAIL when
-`gh pr checks` exits 1, which it also does on a PR with no checks). A finished sprint whose CI
-summary says it had no checks (`no CI`, `0 checks`) is `done` with the reason "no CI".
+## One status per night run (`sdk/runstatus.py`)
 
-A run's state files freeze when its sessions end, so a `blocked` or `needs-you` run whose PR is
-merged (and that has no open PR) is `done` with the reason "PR merged" wherever a `Run` is shown
-(home, project view, `status`, `list`); `find` and the Inbox keep the reader's word. A run blocked
-at a stage after its tickets (CI, FIX-FINAL) says so in its progress words, "at CI - 17 of 17
-done", not "T17 of 17"; a done run says how many tickets settled, "12 of 13".
+A night run has ONE status, decided by `runstatus.decide(data, pr, marked)` and nowhere else:
+home's lines and rows, the project view's panels, tiles and sections, `status`, `show`, `list`,
+`find`, the Inbox drawer, `run_actions` and every MCP tool show its answer (`RunStatus`: `key`,
+`word`, `reason`, `glyph`; on a `Run` as `status`, `word`, `reason`, `glyph`). The reader
+(`readers/runs.py`) decides no word: it records `run_state`, what the state files say (a
+`*.waiting-on-user` gate or a marathon's plan gate, the PAUSED line, every BLOCKED or ABANDONED
+stage with its detail, the acceptance verdict, the CI summary, finished, started, whether the
+runner is alive), and stores `runstatus.files_status` (no PR, no mark) as `status` / `reason`,
+which only the refresh's "re-read live runs" check uses. The PR is the run's newest PR item
+(open first), the one `items` already reads. Checked in this order:
+
+| Status (`key`) | When | Example reason |
+|---|---|---|
+| Merged (`merged`) | its PR is merged, whatever its files froze on (a merged PR beats a frozen BLOCKED) | "PR #738 merged" |
+| Done (`done`) | marked done by hand (`mark_done`), until its files change | "marked done by you" |
+| Waiting on you (`needs-you`) | a gate a person answers; a login stop (PAUSED auth...); a stage BLOCKED on what only a person can do: its detail names a human, a person, a manual step, a login or a merge conflict | "plan gate", "login needed", "merge conflict with main: merge origin/main" |
+| Waiting on you (`needs-you`) | it started and its runner is dead (nothing advances it), or it never started and no runner runs | "runner stopped", "not started" |
+| Blocked (`blocked`) | a stage BLOCKED or ABANDONED on any other failure; or every stage settled and CI is red (PR checks red, or a FAIL verdict the CI ticket did not overrule with `PASS at <same head>`) | "T11 of 13 blocked: tests red", "PR #12 open, 2 checks red", "CI red" |
+| Paused (`paused`) | a budget wait (PAUSED) its live runner resumes by itself | "waiting for capacity" |
+| Running (`running`) | its runner is alive and a stage runs (or is about to) | "T03 of 5", "starting" |
+| In review (`in-review`) | every stage settled, its PR is open and not red: green, checks running, or no checks at all (accept.sh's FAIL on "no checks reported" is no CI, not red) | "PR #733 open, checks green", "PR #24 open, no CI" |
+| Done (`done`) | every stage settled and it has no PR, or its PR was closed unmerged | "finished, no PR", "research finished", "PR #9 closed" |
+| Unknown (`unknown`) | its state files cannot be read (old format, a read error) and no PR says more | "old format: no .next files" |
+
+`roll_up(runs)` is a project's, a sub-project's and a section's status: the worst of its runs not
+gone (Waiting on you > Blocked > Running > Paused > In review > Unknown > Merged > Done), "pending"
+(a middle dot, no word) with no runs. `counts_text(runs)` says them in the same order, "1 waiting
+on you, 1 in review, 1 merged", a gone run as "gone", none as "no runs". `parse(word)` takes a key
+or a word ("In review", "waiting-on-you") for `find_items(status=)`. A line on home shows the
+reason, except while it runs or is paused, when it shows where it is ("T03 of 5"); a run panel's
+`detail` is the same. `progress_text` still says "at CI - 17 of 17 done" for a run blocked after
+its tickets and how many tickets settled once done, "12 of 13".
 
 | Error | `code` | When |
 |---|---|---|
@@ -205,11 +229,10 @@ call `open_studio()`.
 
 ## Run counts in words and sub-project run sections
 
-`sdk/runwords.py` `run_counts_text(runs)` is the one wording for a set of runs, used by home's
+`runstatus.counts_text(runs)` is the one wording for a set of runs, used by home's rows and
 sub-project lines, the project view's tiles and sections, `list`, `show` and `status`: one count per
-status, most urgent first, done last ("1 waiting on you, 2 blocked, 1 running, 4 done"); a gone run
-counts as "gone"; none is "no runs". It replaced "3 runs, 1 active", whose "active" counted blocked
-runs too.
+status, worst first, done last ("1 waiting on you, 2 blocked, 1 running, 4 done"); a gone run
+counts as "gone"; none is "no runs".
 
 `RunGroup` (`projectview.run_groups`): one per active (not archived) sub-project, at every depth,
 in tree order (a sub-project, then its own sub-projects at `depth` + 1; by name, any case):

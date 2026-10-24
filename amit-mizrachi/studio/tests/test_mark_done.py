@@ -100,7 +100,7 @@ class MarkThroughTheSdk(Marking):
         self.assertEqual((back.kind, back.message), ("unmark-done", "%s is no longer marked done" % self.stuck.title))
         self.assertIsNone(back.item.done_marked_at)
         run = self.run_of(self.stuck.id)
-        self.assertEqual((run.status, run.reason, run.marked_done), ("blocked", "tests red after the merge", False))
+        self.assertEqual((run.status, run.reason, run.marked_done), ("blocked", "T02 of 2 blocked: tests red after the merge", False))
         self.assertEqual(self.card().attention, "blocked")
         with self.assertRaises(Refused) as caught:
             api.undo_move(done.move_id)
@@ -129,7 +129,7 @@ class MarkThroughTheSdk(Marking):
         os.utime(os.path.join(self.stuck_ws, "state", "T02.status"), (later, later))
         api.refresh(force=True)
         run = self.run_of(self.stuck.id)
-        self.assertEqual((run.status, run.reason), ("blocked", "still red"))
+        self.assertEqual((run.status, run.reason), ("blocked", "T02 of 2 blocked: still red"))
 
     def test_only_night_runs_can_be_marked(self):
         with self.assertRaises(Refused) as caught:

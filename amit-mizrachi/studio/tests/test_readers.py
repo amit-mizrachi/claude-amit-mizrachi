@@ -40,7 +40,7 @@ class Runs(Sources):
         self.assertEqual(studio["artifacts"][0]["url"], "https://claude.ai/artifact/L5PR6Uqk3agwJLWyo8abg5")
         self.assertTrue(studio["artifacts"][0]["plan"])
         deel = found["deel-time-away"]
-        self.assertEqual((deel["kind"], deel["status"], deel["reason"]), ("night-sprint", "needs-you", "CI red"))
+        self.assertEqual((deel["kind"], deel["status"], deel["reason"]), ("night-sprint", "blocked", "CI red"))
         self.assertEqual(deel["progress"]["text"], "T05 of 5")
         self.assertEqual(found["agents-in-shapes-v2"]["status"], "blocked")
         self.assertTrue(found["agents-in-shapes-v2"]["reason"])
@@ -59,7 +59,7 @@ class Runs(Sources):
         found = self.by_slug()
         self.assertEqual((found["stopped-20261023"]["status"], found["stopped-20261023"]["reason"]),
                          ("needs-you", "runner stopped"))
-        self.assertEqual((found["red-20261023"]["status"], found["red-20261023"]["reason"]), ("needs-you", "CI red"))
+        self.assertEqual((found["red-20261023"]["status"], found["red-20261023"]["reason"]), ("blocked", "CI red"))
 
     def test_a_fail_verdict_the_ci_ticket_passed_at_the_same_head_is_no_ci_not_red(self):
         # accept.sh writes FAIL when `gh pr checks` exits 1 on "no checks reported" (a repo with no CI)
@@ -71,9 +71,9 @@ class Runs(Sources):
             "state/ACCEPTANCE.verdict": "FAIL 6d6888429b29 required checks failing\n",
             "state/CI.summary": "PASS at 1a2b3c4d5e6f, 0 fixes pushed\n"})
         found = self.by_slug()
-        self.assertEqual((found["noci-20261023"]["status"], found["noci-20261023"]["reason"]), ("done", "no CI"))
+        self.assertEqual((found["noci-20261023"]["status"], found["noci-20261023"]["reason"]), ("done", "finished, no PR"))
         self.assertEqual((found["other-head-20261023"]["status"], found["other-head-20261023"]["reason"]),
-                         ("needs-you", "CI red"))
+                         ("blocked", "CI red"))
 
     def test_running_sprint_has_ticket_progress_and_per_ticket_branches_and_worktrees(self):
         self.workspace("x-20261023", facts={"BRANCH": "feat/x", "WORKTREE": "/w/x", "TOTAL": "5"},
