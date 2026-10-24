@@ -43,9 +43,9 @@ every command, its options and an example.
 | (none), `open` | `project-studio` | start the studio if it is not running (or restart an older version), open it |
 | `stop` | `project-studio stop` | ask the running studio to stop |
 | `status` | `project-studio status` | whether the studio runs, and where |
-| `status <project>` | `project-studio status 'Project Studio'` | a project's night runs (each with its one status word and reason, "Waiting on you  merge conflict with main: merge origin/main") and items |
+| `status <project>` | `project-studio status 'Project Studio'` | a project's night runs (each with its one status word and reason, "Waiting on you  merge conflict with main: merge origin/main", and its PR's URL) and items; `--json` has each run's `pr_url`, `pr_number`, `pr_state` and `links` |
 | `list` | `project-studio list --by activity` | the project tree with each project's night runs in words ("2 blocked, 1 running, 4 done"); `--by activity` puts the latest activity first, as home does, and says when ("12 min ago"); `--all` adds archived ones |
-| `show` | `project-studio show p_1a2b3c` | one project's view: sub-projects, its own runs, then each sub-project's runs under an "In <name>" heading (one indent per level), sessions, PRs, rules; `--json` has them as `sub_runs` |
+| `show` | `project-studio show p_1a2b3c` | one project's view: sub-projects, its own runs (each with its PR's URL), then each sub-project's runs under an "In <name>" heading (one indent per level), sessions, PRs, rules; `--json` has them as `sub_runs` |
 | `find` | `project-studio find alpha --kind session-bg` | items that match, newest activity first (`--gone`, `--dismissed` include those); `--status in-review` (or `needs-you`, `blocked`, `merged`, ...) keeps the night runs with that status |
 | `inbox` | `project-studio inbox --limit 20` | unfiled items with the suggested project |
 | `refresh` | `project-studio refresh --force` | re-read the sources; say what changed and what failed |
@@ -125,6 +125,12 @@ its last activity ("12 min ago"), then up to 6 of its own runs across the width 
 first, "+ n more"), then each active sub-project as an indented block with its own status and up
 to 3 runs. Projects with no runs and nothing new in 14 days fold into "n quiet projects" at the
 bottom. A long name ends in "..." and shows in full on hover; nothing runs past a row's edge. A
+run's name never ends in "..." for its buttons: it wraps to a second line, full name on hover.
+Every run line, on home and in the project view, shows its links after its name as small
+buttons: its PR (**#733**, its state and checks as the tooltip; a click opens the PR in the
+browser), **Open plan** and **Open conductor**, each when the run has one. A run waiting on you
+draws its Open plan filled; every other link is a quiet button. A row's PR line ("PR #738 open -
+checks running") is a link too, one per PR of the runs it shows. A
 click on a row (or Enter on it) opens the project view
 (its own runs, then a section per sub-project with that sub-project's runs, sessions, everything
 else), where a session row's **Open in Terminal** opens Terminal on
@@ -150,9 +156,9 @@ the OS, with a manual toggle. Every night run line on home and every run panel i
 has the same actions menu, **...** or a right-click on the run, drawn only from `api.run_actions`'s
 list: Open plan, Open PR, Open in Terminal, Open conductor (each when there is one), **Move to...**
 (the picker; the run's attached items follow, Undo in the toast), Mark done (Blocked or Waiting on
-you), Dismiss (Restore once dismissed) and Throw away... last. A run panel also shows all of them
-but Move to... as buttons; a home line waiting on you keeps its **Open plan** and gains **Open
-conductor** beside it when the conductor is known. A run also moves by drag: from a home line onto
+you), Dismiss (Restore once dismissed) and Throw away... last. The links after a run's name are
+drawn from the same list; a run panel also shows the rest of them but Move to... as buttons. A
+run also moves by drag: from a home line onto
 another project's row or sub-project block, or from a run panel onto a sub-project's tile or
 section. **Throw away...** on a run panel lists what goes (the folder, each
 worktree, the item count) in a confirm dialog and does it only on OK. The studio never stops, kills

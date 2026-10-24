@@ -152,16 +152,18 @@ class HomeAndViewDrawTheSameList(RunMenu):
         self.assertEqual([to_dict(a) for a in self.lines()[self.live.id].actions], want)
         self.assertEqual([to_dict(a) for a in self.panels()[self.live.id].actions], want)
 
-    def test_a_waiting_line_on_home_shows_open_conductor_beside_open_plan(self):
+    def test_a_home_line_shows_its_links_and_no_other_button(self):
         lines = self.lines()
-        self.assertEqual(lines[self.wait.id].quick, ["open-conductor"])
-        self.assertEqual(lines[self.live.id].quick, [])          # running: its menu only
-        self.assertEqual(lines[self.stuck.id].quick, [])
+        self.assertEqual([link.id for link in lines[self.wait.id].links], ["open-conductor"])
+        self.assertEqual([link.id for link in lines[self.live.id].links], ["open-pr", "open-plan", "open-conductor"])
+        self.assertEqual(lines[self.stuck.id].links, [])
+        for run in (self.live, self.stuck, self.wait):
+            self.assertEqual(lines[run.id].quick, [], run.title)
 
-    def test_a_panel_shows_every_action_but_move_as_a_button(self):
+    def test_a_panel_shows_its_links_then_every_other_action_but_move_as_a_button(self):
         panels = self.panels()
-        self.assertEqual(panels[self.live.id].quick, ["open-plan", "open-pr", "open-terminal", "open-conductor",
-                                                      "dismiss", "throw-away"])
+        self.assertEqual([link.id for link in panels[self.live.id].links], ["open-pr", "open-plan", "open-conductor"])
+        self.assertEqual(panels[self.live.id].quick, ["open-terminal", "dismiss", "throw-away"])
         self.assertEqual(panels[self.stuck.id].quick, ["mark-done", "dismiss", "throw-away"])
 
     def test_a_sub_projects_run_panel_carries_its_menu_too(self):

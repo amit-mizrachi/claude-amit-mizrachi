@@ -122,9 +122,9 @@
     return node;
   }
 
-  // A home run line. A run waiting on you keeps its Open plan, with the buttons its `quick` names
-  // beside it (Open conductor); every line has the "..." menu (and right-click), and drags onto
-  // another project's row or block to move there. `from` is the project it lives in.
+  // A home run line: its links after its name (PR, Open plan, Open conductor: `runLinks`); every
+  // line has the "..." menu (and right-click), and drags onto another project's row or block to
+  // move there. `from` is the project it lives in. A long name wraps; it is never cut for the buttons.
   function runLine(run, from) {
     var tone = TONE[run.status] || "stale";
     var line = el("div", run.gone ? "run dim" : "run");
@@ -132,14 +132,7 @@
     name.title = run.title;
     add(line, el("span", "g " + tone, run.glyph), name);
     var acts = el("span", "ra");
-    if (run.open_plan_url) {
-      var plan = el("a", "btn pri", "Open plan");
-      plan.href = run.open_plan_url;
-      plan.target = "_blank";
-      plan.rel = "noopener noreferrer";
-      plan.addEventListener("click", function (e) { e.stopPropagation(); });
-      acts.appendChild(plan);
-    }
+    runLinks(run, acts);
     quickButtons(run, acts);
     line.appendChild(add(acts, menuButton(run)));
     withMenu(line, run);
@@ -208,7 +201,7 @@
       el("span", "age", c.last_activity)));
     if (c.runs.length) { node.appendChild(runCells(c.runs, c.project.id)); }
     if (c.more) { node.appendChild(el("span", "more", c.more)); }
-    if (c.pr) { node.appendChild(prLine(c.pr)); }
+    if (c.prs.length) { node.appendChild(prLinks(c.prs)); } else if (c.pr) { node.appendChild(prLine(c.pr)); }
     if (c.sub_projects.length) {
       var blocks = el("div", "blocks");
       c.sub_projects.forEach(function (s) { blocks.appendChild(subBlock(s)); });
@@ -554,6 +547,7 @@
     var name = el("b", null, r.title);
     name.title = r.title;
     var acts = el("span", "acts");
+    runLinks(r, acts);
     quickButtons(r, acts);
     acts.appendChild(menuButton(r));
     var st = add(el("span", "st"), el("span", "w " + tone, r.word), r.detail ? el("span", null, r.detail) : null,
@@ -640,6 +634,30 @@
   var ACT_LOOK = { "open-terminal": [ARROW, null], "open-conductor": [ARROW, null], dismiss: ["", "ghost"],
     restore: ["", "ghost"], "throw-away": ["", "ghost"] };
   var menuFor = null;     // the run whose actions menu is open
+
+  // A run's links (sdk/runmenu.py `links`), drawn after its name on home and in the view: its PR
+  // ("#733", state and checks as the tooltip), Open plan (filled when `primary`) and Open conductor.
+  // Each does its run action: the PR and the plan open through /api/open.
+  function runLinks(run, into) {
+    run.links.forEach(function (l) {
+      var look = ACT_LOOK[l.id] || ["", null];
+      var node = button(look[0] + l.label, l.primary ? "pri lk" : "ghost lk", function (b) { RUN_ACTS[l.id](l, b); });
+      node.title = l.hint;
+      into.appendChild(node);
+    });
+  }
+
+  // A home row's PR line as links, one per PR of its shown runs ("PR #738 open - checks running").
+  function prLinks(prs) {
+    var line = el("span", "prs");
+    prs.forEach(function (l) {
+      var node = button("", "ghost lk pr", function (b) { RUN_ACTS[l.id](l, b); });
+      add(node, prLine(l.label));
+      node.title = l.hint;
+      line.appendChild(node);
+    });
+    return line;
+  }
 
   function quickButtons(run, into) {
     run.actions.forEach(function (a) {

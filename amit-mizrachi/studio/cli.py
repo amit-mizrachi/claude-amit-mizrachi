@@ -126,11 +126,11 @@ def run_groups(groups, row):
 
 
 def view_run_row(r):
-    return [short(r.item_id), r.word, r.title, r.detail, r.started, r.pr]
+    return [short(r.item_id), r.word, r.title, r.detail, r.started, r.pr, r.pr_url]
 
 
 def status_run_row(r):
-    return [short(r.item_id), r.word, r.title, r.reason, r.progress_text, r.pr_text]
+    return [short(r.item_id), r.word, r.title, r.reason, r.progress_text, r.pr_text, r.pr_url]
 
 
 def text_view(view):
@@ -600,14 +600,14 @@ COMMANDS = [
     Command("stop", "Ask the running studio web server to stop.", "project-studio stop", no_args,
             lambda a: api.stop_studio(), text_server),
     Command("status", "Without a project: whether the studio server runs. With one: its night runs (each "
-            "sub-project's under it) and items.",
+            "sub-project's under it, each with its PR's URL) and items.",
             "project-studio status 'Project Studio'", setup_status, run_status, text_status),
     Command("list", "Print the project tree with each project's night runs in words (\"2 blocked, 1 done\"); "
             "--by activity puts the latest activity first and says when (\"12 min ago\").", "project-studio list --by activity",
             setup_list, lambda a: api.list_projects(include_archived=a.all, limit=a.limit, with_runs=True, by=a.by),
             text_list),
-    Command("show", "Print one project's view: sub-projects, its runs, each sub-project's runs under it, sessions, "
-            "PRs, worktrees, artifacts, rules.",
+    Command("show", "Print one project's view: sub-projects, its runs (each with its PR's URL), each "
+            "sub-project's runs under it, sessions, PRs, worktrees, artifacts, rules.",
             "project-studio show p_1a2b3c", setup_show,
             lambda a: api.project_view(project_ref(a.project), refresh=a.refresh), text_view),
     Command("find", "List items that match, newest activity first.", "project-studio find alpha --kind session-bg",

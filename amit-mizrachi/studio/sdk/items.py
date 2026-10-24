@@ -159,9 +159,10 @@ def conductor_row(conn, run_row):
 
 
 def to_run(item, prs, artifacts, sessions=None):
-    """A run item as a `Run`, with its newest PR, its plan artifact and (from `sessions`, the
-    `session_ids` map) its conductor's item id."""
-    from .home import _progress_text, pr_text   # home imports this module
+    """A run item as a `Run`, with its newest PR, its plan artifact, (from `sessions`, the
+    `session_ids` map) its conductor's item id, and its links (`runmenu.links`)."""
+    from . import runmenu   # runmenu imports this module
+    from .home import _progress_text, pr_state, pr_text   # home imports this module
     d = item.data
     arts = sorted((a for a in artifacts if a.workspace_item_id == item.id), key=lambda a: not a.data.get("plan"))
     pr = _pr_of(item.id, prs)
@@ -178,6 +179,8 @@ def to_run(item, prs, artifacts, sessions=None):
               updated_at=str(d.get("updated_at") or ""), gone=item.gone, marked_done=marked,
               conductor_item_id=(sessions or {}).get(d.get("conductor_session_id") or "") or None)
     run.progress_text, run.pr_text = _progress_text(run), pr_text(pr)
+    run.pr_url, run.pr_number, run.pr_state = (pr or {}).get("url") or "", (pr or {}).get("number"), pr_state(pr)
+    run.links = runmenu.links(run, runmenu.for_run(run, runmenu.has_plan(run, artifacts)))
     return run
 
 

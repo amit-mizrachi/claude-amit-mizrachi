@@ -2,8 +2,8 @@
 
 Every rule the project view shows lives here, not in the web server or the page script:
 - Runs are ranked as on the card (needs-you > blocked > running > paused > latest); a run panel
-  offers Open plan (it has a plan page), Open PR (it has a PR), Open in Terminal (a ticket session
-  of it is still listed by `claude agents`) and Open conductor (its conductor session is known).
+  shows its links after its name (`runmenu.links`: its PR "#733", Open plan, Open conductor) and
+  offers Open in Terminal (a ticket session of it is still listed by `claude agents`).
 - A bg session still listed opens ("Open in Terminal"); an interactive or removed one resumes.
 - Sessions fold into "Everything else" when none is active; PRs, worktrees and artifacts always do.
 - Gone PRs, worktrees and artifacts are left out; gone sessions show greyed, "(removed)".
@@ -25,7 +25,7 @@ import os
 import time
 
 from . import cache, items, model, runstatus, store
-from .runmenu import for_run, has_plan as run_has_plan, live_session, panel_quick
+from .runmenu import for_run, has_plan as run_has_plan, links as run_links, live_session, panel_quick
 from .reconcile import WORKSPACE_KINDS
 from .home import MOVING, _active_children, _progress_text, _stage_bar, clock, pr_text
 from .results import ProjectView, RunGroup, ViewFold, ViewRow, ViewRun, ViewSession, ViewTile
@@ -108,7 +108,8 @@ def view_run(conn, run, arts):
                    terminal_item_id=live, gone=run.gone,
                    can_mark_done=run.status in runstatus.MARKABLE and not run.gone,
                    conductor_item_id=run.conductor_item_id if not run.gone else None,
-                   actions=menu, quick=panel_quick(menu))
+                   actions=menu, quick=panel_quick(menu), pr_url=run.pr_url, pr_number=run.pr_number,
+                   pr_state=run.pr_state, links=run_links(run, menu))
 
 
 def view_tile(sub):

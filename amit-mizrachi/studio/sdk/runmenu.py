@@ -12,19 +12,22 @@ Rules kept here, in menu order:
 - Dismiss, or Restore for a dismissed run (`dismiss_item`, `restore_item`).
 - Throw away...: always last, the one destructive action, confirmed with what would go
   (`throw_away`). Nothing else here removes anything.
-- Besides the menu, some show as buttons (`quick`): on a home line waiting on you, Open conductor
-  beside its Open plan; on a project view panel, every action but Move to... (the menu and drag).
+- Every run line, on home, in the project view and in `status`, shows its links after its name
+  (`links`): its PR ("#733", its state and checks as the tooltip), Open plan (filled on a run
+  waiting on you, quiet otherwise) and Open conductor, each one only when its action applies.
+- Besides the menu and the links, a project view panel shows every other action but Move to...
+  (the menu and drag) as a button too (`quick`); a home line shows none.
 """
 
 from . import items, model, runstatus
 from .actions import run_session
 from .errors import Refused
 from .reconcile import WORKSPACE_KINDS
-from .results import RunAction, RunActions
+from .results import RunAction, RunActions, RunLink
 
 MARKABLE = runstatus.MARKABLE
-HOME_QUICK = {"needs-you": ("open-conductor",)}   # a home line's buttons beside its Open plan, by status
-MENU_ONLY = ("move",)                              # a run panel shows every other action as a button too
+LINKS = ("open-pr", "open-plan", "open-conductor")   # a run line's links after its name, in this order
+MENU_ONLY = ("move",)                                # a run panel shows every other action as a button too
 HINTS = {
     "open-plan": "Open its plan page.",
     "open-pr": "Open its pull request.",
@@ -73,15 +76,47 @@ def for_run(run, has_plan, terminal_item_id=None, dismissed=False):
     return found
 
 
-def home_quick(run, actions):
-    """The ids of `actions` a home line draws as buttons: Open conductor on a line waiting on you."""
-    wanted = HOME_QUICK.get(run.status, ())
-    return [a.id for a in actions if a.id in wanted]
+def pr_label(pr):
+    """A run's PR as its link says it: "#733", or "PR" when its number is not known."""
+    return "#%d" % pr["number"] if pr and pr.get("number") else "PR"
+
+
+def links(run, actions):
+    """The `RunLink`s a line of `run` shows after its name, from `actions` (`for_run`'s list), in
+    `LINKS` order: its PR ("#733", tooltip "PR #733 open - checks green"), Open plan (`primary` on
+    a run waiting on you) and Open conductor, each only when its action is in the list."""
+    by_id = {a.id: a for a in actions}
+    found = []
+    for link_id in LINKS:
+        a = by_id.get(link_id)
+        if not a:
+            continue
+        if link_id == "open-pr":
+            found.append(RunLink(id=a.id, label=pr_label(run.pr), target_id=a.target_id,
+                                 hint=run.pr_text or a.hint, url=run.pr.get("url") or ""))
+        else:
+            found.append(RunLink(id=a.id, label=a.label, target_id=a.target_id, hint=a.hint,
+                                 primary=link_id == "open-plan" and run.status == "needs-you"))
+    return found
+
+
+def pr_links(runs):
+    """A home row's PR line as links: one per PR (by URL) of `runs`, in their order, labelled with its
+    whole text ("PR #738 open - checks running"); open-pr on the run that has it."""
+    found, seen = [], set()
+    for run in runs:
+        url = (run.pr or {}).get("url") or ""
+        if url and run.pr_text and url not in seen:
+            seen.add(url)
+            found.append(RunLink(id="open-pr", label=run.pr_text, target_id=run.item_id, hint=HINTS["open-pr"],
+                                 url=url))
+    return found
 
 
 def panel_quick(actions):
-    """The ids of `actions` a project view run panel draws as buttons: all but Move to...."""
-    return [a.id for a in actions if a.id not in MENU_ONLY]
+    """The ids of `actions` a project view run panel draws as buttons besides its links: all but
+    Move to... and the links."""
+    return [a.id for a in actions if a.id not in MENU_ONLY and a.id not in LINKS]
 
 
 def live_session(conn, run):

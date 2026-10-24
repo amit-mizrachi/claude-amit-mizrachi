@@ -8,7 +8,9 @@ Every rule the home page shows lives here, not in the web server or the page scr
   into "n quiet projects". `order` is the row order; the page keeps it from the load on.
 - A row says its status (its runs rolled up worst first, `runstatus.roll_up`), its night runs in words ("2 blocked, 1 running, 4 done")
   and its last activity ("12 min ago"), then at most 6 of its OWN runs, ranked needs-you >
-  blocked > running > paused > latest change, then "+ n more".
+  blocked > running > paused > latest change, then "+ n more". Every run line carries its links
+  (`runmenu.links`: PR, Open plan, Open conductor), and the row's PR line is a link per PR of the
+  runs it shows (`runmenu.pr_links`).
 - Each active sub-project is a block inside its parent's row, in tree order: glyph, status word,
   its runs in words, "2 inside" for the levels below it, and at most 3 runs of it and everything
   under it, then "+ n more"; a run that lives deeper says where ("in Inner"). Archived
@@ -64,11 +66,18 @@ def clock(stamp):
     return time.strftime("%H:%M", time.localtime(then)) if then else ""
 
 
+def pr_state(pr):
+    """A PR's state as the studio says it: 'draft' for an open draft, else open / merged / closed, '' unknown."""
+    if not pr:
+        return ""
+    return "draft" if pr.get("draft") and pr.get("state") == "open" else (pr.get("state") or "")
+
+
 def pr_text(pr):
     """'PR #4102 draft - 2 checks red', 'PR #4127 open - checks green', 'PR #1182 merged', or ''."""
     if not pr or not pr.get("number"):
         return ""
-    state = "draft" if pr.get("draft") and pr.get("state") == "open" else (pr.get("state") or "")
+    state = pr_state(pr)
     parts = ["PR #%d %s" % (pr["number"], state or "unknown")]
     checks = pr.get("checks") or {}
     if state in ("open", "draft") and checks.get("total"):
@@ -117,9 +126,10 @@ MOVING = ("running", "paused")      # a line says where it is ("T03 of 5"); ever
 
 
 def home_run(run, actions=None):
-    """A run as one card line: glyph, name, status word, reason (or "T03 of 5" while it runs), stage
-    bar, Open plan, and its "..." menu (`actions`, `runmenu.for_run`'s list)."""
-    from .runmenu import home_quick   # runmenu imports this module
+    """A run as one card line: glyph, name, its links (PR, Open plan, Open conductor), status word,
+    reason (or "T03 of 5" while it runs), stage bar, and its "..." menu (`actions`,
+    `runmenu.for_run`'s list, which the links are drawn from)."""
+    from . import runmenu   # runmenu imports this module
     url = run.artifact_url if run.artifact_url.startswith(("https://", "http://")) else ""
     return HomeRun(item_id=run.item_id, title=run.title, status=run.status, glyph=run.glyph, word=run.word,
                    reason=run.reason if run.status not in MOVING else "",
@@ -127,7 +137,8 @@ def home_run(run, actions=None):
                    bar=_stage_bar(run) if run.status != "needs-you" else [],
                    open_plan_url=url if run.status == "needs-you" else "", pr=pr_text(run.pr), gone=run.gone,
                    conductor_item_id=run.conductor_item_id, actions=list(actions or []),
-                   quick=home_quick(run, actions or []))
+                   pr_url=run.pr_url, pr_number=run.pr_number, pr_state=run.pr_state,
+                   links=runmenu.links(run, actions) if actions else list(run.links))
 
 
 def _more_text(hidden):
@@ -234,6 +245,7 @@ def _block(tree, sub, runs, menus):
 
 def _card(tree, pid, runs, rank, now, menus):
     """`pid`'s row; `runs` (ranked) are those of it and everything under it; `menus` each run's actions."""
+    from .runmenu import pr_links   # runmenu imports this module
     project = tree.project(pid)
     own = [r for r in runs if r.project_id == pid]
     blocks = []
@@ -251,7 +263,7 @@ def _card(tree, pid, runs, rank, now, menus):
                     attention=status if status in ("needs-you", "blocked") else "",
                     empty="No night runs yet" if not runs else "", changed_at=changed, status=status,
                     glyph=glyph, word=word, counts=counts, last_activity_at=_iso(then),
-                    last_activity=activity_words(then, now), quiet=quiet)
+                    last_activity=activity_words(then, now), quiet=quiet, prs=pr_links(runs[:MAX_RUNS]))
 
 
 def _cards(conn, now):

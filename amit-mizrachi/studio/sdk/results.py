@@ -320,6 +320,23 @@ class RunStatus:
 
 
 @dataclass
+class RunLink:
+    """One link a night run line shows after its name, on home, in the project view, in `status`
+    (`runmenu.links`, drawn from the run's actions menu): its PR, Open plan, Open conductor, in that
+    order. `id` is the run action it does (open-pr, open-plan, open-conductor) on `target_id`. The
+    PR's `label` is "#733" and its `hint` (the tooltip) its state and checks, "PR #733 open - checks
+    green"; on a home row's PR line the label is that whole text. `primary`: drawn filled (Open plan
+    on a run waiting on you), else a quiet (ghost) button. `url`: the PR's URL, '' for the others."""
+
+    id: str
+    label: str
+    target_id: str
+    hint: str
+    primary: bool = False
+    url: str = ""
+
+
+@dataclass
 class Run:
     """One night run, as a card or a run panel shows it. `status`, `word`, `reason` and `glyph`
     are `runstatus.decide`'s answer, the same on every surface."""
@@ -344,6 +361,10 @@ class Run:
     conductor_item_id: Optional[str] = None   # the session that conducts the run ("Open conductor"), None unknown
     word: str = ""                  # "Waiting on you", "In review", ...: `runstatus.WORDS[status]`
     glyph: str = ""
+    pr_url: str = ""                # its PR's URL, '' with no PR
+    pr_number: Optional[int] = None
+    pr_state: str = ""              # open, draft, merged, closed, '' with no PR (or none known)
+    links: List[RunLink] = field(default_factory=list)   # PR, Open plan, Open conductor (`runmenu.links`)
 
 
 @dataclass
@@ -441,8 +462,9 @@ class RunActions:
 @dataclass
 class HomeRun:
     """One run line on a home card. `glyph` is night-watch's; `bar` has one cell per ticket:
-    d done, r running, b blocked, w waiting on you, '' to do. `open_plan_url` is set only for a run
-    waiting on you that has a plan page."""
+    d done, r running, b blocked, w waiting on you, '' to do. `links` are the buttons after its name
+    (PR, Open plan, Open conductor). `open_plan_url` is set only for a run waiting on you that has a
+    plan page."""
 
     item_id: str
     title: str
@@ -459,7 +481,11 @@ class HomeRun:
     sub_project: str = ""           # its tag: "in Machina decision units", '' for the card's own
     conductor_item_id: Optional[str] = None   # the run's conductor session, None when unknown
     actions: List[RunAction] = field(default_factory=list)   # its "..." menu, `run_actions`'s list
-    quick: List[str] = field(default_factory=list)   # the ids of `actions` drawn as buttons on it too
+    quick: List[str] = field(default_factory=list)   # the ids of `actions` drawn as buttons besides `links`
+    pr_url: str = ""
+    pr_number: Optional[int] = None
+    pr_state: str = ""
+    links: List[RunLink] = field(default_factory=list)   # after its name: PR, Open plan, Open conductor
 
 
 @dataclass
@@ -500,6 +526,8 @@ class HomeCard:
     last_activity_at: str = ""      # ISO 8601 UTC of its newest activity (and its sub-projects'), '' for none
     last_activity: str = ""         # "12 min ago", "no activity yet"
     quiet: bool = False
+    prs: List[RunLink] = field(default_factory=list)   # its PR line as links, one per PR of its shown runs:
+    # label "PR #738 open - checks running", open-pr on the run that has it
 
 
 @dataclass
@@ -587,7 +615,11 @@ class ViewRun:
     can_mark_done: bool = False     # a Blocked or Waiting-on-you run shows "Mark done"
     conductor_item_id: Optional[str] = None
     actions: List[RunAction] = field(default_factory=list)   # its "..." menu, `run_actions`'s list
-    quick: List[str] = field(default_factory=list)   # the ids of `actions` drawn as buttons on it too
+    quick: List[str] = field(default_factory=list)   # the ids of `actions` drawn as buttons besides `links`
+    pr_url: str = ""
+    pr_number: Optional[int] = None
+    pr_state: str = ""
+    links: List[RunLink] = field(default_factory=list)   # after its name: PR, Open plan, Open conductor
 
 
 @dataclass

@@ -105,7 +105,8 @@ class Web(TempHome):
         bar = re.search(r"\.bar\{([^}]*)\}", css).group(1)
         segment = re.search(r"\.bar i\{([^}]*)\}", css).group(1)
         self.assertIn("min-width:0", bar)
-        self.assertIn("minmax(0,1fr)", re.search(r"\.run\{([^}]*)\}", css).group(1))
+        self.assertIn("minmax(min(40%,140px),1fr)", re.search(r"\.run\{([^}]*)\}", css).group(1))   # sprint 3
+        # ticket 02: the name keeps a little room beside its links and wraps in it, never past the cell
         self.assertNotIn("flex:none", bar)
         self.assertIn("width:14px;flex:0 1 auto", segment)
         self.assertIn(".run .st span:not(.bar){flex:none}", css)   # the words keep their width, the bar gives

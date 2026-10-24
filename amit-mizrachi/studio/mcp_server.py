@@ -100,10 +100,26 @@ MOVE_SCHEMA = {
                                 "remove-project (an undone removal)."},
     },
 }
+RUN_LINK_SCHEMA = {
+    "type": "object",
+    "required": ["id", "label", "target_id", "hint", "primary", "url"],
+    "properties": {
+        "id": {"type": "string", "enum": ["open-pr", "open-plan", "open-conductor"],
+               "description": "The run action it does (studio_open with target pr / plan, studio_terminal "
+                              "with target conductor)."},
+        "label": {"type": "string", "description": "\"#733\", \"Open plan\", \"Open conductor\"."},
+        "target_id": {"type": "string", "description": "The item it acts on: the run, or the conductor session."},
+        "hint": {"type": "string", "description": "Its tooltip; for the PR its state and checks: \"PR #733 open - "
+                 "checks green\"."},
+        "primary": {"type": "boolean", "description": "Drawn filled: Open plan on a run waiting on you."},
+        "url": {"type": "string", "description": "The PR's URL; \"\" for the others."},
+    },
+}
 RUN_SCHEMA = {
     "type": "object",
     "required": ["item_id", "kind", "title", "project_id", "status", "reason", "progress", "stage", "stages",
-                 "pr", "artifact_url", "started_at", "updated_at", "gone"],
+                 "pr", "artifact_url", "started_at", "updated_at", "gone", "pr_url", "pr_number", "pr_state",
+                 "links"],
     "properties": {
         "item_id": {"type": "string"},
         "kind": {"type": "string", "enum": ["night-sprint", "night-marathon"]},
@@ -130,6 +146,11 @@ RUN_SCHEMA = {
                         "(reason \"marked done by you\")."},
         "conductor_item_id": dict(NULLABLE_TEXT, description="The session item that conducts the run (set it up, "
                                   "watches its runner); studio_terminal with target conductor opens it. null: unknown."),
+        "pr_url": {"type": "string", "description": "Its PR's URL (studio_open target pr opens it), \"\" with none."},
+        "pr_number": {"type": ["integer", "null"]},
+        "pr_state": {"type": "string", "description": "open, draft, merged or closed; \"\" with no PR known."},
+        "links": {"type": "array", "items": RUN_LINK_SCHEMA, "description": "What its line shows after its name, "
+                  "the same on home and in the project view: its PR, Open plan, Open conductor, each when it applies."},
     },
 }
 GROUP_SCHEMA = {
@@ -322,7 +343,8 @@ TOOLS = [
         "description": (
             "A project's night runs (each with its one status - Waiting on you, Blocked, Running, Paused, In "
             "review, Merged, Done - as `status`/`word` and a short `reason` like \"merge conflict with main: "
-            "merge origin/main\", progress like \"T03 of 5\", stage, PR state, plan artifact) ranked "
+            "merge origin/main\", progress like \"T03 of 5\", stage, PR state and `pr_url`, plan artifact, and "
+            "`links`, what its line shows after its name: its PR, Open plan, Open conductor) ranked "
             "needs-you > blocked > running > latest, plus its sessions, PRs, "
             "worktrees and artifacts, rolled up over its sub-projects, and each source's state (a "
             "failed source keeps its last-good data and shows its error). `groups` holds the runs again by "
