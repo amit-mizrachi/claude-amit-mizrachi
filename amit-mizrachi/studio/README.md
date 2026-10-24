@@ -43,9 +43,11 @@ every command, its options and an example.
 | `create` | `project-studio create Docs --under Alpha` | a new project, top-level or under another |
 | `rename` | `project-studio rename Docs 'Docs site'` | a new name |
 | `archive` | `project-studio archive 'Old work'` | archive a project and everything under it |
+| `unarchive` | `project-studio unarchive p_1a2b3c` | bring an archived project back (by id or id prefix; `list --all` shows them), with the sub-projects archived with it; refused inside a still-archived project or when an active sibling now has its name |
 | `delete` | `project-studio delete Scratch --yes` | delete an EMPTY project; without `--yes` it says what it would delete |
 | `nest` | `project-studio nest Docs --under Beta` | a new parent (`--under`), or the top level (`--top`) |
 | `link` | `project-studio link Alpha Beta` | link two projects |
+| `unlink` | `project-studio unlink Alpha Beta` | remove the link between two projects; not linked changes nothing |
 | `add` | `project-studio add artifact https://claude.ai/artifact/abc Alpha` | file a session, folder, URL, file or PR by hand |
 | `file` | `project-studio file i_1a2b3c4d Alpha` | move an item into a project |
 | `undo` | `project-studio undo 42` | put back what a move did |
@@ -104,7 +106,9 @@ the Inbox and the counts, and deletes nothing; it waits in the **Dismissed** fol
 the project view, where **Restore** shows it again. **Mark done** on a Blocked or Waiting-on-you
 run panel says the run is done when its files froze on a stale word (a BLOCKED fixed by hand, an
 early "CI red"): it shows Done, "marked done by you", everywhere, until the run's files change
-again; Undo takes the mark back. Light and dark mode follow
+again; Undo takes the mark back. **Show archived** under the cards lists every archived project
+with **Unarchive** (an archived project's view has the button too), and the **x** after a name on
+the project view's "Linked: ..." line unlinks it. Light and dark mode follow
 the OS, with a manual toggle. The studio never stops, kills or removes a session.
 
 It stops by itself after 30 minutes with no open page (`PROJECT_STUDIO_IDLE` seconds). It
@@ -126,11 +130,13 @@ Each tool is one SDK call:
 | `studio_add` | `api.add_item(kind, key, project_id, title)` | writes |
 | `studio_move` | `api.move(id, to_project_id, expected_revision=revision)` | writes; an item (`i_...`) or a project (`p_...`) |
 | `studio_link` | `api.link_projects(a_id, b_id)` | writes |
+| `studio_unlink` | `api.unlink_projects(a_id, b_id)` | writes; `removed` False when they were not linked |
 | `studio_remove` | `api.remove_item(item_id)` | writes; back to the Inbox, never deletes the thing |
 | `studio_dismiss` | `api.dismiss_item(item_id)` | writes; hides an item (a run with its attached items) from every list, never deletes anything |
 | `studio_restore` | `api.restore_item(item_id)` | writes; shows a dismissed item again |
 | `studio_mark_done` | `api.mark_done(item_id)` | writes; a night run shows Done, "marked done by you", until its files change; other kinds refused |
 | `studio_archive` | `api.archive_project(project_id)` | writes |
+| `studio_unarchive` | `api.unarchive_project(project_id)` | writes; with the sub-projects archived with it |
 | `studio_rename` | `api.rename_project(project_id, name)` | writes |
 | `studio_delete` | `api.delete_project_guarded(project_id, confirmed)` | destructive; an empty project only. Without `confirmed` true it changes nothing and says what it would delete (`needs_confirm`) |
 | `studio_undo` | `api.undo_move(move_id)` | writes; puts back what a move, add, accept, remove, dismiss, restore or mark-done did |

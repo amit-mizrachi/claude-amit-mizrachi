@@ -342,6 +342,39 @@
     }).catch(fail);
   }
 
+  function unarchive(id, name, btn) {
+    if (btn) { btn.disabled = true; }
+    post("/api/unarchive", { project_id: id }).then(function () {
+      return reload().then(function () {
+        toast("Unarchived " + name, null, false, false);
+        if (current) { return loadView(current); }
+      });
+    }).catch(function (err) { if (btn) { btn.disabled = false; } fail(err); });
+  }
+
+  function unlink(v, link, btn) {
+    btn.disabled = true;
+    post("/api/unlink", { project_id: v.project.id, other_id: link.id }).then(function () {
+      toast("Unlinked " + link.name, null, false, false);
+      return loadView(v.project.id);
+    }).catch(function (err) { btn.disabled = false; fail(err); });
+  }
+
+  // "Linked: A x, B x": each name opens that project, its x removes the link.
+  function linkedLine(v) {
+    if (!v.links || !v.links.length) { return v.linked ? el("span", "m", v.linked) : null; }
+    var node = el("span", "m linked", "Linked: ");
+    v.links.forEach(function (link, i) {
+      var name = el("a", null, link.name);
+      name.href = "#/p/" + encodeURIComponent(link.id);
+      var x = button("\u00d7", "ghost x", function (b) { unlink(v, link, b); });
+      x.title = "Unlink " + link.name;
+      x.setAttribute("aria-label", "Unlink " + link.name);
+      add(node, i ? document.createTextNode(", ") : null, name, x);
+    });
+    return node;
+  }
+
   function moreMenu(v) {
     var more = button("\u22ef", "ghost", function () { togglePop("more"); });
     more.title = "More";
@@ -369,9 +402,10 @@
 
   function header(v) {
     var p = v.project;
-    var h = add(el("div", "h"), el("h1", null, p.name), v.linked ? el("span", "m", v.linked) : null,
+    var h = add(el("div", "h"), el("h1", null, p.name), linkedLine(v),
       p.archived_at ? el("span", "m", "Archived") : null, el("span", "grow"));
     if (!p.is_inbox && !p.archived_at) { add(h, linkMenu(v), moreMenu(v)); }
+    if (p.archived_at) { h.appendChild(button("Unarchive", null, function (b) { unarchive(p.id, p.name, b); })); }
     return h;
   }
 
@@ -837,7 +871,25 @@
 
   // ------------------------------------------------------------------ the page
 
+  var showArchived = false;   // the home page's "Show archived" list is open
+  var lastState = null;
+
+  function archivedList(s) {
+    var wrap = el("div", "archived");
+    var label = (showArchived ? "Hide archived" : "Show archived") + " (" + s.archived.length + ")";
+    wrap.appendChild(button(label, "ghost", function () { showArchived = !showArchived; render(lastState); }));
+    if (!showArchived) { return wrap; }
+    s.archived.forEach(function (a) {
+      var name = el("a", "t", a.name);
+      name.href = "#/p/" + encodeURIComponent(a.id);
+      wrap.appendChild(add(el("div", "row plain"), name, el("span", "age", "archived " + a.archived_at.slice(0, 10)),
+        button("Unarchive", null, function (b) { unarchive(a.id, a.name, b); })));
+    });
+    return wrap;
+  }
+
   function render(s) {
+    lastState = s;
     $("caption").textContent = s.caption;
     $("age").textContent = s.source_age;
     $("inbox-count").textContent = String(s.inbox_count);
@@ -856,6 +908,7 @@
       s.cards.forEach(function (c) { grid.appendChild(card(c)); });
       body.appendChild(grid);
     }
+    if (!s.loading && s.archived && s.archived.length) { body.appendChild(archivedList(s)); }
   }
 
   function live(on) {

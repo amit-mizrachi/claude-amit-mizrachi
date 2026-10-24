@@ -323,6 +323,19 @@ TOOLS = [
                         "idempotentHint": True, "openWorldHint": False},
     },
     {
+        "name": "studio_unlink",
+        "title": "Unlink two projects",
+        "description": ("Remove the link between two projects (either order). removed is false, and "
+                        "nothing changes, when they were not linked."),
+        "inputSchema": {"type": "object", "required": ["a_id", "b_id"], "additionalProperties": False,
+                        "properties": {"a_id": PROJECT_ID, "b_id": PROJECT_ID}},
+        "outputSchema": {"type": "object", "required": ["a_id", "b_id", "removed"],
+                         "properties": {"a_id": {"type": "string"}, "b_id": {"type": "string"},
+                                        "removed": {"type": "boolean"}}},
+        "annotations": {"title": "Unlink two projects", "readOnlyHint": False, "destructiveHint": False,
+                        "idempotentHint": True, "openWorldHint": False},
+    },
+    {
         "name": "studio_remove",
         "title": "Remove an item from its project",
         "description": (
@@ -394,6 +407,21 @@ TOOLS = [
                         "properties": {"project_id": PROJECT_ID}},
         "outputSchema": PROJECT_SCHEMA,
         "annotations": {"title": "Archive a project", "readOnlyHint": False, "destructiveHint": False,
+                        "idempotentHint": True, "openWorldHint": False},
+    },
+    {
+        "name": "studio_unarchive",
+        "title": "Unarchive a project",
+        "description": (
+            "Bring an archived project back to the lists, with the sub-projects archived with it (one "
+            "archived on its own before stays archived). Unarchiving an active project changes nothing. "
+            "Refused inside a project that is still archived, and when an active sibling now has its "
+            "name (any case). studio_list with include_archived true shows archived projects' ids."
+        ),
+        "inputSchema": {"type": "object", "required": ["project_id"], "additionalProperties": False,
+                        "properties": {"project_id": PROJECT_ID}},
+        "outputSchema": PROJECT_SCHEMA,
+        "annotations": {"title": "Unarchive a project", "readOnlyHint": False, "destructiveHint": False,
                         "idempotentHint": True, "openWorldHint": False},
     },
     {
@@ -600,6 +628,10 @@ def tool_link(args):
     return api.link_projects(args["a_id"], args["b_id"])
 
 
+def tool_unlink(args):
+    return api.unlink_projects(args["a_id"], args["b_id"])
+
+
 def tool_remove(args):
     return api.remove_item(args["item_id"])
 
@@ -618,6 +650,10 @@ def tool_mark_done(args):
 
 def tool_archive(args):
     return api.archive_project(args["project_id"])
+
+
+def tool_unarchive(args):
+    return api.unarchive_project(args["project_id"])
 
 
 def tool_rename(args):
@@ -668,11 +704,13 @@ HANDLERS = {
     "studio_add": tool_add,
     "studio_move": tool_move,
     "studio_link": tool_link,
+    "studio_unlink": tool_unlink,
     "studio_remove": tool_remove,
     "studio_dismiss": tool_dismiss,
     "studio_restore": tool_restore,
     "studio_mark_done": tool_mark_done,
     "studio_archive": tool_archive,
+    "studio_unarchive": tool_unarchive,
     "studio_rename": tool_rename,
     "studio_delete": tool_delete,
     "studio_undo": tool_undo,
@@ -757,8 +795,8 @@ def handle(req):
                 "item with one home project. studio_list lists projects, studio_status shows a "
                 "project's night runs and items, studio_find finds items, studio_inbox lists unfiled items "
                 "with a suggestion each. studio_create / studio_rename / studio_add / studio_move / "
-                "studio_accept / studio_link / studio_remove / studio_archive / studio_delete change the "
-                "tree; studio_dismiss hides an item (a night run with its attached items) from every list "
+                "studio_accept / studio_link / studio_unlink / studio_remove / studio_archive / "
+                "studio_unarchive / studio_delete change the tree; studio_dismiss hides an item (a night run with its attached items) from every list "
                 "without deleting anything, studio_restore shows it again; studio_mark_done marks a night run "
                 "whose state files froze on a stale word done; studio_undo takes a move_id back; "
                 "studio_rules / studio_rule_save / "

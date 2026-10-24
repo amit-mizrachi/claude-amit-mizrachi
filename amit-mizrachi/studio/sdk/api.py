@@ -24,7 +24,7 @@ from .errors import InvalidInput, Refused
 from .results import (AttachResult, DeleteRequest, DeleteResult, Export, HomeState, InboxList, InboxView, Item, ItemList,
                       LinkResult, MoveChoices, MoveResult, OpenResult, Project, ProjectList, ProjectStatus, ProjectView,
                       PurgeResult, RefreshResult, Rule, RuleList, Settings, StudioServer, TerminalCommand,
-                      TerminalOpen)
+                      TerminalOpen, UnlinkResult)
 
 MAX_LIST_LIMIT = 1000
 
@@ -141,6 +141,16 @@ def link_projects(a_id: str, b_id: str) -> LinkResult:
     return LinkResult(a_id=lo, b_id=hi, created=created)
 
 
+def unlink_projects(a_id: str, b_id: str) -> UnlinkResult:
+    """Remove the link between two projects (either order). `removed` is False, and nothing
+    changes, when they were not linked. NotFound when either project does not exist.
+    """
+    with store.write() as conn:
+        removed = model.unlink_projects(conn, a_id, b_id)
+    lo, hi = sorted((a_id, b_id))
+    return UnlinkResult(a_id=lo, b_id=hi, removed=removed)
+
+
 def archive_project(project_id: str) -> Project:
     """Archive a project: it and everything under it leave the lists and get no new auto-attached items.
 
@@ -148,6 +158,18 @@ def archive_project(project_id: str) -> Project:
     """
     with store.write() as conn:
         model.archive_project(conn, project_id)
+        return model.Tree(conn).project(project_id)
+
+
+def unarchive_project(project_id: str) -> Project:
+    """Bring an archived project back to the lists, with the sub-projects that were archived with it
+    (one archived on its own before stays archived). Unarchiving an active project changes nothing.
+
+    Refused when it is inside a project that is still archived ("Unarchive Old first.") and when an
+    active sibling now has its name, ignoring case ("Rename one of them first.").
+    """
+    with store.write() as conn:
+        model.unarchive_project(conn, project_id)
         return model.Tree(conn).project(project_id)
 
 
@@ -458,7 +480,8 @@ def home(refresh: bool = False) -> HomeState:
     sub-project's run tagged "in <sub-project>"; "+ n earlier runs"; the newest PR state), cards ordered needs-you, blocked, running, then latest change; plus the
     Inbox count (items active in the last 14 days), the PR source age, a banner per failed source
     (last-good states kept), `first_run` when there is no project, and `reading` / `reading_text`
-    naming the sources still being read ("Still reading PRs..."). It answers from what the store
+    naming the sources still being read ("Still reading PRs..."), and `archived`, every archived
+    project for the page's "Show archived" list. It answers from what the store
     holds and never waits for a slow source: `refresh` True reads only the due fast ones first.
     """
     _maybe_refresh(refresh, slow=False)
@@ -490,7 +513,8 @@ def stop_studio() -> StudioServer:
 # ---------------------------------------------------------------- the project view and open actions (ticket 05)
 
 def project_view(project_id: str, refresh: bool = False) -> ProjectView:
-    """The studio's project view: breadcrumb, "Linked: ..." text, the projects "Link..." can offer,
+    """The studio's project view: breadcrumb, "Linked: ..." text and its `links` (each unlinkable), the
+    projects "Link..." can offer,
     sub-project tiles ("1 run done", "no runs"), run panels (which of Open plan, Open PR and Open in
     Terminal apply), session rows (bg live "working - 2 min", bg done "finished - 3 h", interactive
     "last active 1 d", gone "(removed)"), and the "Everything else" folds (PRs, worktrees, artifacts,

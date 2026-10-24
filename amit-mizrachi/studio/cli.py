@@ -185,6 +185,12 @@ def text_link(result):
     return ["%s %s and %s." % ("Linked" if result.created else "Already linked:", result.a_id, result.b_id)]
 
 
+def text_unlink(result):
+    if result.removed:
+        return ["Unlinked %s and %s." % (result.a_id, result.b_id)]
+    return ["Not linked: %s and %s. Nothing changed." % (result.a_id, result.b_id)]
+
+
 def text_move(result):
     """The toast, then the move id and the command that undoes it; a filing adds the rule it could save.
     An item `add` created is not a move (it had no home before), so it names `remove` instead."""
@@ -369,6 +375,11 @@ def setup_link(parser):
     add_project_arg(parser, "b")
 
 
+def setup_unarchive(parser):
+    parser.add_argument("project", help="the archived project's id or unique id prefix (4+ characters; "
+                                        "`list --all` shows them)")
+
+
 def setup_add(parser):
     parser.add_argument("kind", choices=store.ITEM_KINDS, help="the item's kind")
     parser.add_argument("key", help="its stable id: session UUID, folder path, https URL or file, owner/repo#n")
@@ -459,6 +470,9 @@ COMMANDS = [
     Command("archive", "Archive a project and everything under it.", "project-studio archive 'Old work'",
             lambda p: add_project_arg(p), lambda a: api.archive_project(project_ref(a.project)),
             text_project("Archived")),
+    Command("unarchive", "Bring an archived project back, with the sub-projects archived with it.",
+            "project-studio unarchive p_1a2b3c", setup_unarchive,
+            lambda a: api.unarchive_project(project_ref(a.project)), text_project("Unarchived")),
     Command("delete", "Delete an EMPTY project for good. Needs --yes; without it, says what it would delete.",
             "project-studio delete Scratch --yes", setup_delete, run_delete, text_delete),
     Command("nest", "Move a project under another (--under) or to the top level (--top). Undoable.",
@@ -466,6 +480,9 @@ COMMANDS = [
             lambda a: api.move(project_ref(a.project), None if a.top else project_ref(a.under)), text_move),
     Command("link", "Link two projects.", "project-studio link Alpha Beta", setup_link,
             lambda a: api.link_projects(project_ref(a.a), project_ref(a.b)), text_link),
+    Command("unlink", "Remove the link between two projects. Not linked: changes nothing.",
+            "project-studio unlink Alpha Beta", setup_link,
+            lambda a: api.unlink_projects(project_ref(a.a), project_ref(a.b)), text_unlink),
     Command("add", "File an item into a project by hand: a session, folder, URL, file or PR. Undoable.",
             "project-studio add artifact https://claude.ai/artifact/abc Alpha", setup_add,
             lambda a: api.add_item(a.kind, a.key, project_ref(a.project), a.title), text_move),

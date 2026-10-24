@@ -47,6 +47,15 @@ class LinkResult:
 
 
 @dataclass
+class UnlinkResult:
+    """What `unlink_projects` did. `removed` is False when the two were not linked (nothing changed)."""
+
+    a_id: str
+    b_id: str
+    removed: bool
+
+
+@dataclass
 class DeleteResult:
     """The project that `delete_project` removed."""
 
@@ -349,6 +358,8 @@ class HomeState:
     reading: List[str]
     reading_text: str
     generated_at: str
+    archived: List[Dict[str, str]] = field(default_factory=list)   # [{"id", "name", "archived_at"}]: each
+    # archived project ("Alpha / Old"), in tree order, for the page's "Show archived" list and its Unarchive
 
 
 @dataclass
@@ -452,6 +463,8 @@ class ProjectView:
     generated_at: str
     rules: List[Rule] = field(default_factory=list)   # this project's attach rules, each deletable
     dismissed: Optional[ViewFold] = None   # the "Dismissed" fold at the bottom (rows: Restore), None when empty
+    links: List[Dict[str, str]] = field(default_factory=list)   # [{"id", "name"}]: the projects "Linked: ..."
+    # names, in its order, each with an unlink control on the page
 
 
 # ---------------------------------------------------------------- the Inbox drawer and the picker (ticket 06)

@@ -72,6 +72,9 @@ body{margin:0;font:var(--font-size-2)/var(--line-height-2) var(--font);color:var
 .crumb{color:var(--text-2);font-size:var(--font-size-1);margin-bottom:var(--space-1)}
 .crumb a{color:inherit;text-decoration:none}.crumb a:hover{color:var(--text);text-decoration:underline}
 .h .grow{flex:1}.h .menu{position:relative}
+.h .linked a{color:inherit}.h .linked a:hover{color:var(--text)}
+.btn.x{padding:0 4px;min-height:0;line-height:1;font-size:var(--font-size-1)}
+.archived{margin-top:var(--space-5)}.archived .row{max-width:640px}.archived a{color:var(--text);text-decoration:none}.archived a:hover{text-decoration:underline}
 .pop{position:absolute;right:0;top:calc(100% + 4px);z-index:5;min-width:180px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-3);padding:var(--space-1);display:flex;flex-direction:column;gap:2px;box-shadow:0 4px 16px rgba(0,0,0,.18)}
 .pop .btn{justify-content:flex-start;border-color:transparent;background:none}.pop .btn:hover{background:var(--bg-ui)}
 .pop select{font:inherit;font-size:var(--font-size-1);color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-2);padding:3px 6px;margin-bottom:var(--space-1)}

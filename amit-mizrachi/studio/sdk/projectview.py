@@ -236,11 +236,13 @@ def dismissed_fold(found, now):
 
 def _header(conn, tree, project):
     crumbs = [{"id": pid, "name": tree.rows[pid]["name"]} for pid in reversed(tree.ancestors(project.id))]
-    linked = [tree.rows[pid]["name"] for pid in project.linked_ids if not tree.hidden(pid)]
+    links = sorted(({"id": pid, "name": tree.rows[pid]["name"]} for pid in project.linked_ids if not tree.hidden(pid)),
+                   key=lambda link: (link["name"].lower(), link["id"]))
     taken = set(project.linked_ids) | {project.id, store.INBOX_ID}
     choices = [{"id": p.id, "name": " / ".join(p.path)} for p in model.list_projects(conn, None, False, False)
                if p.id not in taken]
-    return crumbs, "Linked: %s" % ", ".join(sorted(linked, key=str.lower)) if linked else "", choices
+    linked = "Linked: %s" % ", ".join(link["name"] for link in links) if links else ""
+    return crumbs, linked, choices, links
 
 
 def state(conn, project_id, now=None):
@@ -248,7 +250,7 @@ def state(conn, project_id, now=None):
     now = time.time() if now is None else now
     project, runs, sessions, prs, trees, arts, subs, _ = items.status(conn, project_id)
     tree = model.Tree(conn)
-    crumbs, linked, choices = _header(conn, tree, project)
+    crumbs, linked, choices, links = _header(conn, tree, project)
     rows = [view_session(s, now) for s in sessions]
     folded = not any(r.status == "running" for r in rows)
     live_cwds = [s.data.get("cwd") or "" for s, r in zip(sessions, rows) if r.status == "running"]
@@ -258,4 +260,4 @@ def state(conn, project_id, now=None):
                        inside=[view_tile(s) for s in subs], runs=[view_run(conn, r, arts) for r in runs],
                        sessions=rows, sessions_folded=folded, folds=folds(rows, folded, prs, trees, arts, live_cwds),
                        generated_at=store.now_iso(), rules=items.list_rules(conn, project.id),
-                       dismissed=dismissed_fold(items.dismissed(conn, project.id), now))
+                       dismissed=dismissed_fold(items.dismissed(conn, project.id), now), links=links)

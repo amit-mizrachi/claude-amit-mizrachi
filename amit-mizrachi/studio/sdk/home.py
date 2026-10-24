@@ -234,6 +234,14 @@ def _first_run_text(counts):
     return "%s %s waiting in the Inbox. Make a project, then drag them onto it." % (" and ".join(parts), verb)
 
 
+def archived(conn):
+    """Every archived project as {"id", "name" (its path, "Alpha / Old"), "archived_at"}, in tree order.
+    One archived under another is listed too: unarchiving it says to unarchive the outer one first."""
+    tree = model.Tree(conn)
+    found = sorted((tree.project(pid) for pid, row in tree.rows.items() if row["archived_at"]), key=model.order_key)
+    return [{"id": p.id, "name": " / ".join(p.path), "archived_at": p.archived_at} for p in found]
+
+
 def state(conn, now=None, reading=()):
     """The whole home page as one HomeState (what `GET /state` and every SSE event carry).
     `reading` names the sources being read right now (`refresh.reading()`). `loading` is False:
@@ -249,4 +257,4 @@ def state(conn, now=None, reading=()):
                      source_age="PRs %s" % ago(prs_at, now) if prs_at else "",
                      loading=False, first_run=not cards, first_run_text=_first_run_text(counts),
                      banners=banners, reading=list(reading), reading_text=reading_text(reading),
-                     generated_at=store.now_iso())
+                     generated_at=store.now_iso(), archived=archived(conn))

@@ -8,6 +8,8 @@ the transactions. Rules kept here:
   linked, or hold sub-projects.
 - Only an empty project (no sub-projects, no items) can be deleted; otherwise archive it.
 - An archived project, and everything under it, is hidden from lists unless asked for.
+  Unarchiving clears only that project's own `archived_at`, so what was archived on its own
+  before stays archived.
 """
 
 import json
@@ -239,6 +241,35 @@ def archive_project(conn, project_id):
         return
     stamp = store.now_iso()
     conn.execute("UPDATE projects SET archived_at = ?, updated_at = ? WHERE id = ?", (stamp, stamp, project_id))
+
+
+def unarchive_project(conn, project_id):
+    """Bring an archived project back with what was archived with it: only its own `archived_at` is
+    cleared, so a sub-project archived on its own before stays archived. Returns True when it changed."""
+    tree = Tree(conn)
+    row = tree.row(project_id)
+    if not row["archived_at"]:
+        return False
+    archived = [p for p in tree.ancestors(project_id) if tree.rows[p]["archived_at"]]
+    if archived:
+        parent = tree.rows[archived[0]]["name"]
+        raise Refused("Can't unarchive %s: it is inside %s, which is archived. Unarchive %s first."
+                      % (row["name"], parent, parent))
+    twin = tree.sibling_named(row["parent_id"], row["name"], skip=project_id)
+    if twin:
+        raise Refused("Can't unarchive %s: an active project named %s already exists there. Rename one of them first."
+                      % (row["name"], twin["name"]))
+    conn.execute("UPDATE projects SET archived_at = NULL, updated_at = ? WHERE id = ?", (store.now_iso(), project_id))
+    return True
+
+
+def unlink_projects(conn, a_id, b_id):
+    """Remove the link between two projects. Returns True when there was one."""
+    tree = Tree(conn)
+    tree.row(a_id)
+    tree.row(b_id)
+    lo, hi = sorted((a_id, b_id))
+    return conn.execute("DELETE FROM links WHERE a_id = ? AND b_id = ?", (lo, hi)).rowcount == 1
 
 
 def delete_plan(conn, project_id):
