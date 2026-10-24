@@ -23,8 +23,8 @@ Output and exit codes, the same for every command:
   2 on a usage error (argparse prints the usage on stderr), and when a command that needs `--yes`
   did not get it (`delete`; `terminal` without a tty): the message says what it would have done,
   code `confirm_needed`, on stderr or as `--json` error.
-- A move (`file`, `add`, `accept`, `nest`, `remove`, `undo`) prints its move id and the `undo`
-  command. `command <item>` prints only the command, so `$(project-studio command <item>)` works.
+- A move (`file`, `add`, `accept`, `nest`, `remove`, `dismiss`, `restore`, `undo`) prints its move
+  id and the `undo` command. `command <item>` prints only the command, so `$(project-studio command <item>)` works.
 - `project-studio` alone is `open`, and `open | status | stop` print what they printed before.
 
 Zero dependencies. Python 3.9+. Data in `$PROJECT_STUDIO_HOME`, default `~/.project-studio`.
@@ -120,6 +120,10 @@ def text_view(view):
             title = "%s %d - %s" % (fold.label, fold.count, fold.summary) if fold.summary else fold.label
             body += section(title, [[short(r.item_id), r.title, r.text] for r in fold.rows])
     body += section("Rules", [[r.id, r.description] for r in view.rules])
+    if view.dismissed:
+        fold = view.dismissed
+        body += section("%s %d - %s (restore: %s restore <item>)" % (fold.label, fold.count, fold.summary, PROG),
+                        [[short(r.item_id), r.title, r.text] for r in fold.rows])
     return head + (body or ["", "Nothing filed here yet."])
 
 
@@ -144,8 +148,8 @@ def text_status(result):
 
 
 def text_find(result):
-    rows = [[short(i.id), i.kind, i.status or "-", path(i.project_path), i.title + (" (gone)" if i.gone else "")]
-            for i in result.items]
+    rows = [[short(i.id), i.kind, i.status or "-", path(i.project_path),
+             i.title + (" (gone)" if i.gone else "") + (" (dismissed)" if i.dismissed else "")] for i in result.items]
     return (table(rows) or ["No items match."]) + cut(len(result.items), result.total)
 
 
@@ -189,8 +193,9 @@ def text_move(result):
                 "A new item, so there is no move to undo. Take it out: %s remove %s" % (PROG, result.item.id)]
     lines = [result.message or "Nothing moved."]
     if result.followed:
-        lines.append("%d attached item%s moved with it." % (len(result.followed), "" if len(result.followed) == 1
-                                                           else "s"))
+        verb = {"dismiss": "dismissed", "restore": "restored"}.get(result.kind, "moved")
+        lines.append("%d attached item%s %s with it." % (len(result.followed), "" if len(result.followed) == 1
+                                                        else "s", verb))
     if result.move_id is not None:
         lines.append("Move %d. Undo: %s undo %d" % (result.move_id, PROG, result.move_id))
         if result.rule_preview:
@@ -295,6 +300,7 @@ def setup_find(parser):
     parser.add_argument("--kind", choices=store.ITEM_KINDS, help="keep one kind")
     parser.add_argument("--project", help="keep items in this project or under it")
     parser.add_argument("--gone", action="store_true", help="include gone items")
+    parser.add_argument("--dismissed", action="store_true", help="include dismissed items (marked, listed last)")
     add_limit(parser, LIST_LIMIT)
     add_no_refresh(parser)
 
@@ -437,7 +443,8 @@ COMMANDS = [
             lambda a: api.project_view(project_ref(a.project), refresh=a.refresh), text_view),
     Command("find", "List items that match, newest activity first.", "project-studio find alpha --kind session-bg",
             setup_find, lambda a: api.find_items(query=a.query, kind=a.kind, project_id=project_ref(a.project),
-                                                 include_gone=a.gone, limit=a.limit, refresh=not a.no_refresh),
+                                                 include_gone=a.gone, limit=a.limit, refresh=not a.no_refresh,
+                                                 include_dismissed=a.dismissed),
             text_find),
     Command("inbox", "List unfiled items, newest first, with the suggested project.", "project-studio inbox --limit 20",
             setup_inbox, lambda a: api.inbox(limit=a.limit, refresh=not a.no_refresh), text_inbox),
@@ -465,11 +472,18 @@ COMMANDS = [
     Command("file", "Move an item into a project by hand. Prints the move id for undo and rule-save.",
             "project-studio file i_1a2b3c4d Alpha", setup_file,
             lambda a: api.move_item(item_ref(a.item), project_ref(a.project), a.revision), text_move),
-    Command("undo", "Put back what a move (file, add, accept, nest, remove) did.", "project-studio undo 42",
+    Command("undo", "Put back what a move (file, add, accept, nest, remove, dismiss, restore) did.",
+            "project-studio undo 42",
             add_move_id, lambda a: api.undo_move(a.move_id), text_move),
     Command("remove", "Take an item out of its project, back to the Inbox. It deletes nothing.",
             "project-studio remove i_1a2b3c4d", lambda p: add_item_arg(p),
             lambda a: api.remove_item(item_ref(a.item)), text_move),
+    Command("dismiss", "Hide an item (a night run with its sessions, PRs, worktrees) from every list. "
+            "Deletes nothing. Undoable.", "project-studio dismiss i_1a2b3c4d", lambda p: add_item_arg(p),
+            lambda a: api.dismiss_item(item_ref(a.item)), text_move),
+    Command("restore", "Show a dismissed item again (find --dismissed lists them). Undoable.",
+            "project-studio restore i_1a2b3c4d", lambda p: add_item_arg(p),
+            lambda a: api.restore_item(item_ref(a.item)), text_move),
     Command("accept", "File an Inbox item into its suggested project. Undoable.", "project-studio accept i_1a2b3c4d",
             lambda p: add_item_arg(p), lambda a: api.accept_suggestion(item_ref(a.item)), text_move),
     Command("rule-save", "Always file items like this here: save a rule from a filing's move id.",

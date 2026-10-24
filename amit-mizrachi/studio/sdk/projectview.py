@@ -8,6 +8,8 @@ Every rule the project view shows lives here, not in the web server or the page 
 - Sessions fold into "Everything else" when none is active; PRs, worktrees and artifacts always do.
 - Gone PRs, worktrees and artifacts are left out; gone sessions show greyed, "(removed)".
 - The project's own attach rules are listed, strongest signal first, each one deletable.
+- Dismissed items leave every list above and fold into "Dismissed" at the bottom, each row with
+  Restore; a run's attached items went with it, so they show here too.
 """
 
 import os
@@ -122,7 +124,8 @@ def run_lines(conn, project_ids):
     tree = model.Tree(conn)
     marks = ",".join("?" * len(WORKSPACE_KINDS))
     every = [items.to_run(items.to_item(dict(r), tree), [], [])
-             for r in conn.execute("SELECT * FROM items WHERE kind IN (%s)" % marks, WORKSPACE_KINDS)]
+             for r in conn.execute("SELECT * FROM items WHERE dismissed_at IS NULL AND kind IN (%s)" % marks,
+                                   WORKSPACE_KINDS)]
     lines = {}
     for pid in project_ids:
         if pid == store.INBOX_ID:
@@ -199,6 +202,33 @@ def folds(sessions, folded, prs, trees, arts, live_cwds):
     return out
 
 
+DISMISSED_WORDS = {"session-bg": ("session", "sessions"), "session-interactive": ("session", "sessions"),
+                   "night-sprint": ("night run", "night runs"), "night-marathon": ("night run", "night runs"),
+                   "pr": ("PR", "PRs"), "worktree": ("worktree", "worktrees"), "artifact": ("artifact", "artifacts")}
+
+
+def _dismissed_when(stamp, now):
+    """'dismissed just now', 'dismissed 2 h ago', or 'dismissed' when the stamp is unknown."""
+    when = span(stamp, now)
+    return "dismissed" if not when else "dismissed just now" if when == "just now" else "dismissed %s ago" % when
+
+
+def dismissed_fold(found, now):
+    """The "Dismissed" fold: "Dismissed 3 - 1 night run, 2 sessions", a Restore per row; None when empty."""
+    if not found:
+        return None
+    words = [DISMISSED_WORDS.get(i.kind, (i.kind, i.kind))[0] for i in found]
+    order = []
+    for w in words:
+        if w not in order:
+            order.append(w)
+    plural = {one: many for one, many in DISMISSED_WORDS.values()}
+    summary = ", ".join("%d %s" % (words.count(w), w if words.count(w) == 1 else plural.get(w, w)) for w in order)
+    rows = [ViewRow(item_id=i.id, title=i.title, text=_join(words[n], _dismissed_when(i.dismissed_at, now)),
+                    action="Restore") for n, i in enumerate(found)]
+    return ViewFold(kind="dismissed", label="Dismissed", count=len(found), summary=summary, rows=rows)
+
+
 # ---------------------------------------------------------------- the page
 
 def _header(conn, tree, project):
@@ -224,4 +254,5 @@ def state(conn, project_id, now=None):
     return ProjectView(project=project, crumbs=crumbs, linked=linked, link_choices=choices,
                        inside=[view_tile(s) for s in subs], runs=[view_run(conn, r, arts) for r in runs],
                        sessions=rows, sessions_folded=folded, folds=folds(rows, folded, prs, trees, arts, live_cwds),
-                       generated_at=store.now_iso(), rules=items.list_rules(conn, project.id))
+                       generated_at=store.now_iso(), rules=items.list_rules(conn, project.id),
+                       dismissed=dismissed_fold(items.dismissed(conn, project.id), now))

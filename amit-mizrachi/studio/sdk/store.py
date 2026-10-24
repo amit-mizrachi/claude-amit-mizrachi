@@ -16,6 +16,9 @@ Rules this module keeps:
 - Items and projects carry a `revision` that every move bumps; a move records the revision it
   produced in `moves` (an item's or, since v2, a project's), so an Undo can refuse when something
   moved it since.
+- The `moves` table is the ledger of every undoable change, one row per change, each of a
+  `MOVE_KINDS` kind (since v4): `move` (a re-home), `dismiss` and `restore` (an item hidden or shown
+  again, `items.dismissed_at`). A row's `data_json` keeps what its Undo needs beyond the columns.
 
 Only the SDK touches SQL. Adapters call `sdk.api`.
 """
@@ -28,7 +31,7 @@ from urllib.parse import quote
 
 from .errors import ReadOnlyStore
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 INBOX_ID = "inbox"
 INBOX_NAME = "Inbox"
 DB_NAME = "studio.db"
@@ -36,6 +39,7 @@ BUSY_TIMEOUT = 30                   # seconds a connection waits for another wri
 ITEM_KINDS = ("session-bg", "session-interactive", "night-sprint", "night-marathon", "artifact", "pr", "worktree")
 SESSION_KINDS = ("session-bg", "session-interactive")   # derived, so one session id is ONE item across both
 PLACED_BY = ("manual", "title", "cwd", "rule", "inbox")
+MOVE_KINDS = ("move", "dismiss", "restore")             # what a `moves` row records (v4)
 
 
 def home():
@@ -143,9 +147,20 @@ def _schema_v3(conn):
     conn.execute("ALTER TABLE rules ADD COLUMN move_id INTEGER")
 
 
+def _schema_v4(conn):
+    """Dismiss and restore: an item can be hidden from every list without touching the thing itself
+    (`items.dismissed_at`, NULL while shown), and the move ledger gets a `kind` per row (every older
+    row is a `move`) plus `data_json`, what the row's Undo needs (a dismissal's attached items), so a
+    later kind needs only its name in MOVE_KINDS and its Undo in `items.UNDO`, not a new column."""
+    conn.execute("ALTER TABLE items ADD COLUMN dismissed_at TEXT")
+    conn.execute("ALTER TABLE moves ADD COLUMN kind TEXT NOT NULL DEFAULT 'move'")
+    conn.execute("ALTER TABLE moves ADD COLUMN data_json TEXT NOT NULL DEFAULT '{}'")
+
+
 # version -> the step that takes a store from version - 1 to version. Steps run in order, all
-# inside one BEGIN IMMEDIATE, after a file backup of the old store.
-MIGRATIONS = {1: _schema_v1, 2: _schema_v2, 3: _schema_v3}
+# inside one BEGIN IMMEDIATE, after a file backup of the old store. A new version is one more
+# `_schema_v<n>` (ALTER TABLE / CREATE TABLE only, never a read of the data dir) and one entry here.
+MIGRATIONS = {1: _schema_v1, 2: _schema_v2, 3: _schema_v3, 4: _schema_v4}
 
 
 class Store(object):

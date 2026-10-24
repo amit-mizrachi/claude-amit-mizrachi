@@ -231,9 +231,11 @@ def _maybe_refresh(fresh, slow=True):
 
 
 def find_items(query: Optional[str] = None, kind: Optional[str] = None, project_id: Optional[str] = None,
-               include_gone: bool = False, limit: Optional[int] = None, refresh: bool = True) -> ItemList:
+               include_gone: bool = False, limit: Optional[int] = None, refresh: bool = True,
+               include_dismissed: bool = False) -> ItemList:
     """Items whose title, key, name, cwd or branch holds `query` (any case), newest activity first,
     gone ones last. `kind` keeps one kind; `project_id` keeps items in that project or under it.
+    Dismissed items are left out unless `include_dismissed` (then they come last, `dismissed` True).
     Refreshes due sources first unless `refresh` is False.
     """
     if query is not None and not isinstance(query, str):
@@ -241,10 +243,10 @@ def find_items(query: Optional[str] = None, kind: Optional[str] = None, project_
     if kind is not None and kind not in store.ITEM_KINDS:
         raise InvalidInput("kind must be one of: %s." % ", ".join(store.ITEM_KINDS))
     project_id, limit = _optional_id(project_id, "project_id"), _limit(limit)
-    include_gone = _flag(include_gone, "include_gone")
+    include_gone, include_dismissed = _flag(include_gone, "include_gone"), _flag(include_dismissed, "include_dismissed")
     _maybe_refresh(refresh)
     with store.read() as conn:
-        found = items.find(conn, query, kind, project_id, include_gone)
+        found = items.find(conn, query, kind, project_id, include_gone, include_dismissed)
     shown, total, truncated = _page(found, limit)
     return ItemList(items=shown, total=total, truncated=truncated)
 
@@ -309,8 +311,10 @@ def move(target_id: str, to_project_id: Optional[str], expected_revision: Option
 
 
 def undo_move(move_id: int) -> MoveResult:
-    """Put an item back where `move_id` took it from, or a project back under its old parent.
-    Refused ("Can't undo: <name> was moved again since.") when it moved again since."""
+    """Put an item back where `move_id` took it from, or a project back under its old parent; for a
+    dismissal, restore the item (and the attached items that went with it); for a restore, dismiss
+    them again. Refused ("Can't undo: <name> was moved again since.", "... was changed again since.")
+    when it changed again since."""
     with store.write() as conn:
         return items.undo(conn, move_id)
 
@@ -320,6 +324,26 @@ def remove_item(item_id: str) -> MoveResult:
     and it stays in the Inbox (placed by hand) until filed again."""
     with store.write() as conn:
         return items.move(conn, item_id, store.INBOX_ID, None)
+
+
+def dismiss_item(item_id: str) -> MoveResult:
+    """Dismiss an item: it leaves home, the project view's lists, the Inbox, `list` / `status` and
+    their counts, and `find` unless asked, and no refresh brings it back. It deletes nothing: no
+    file, session or PR is touched, and the item keeps its project. A night run's auto-attached
+    sessions, PRs, worktrees and artifacts are dismissed with it (`followed`). Returns `move_id` for
+    `undo_move` (kind "dismiss", message "Dismissed <title>"); move_id None when already dismissed.
+    """
+    with store.write() as conn:
+        return items.dismiss(conn, item_id)
+
+
+def restore_item(item_id: str) -> MoveResult:
+    """Show a dismissed item again, with the attached items its newest dismissal took along
+    (`followed`). Returns `move_id` for `undo_move` (kind "restore"); move_id None when it was not
+    dismissed.
+    """
+    with store.write() as conn:
+        return items.restore(conn, item_id)
 
 
 def inbox(limit: Optional[int] = None, refresh: bool = True) -> InboxList:

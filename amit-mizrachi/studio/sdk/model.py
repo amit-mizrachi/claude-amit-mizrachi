@@ -78,7 +78,12 @@ class Tree(object):
         self.children = {}
         for row in self.rows.values():
             self.children.setdefault(row["parent_id"], []).append(row["id"])
-        self.items = {r[0]: r[1] for r in conn.execute("SELECT project_id, COUNT(*) FROM items GROUP BY project_id")}
+        self.held, self.items = {}, {}      # every item a project holds; the ones it shows (not dismissed)
+        for pid, dismissed, count in conn.execute("SELECT project_id, dismissed_at IS NOT NULL, COUNT(*) FROM items "
+                                                  "GROUP BY project_id, dismissed_at IS NOT NULL"):
+            self.held[pid] = self.held.get(pid, 0) + count
+            if not dismissed:
+                self.items[pid] = count
         self.conn, self._inbox_count = conn, None
         self.links = {}
         for a, b in conn.execute("SELECT a_id, b_id FROM links"):
@@ -115,11 +120,11 @@ class Tree(object):
             linked_ids=sorted(self.links.get(row["id"], [])))
 
     def inbox_count(self):
-        """What the Inbox shows: its items not gone and active in the last INBOX_DAYS days."""
+        """What the Inbox shows: its items not gone, not dismissed, and active in the last INBOX_DAYS days."""
         if self._inbox_count is None:
             now = time.time()
             self._inbox_count = sum(1 for r in self.conn.execute(
-                "SELECT data_json, seen_at FROM items WHERE project_id = ? AND gone_at IS NULL",
+                "SELECT data_json, seen_at FROM items WHERE project_id = ? AND gone_at IS NULL AND dismissed_at IS NULL",
                 (store.INBOX_ID,)) if recent(r, now))
         return self._inbox_count
 
@@ -242,7 +247,7 @@ def delete_plan(conn, project_id):
     row = tree.row(project_id)
     if project_id == store.INBOX_ID:
         raise Refused("The Inbox can't be deleted.")
-    children, items = len(tree.children.get(project_id, [])), tree.items.get(project_id, 0)
+    children, items = len(tree.children.get(project_id, [])), tree.held.get(project_id, 0)   # dismissed ones too
     if children or items:
         held = []
         if children:
@@ -289,6 +294,6 @@ def export_document(conn, version):
         "links": _rows(conn, "SELECT a_id, b_id, created_at FROM links ORDER BY a_id, b_id"),
         "items": items,
         "rules": _rows(conn, "SELECT id, project_id, signal, pattern, created_at, move_id FROM rules ORDER BY created_at, id"),
-        "moves": _rows(conn, "SELECT id, item_id, project_id, from_project, from_placed_by, to_project, revision, at FROM moves "
-                        "ORDER BY id"),
+        "moves": _rows(conn, "SELECT id, item_id, project_id, from_project, from_placed_by, to_project, revision, at, kind, "
+                        "data_json FROM moves ORDER BY id"),
     }

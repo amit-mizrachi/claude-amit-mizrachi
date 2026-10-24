@@ -400,6 +400,7 @@
     if (r.terminal_item_id) {
       acts.appendChild(button(ARROW + "Open in Terminal", null, function (b) { openInTerminal(r.terminal_item_id, b); }));
     }
+    acts.appendChild(dismissButton(r.item_id));
     var st = add(el("span", "st"), el("span", "w " + tone, r.word), r.detail ? el("span", null, r.detail) : null,
       r.bar.length ? bar(r.bar) : null);
     if (r.started) { add(st, el("span", null, "-"), el("span", null, r.started)); }
@@ -413,7 +414,8 @@
     var title = el("span", "t", s.title);
     title.title = s.title;
     var open = button(ARROW + s.action, s.item_id === hot ? "focus" : null, function (b) { openInTerminal(s.item_id, b); });
-    var acts = add(el("span", "acts"), open, button("Copy command", null, function () { copyCommand(s.item_id); }));
+    var acts = add(el("span", "acts"), open, button("Copy command", null, function () { copyCommand(s.item_id); }),
+      dismissButton(s.item_id));
     var cls = "row" + (s.item_id === hot ? " hot" : "") + (s.gone ? " dim" : "");
     var node = add(el("div", cls), el("span", "g " + (TONE[s.status] || "stale"), s.glyph), el("span", "kind", s.kind),
       title, el("span", "age", s.age), acts);
@@ -421,11 +423,30 @@
     return node;
   }
 
-  function itemRow(r) {
+  // Dismiss hides an item (a run with its attached items) from every list; Restore shows it again.
+  // Both are moves: the toast offers Undo, as after a drag.
+  function setDismissed(path, itemId, btn) {
+    btn.disabled = true;
+    post(path, { item_id: itemId }).then(function (r) { moved(r); afterMove(); })
+      .catch(function (err) { btn.disabled = false; fail(err); });
+  }
+
+  function dismissButton(itemId) {
+    var node = button("Dismiss", "ghost", function (b) { setDismissed("/api/dismiss", itemId, b); });
+    node.title = "Hide it from every list. Deletes nothing; Restore it from Dismissed.";
+    return node;
+  }
+
+  function itemRow(r, dismissed) {
     var title = el("span", "t", r.title);
     title.title = r.title;
+    if (dismissed) {
+      return add(el("div", "row plain"), title, el("span", "age", r.text),
+        button(r.action, null, function (b) { setDismissed("/api/restore", r.item_id, b); }));
+    }
     return add(el("div", "row plain"), title, el("span", "age", r.text),
-      button(r.action, null, function (b) { openItem(r.item_id, "default", b); }));
+      add(el("span", "acts"), button(r.action, null, function (b) { openItem(r.item_id, "default", b); }),
+        dismissButton(r.item_id)));
   }
 
   function fold(v, f) {
@@ -442,7 +463,7 @@
       if (f.kind === "sessions") {
         v.sessions.forEach(function (s) { rows.appendChild(sessionRow(s)); });
       } else {
-        f.rows.forEach(function (r) { rows.appendChild(itemRow(r)); });
+        f.rows.forEach(function (r) { rows.appendChild(itemRow(r, f.kind === "dismissed")); });
       }
       frag.appendChild(rows);
     }
@@ -484,6 +505,7 @@
       v.rules.forEach(function (r) { list.appendChild(ruleRow(v, r)); });
       sec("Rules", v.rules.length).appendChild(list);
     }
+    if (v.dismissed) { sec("Dismissed", null).appendChild(fold(v, v.dismissed)); }
     if (first) { page.appendChild(el("p", "none", "Nothing filed here yet. Move sessions and night runs here from the Inbox.")); }
     document.title = v.project.name + " - Project Studio";
   }

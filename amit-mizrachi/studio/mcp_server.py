@@ -64,6 +64,8 @@ ITEM_SCHEMA = {
         "gone_at": NULLABLE_TEXT,
         "seen_at": NULLABLE_TEXT,
         "data": {"type": "object"},
+        "dismissed": {"type": "boolean", "description": "Hidden from every list by studio_dismiss; nothing deleted."},
+        "dismissed_at": NULLABLE_TEXT,
     },
 }
 NULLABLE_ITEM = dict(ITEM_SCHEMA, type=["object", "null"])
@@ -90,6 +92,8 @@ MOVE_SCHEMA = {
         "rule_preview": {"type": ["object", "null"]},
         "created": {"type": "boolean"},
         "message": {"type": "string", "description": "What moved where: \"Moved to Project Studio\"."},
+        "kind": {"type": "string", "enum": list(store.MOVE_KINDS),
+                 "description": "What the change was: move, dismiss or restore."},
     },
 }
 RUN_SCHEMA = {
@@ -210,6 +214,8 @@ TOOLS = [
                 "kind": {"type": "string", "enum": list(store.ITEM_KINDS)},
                 "project_id": dict(PROJECT_ID, description="Only items in this project or under it."),
                 "include_gone": {"type": "boolean", "description": "Also gone items. Default false."},
+                "include_dismissed": {"type": "boolean",
+                                      "description": "Also dismissed items (listed last). Default false."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": LIST_MAX,
                           "description": "At most this many, default %d, max %d." % (LIST_DEFAULT, LIST_MAX)},
             },
@@ -326,6 +332,36 @@ TOOLS = [
                         "idempotentHint": True, "openWorldHint": False},
     },
     {
+        "name": "studio_dismiss",
+        "title": "Dismiss an item",
+        "description": (
+            "Hide an item (a night run first of all, or a session, PR, worktree or artifact) from the "
+            "studio's cards, project views, Inbox and the list / status counts. It deletes nothing: no "
+            "file, session or PR is touched, the item keeps its project, and no refresh brings it back. "
+            "A night run's attached sessions, PRs and worktrees are dismissed with it (followed). "
+            "studio_find with include_dismissed still finds it; studio_restore or studio_undo with the "
+            "returned move_id shows it again."
+        ),
+        "inputSchema": {"type": "object", "required": ["item_id"], "additionalProperties": False,
+                        "properties": {"item_id": ITEM_ID}},
+        "outputSchema": MOVE_SCHEMA,
+        "annotations": {"title": "Dismiss an item", "readOnlyHint": False, "destructiveHint": False,
+                        "idempotentHint": True, "openWorldHint": False},
+    },
+    {
+        "name": "studio_restore",
+        "title": "Restore a dismissed item",
+        "description": (
+            "Show a dismissed item again, with the attached items its dismissal took along. Returns "
+            "move_id for studio_undo; move_id is null when the item was not dismissed."
+        ),
+        "inputSchema": {"type": "object", "required": ["item_id"], "additionalProperties": False,
+                        "properties": {"item_id": ITEM_ID}},
+        "outputSchema": MOVE_SCHEMA,
+        "annotations": {"title": "Restore a dismissed item", "readOnlyHint": False, "destructiveHint": False,
+                        "idempotentHint": True, "openWorldHint": False},
+    },
+    {
         "name": "studio_archive",
         "title": "Archive a project",
         "description": (
@@ -382,8 +418,9 @@ TOOLS = [
         "title": "Undo a move",
         "description": (
             "Put back what a move did (studio_move, studio_add, studio_accept, studio_remove, an item's or "
-            "a project's): the item or project goes back where move_id took it from. Refused when it "
-            "moved again since."
+            "a project's): the item or project goes back where move_id took it from. A studio_dismiss "
+            "move is undone by restoring the item, a studio_restore move by dismissing it again. Refused "
+            "when it changed again since."
         ),
         "inputSchema": {"type": "object", "required": ["move_id"], "additionalProperties": False,
                         "properties": {"move_id": MOVE_ID}},
@@ -520,7 +557,8 @@ def tool_create(args):
 
 def tool_find(args):
     return api.find_items(query=args.get("query"), kind=args.get("kind"), project_id=args.get("project_id"),
-                          include_gone=args.get("include_gone", False), limit=args.get("limit", LIST_DEFAULT))
+                          include_gone=args.get("include_gone", False), limit=args.get("limit", LIST_DEFAULT),
+                          include_dismissed=args.get("include_dismissed", False))
 
 
 def tool_status(args):
@@ -541,6 +579,14 @@ def tool_link(args):
 
 def tool_remove(args):
     return api.remove_item(args["item_id"])
+
+
+def tool_dismiss(args):
+    return api.dismiss_item(args["item_id"])
+
+
+def tool_restore(args):
+    return api.restore_item(args["item_id"])
 
 
 def tool_archive(args):
@@ -596,6 +642,8 @@ HANDLERS = {
     "studio_move": tool_move,
     "studio_link": tool_link,
     "studio_remove": tool_remove,
+    "studio_dismiss": tool_dismiss,
+    "studio_restore": tool_restore,
     "studio_archive": tool_archive,
     "studio_rename": tool_rename,
     "studio_delete": tool_delete,
@@ -682,7 +730,8 @@ def handle(req):
                 "project's night runs and items, studio_find finds items, studio_inbox lists unfiled items "
                 "with a suggestion each. studio_create / studio_rename / studio_add / studio_move / "
                 "studio_accept / studio_link / studio_remove / studio_archive / studio_delete change the "
-                "tree; studio_undo takes a move_id back; studio_rules / studio_rule_save / "
+                "tree; studio_dismiss hides an item (a night run with its attached items) from every list "
+                "without deleting anything, studio_restore shows it again; studio_undo takes a move_id back; studio_rules / studio_rule_save / "
                 "studio_rule_delete manage filing rules; studio_purge drops gone items. studio_delete and "
                 "studio_purge are destructive: studio_delete only says what it would delete until called "
                 "confirmed, so ask the user first. studio_open "

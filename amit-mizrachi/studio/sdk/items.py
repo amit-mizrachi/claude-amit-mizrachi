@@ -7,6 +7,14 @@ Every function takes an open connection; `sdk.api` owns the transactions. Rules 
   item (or project) moved since the move it undoes.
 - Nothing is filed into an archived project, by hand or by rule.
 - Purge deletes only gone items, and only when asked.
+- A dismissed item (`dismissed_at` set) keeps its home, its file, session or PR; it only leaves
+  home, the project view's lists, the Inbox, `status` and the counts (`find` shows it when asked).
+  A dismissal and a restore are ledger rows like a move, so Undo works, and a run's auto-attached
+  items go with it. A refresh never clears it: the reconcile does not touch `dismissed_at`.
+
+The move ledger: every undoable change records one `moves` row (`_record`) of a `store.MOVE_KINDS`
+kind, and `undo` hands the row to `UNDO[kind]`. A new kind is a function that changes the item and
+calls `_record(..., kind, data)`, one `UNDO` entry that puts it back, and its name in MOVE_KINDS.
 """
 
 import json
@@ -46,7 +54,8 @@ def to_item(r, tree):
     return Item(id=r["id"], kind=r["kind"], key=r["key"], title=r["title"], project_id=r["project_id"],
                 project_path=path, placed_by=r["placed_by"], workspace_item_id=r["workspace_item_id"],
                 revision=r["revision"], status=str(data.get("status") or ""), gone=bool(r["gone_at"]),
-                gone_at=r["gone_at"], seen_at=r["seen_at"], data=data)
+                gone_at=r["gone_at"], seen_at=r["seen_at"], data=data, dismissed=bool(r.get("dismissed_at")),
+                dismissed_at=r.get("dismissed_at"))
 
 
 def subtree(tree, project_id, include_archived=False):
@@ -86,7 +95,8 @@ def _recency(item):
     return data.get("last_active") or data.get("updated_at") or item.seen_at or ""
 
 
-def find(conn, query, kind, project_id, include_gone):
+def find(conn, query, kind, project_id, include_gone, include_dismissed=False):
+    """Matching items, newest activity first, gone ones last; dismissed ones only when asked (after the rest)."""
     tree = model.Tree(conn)
     homes = set(subtree(tree, tree.row(project_id)["id"])) if project_id else None
     out = []
@@ -94,11 +104,12 @@ def find(conn, query, kind, project_id, include_gone):
         r = dict(r)
         if (kind and r["kind"] != kind) or (homes is not None and r["project_id"] not in homes):
             continue
-        if (r["gone_at"] and not include_gone) or not _matches(r, query):
+        if (r["gone_at"] and not include_gone) or (r["dismissed_at"] and not include_dismissed):
             continue
-        out.append(to_item(r, tree))
+        if _matches(r, query):
+            out.append(to_item(r, tree))
     out.sort(key=_recency, reverse=True)
-    out.sort(key=lambda i: i.gone)
+    out.sort(key=lambda i: (i.dismissed, i.gone))
     return out
 
 
@@ -146,7 +157,8 @@ def status(conn, project_id):
     project = tree.project(project_id)
     homes = subtree(tree, project_id)
     marks = ",".join("?" * len(homes))
-    rows = [dict(r) for r in conn.execute("SELECT * FROM items WHERE project_id IN (%s)" % marks, homes)]
+    rows = [dict(r) for r in conn.execute("SELECT * FROM items WHERE project_id IN (%s) AND dismissed_at IS NULL"
+                                          % marks, homes)]
     by_kind = {}
     for r in rows:
         by_kind.setdefault(r["kind"], []).append(to_item(r, tree))
@@ -154,7 +166,8 @@ def status(conn, project_id):
         found.sort(key=_recency, reverse=True)
         found.sort(key=lambda i: i.gone)
     prs, arts = by_kind.get("pr", []), by_kind.get("artifact", [])
-    every_pr = [to_item(dict(r), tree) for r in conn.execute("SELECT * FROM items WHERE kind = 'pr'")]
+    every_pr = [to_item(dict(r), tree) for r in conn.execute("SELECT * FROM items WHERE kind = 'pr' AND "
+                                                             "dismissed_at IS NULL")]
     runs = rank_runs([to_run(i, every_pr, arts) for k in WORKSPACE_KINDS for i in by_kind.get(k, [])])
     subs = []
     for child in sorted(tree.children.get(project_id, []), key=lambda c: tree.rows[c]["name"].lower()):
@@ -168,6 +181,16 @@ def status(conn, project_id):
     sessions.sort(key=_recency, reverse=True)
     sessions.sort(key=lambda i: i.gone)
     return project, runs, sessions, prs, by_kind.get("worktree", []), arts, subs, sources(conn)
+
+
+def dismissed(conn, project_id):
+    """The dismissed items of a project and everything under it, most recently dismissed first."""
+    tree = model.Tree(conn)
+    homes = subtree(tree, tree.row(project_id)["id"])
+    marks = ",".join("?" * len(homes))
+    found = [to_item(dict(r), tree) for r in conn.execute(
+        "SELECT * FROM items WHERE project_id IN (%s) AND dismissed_at IS NOT NULL" % marks, homes)]
+    return sorted(found, key=lambda i: (i.dismissed_at, i.id), reverse=True)
 
 
 # ---------------------------------------------------------------- moving
@@ -195,11 +218,13 @@ def _move_row(conn, r, to_project, placed_by):
     return revision, followed
 
 
-def _record(conn, r, to_project, revision):
-    """Record a move of item row `r` (as it was before the move) for Undo. Returns the move id."""
-    cur = conn.execute("INSERT INTO moves (item_id, from_project, from_placed_by, to_project, revision, at) "
-                       "VALUES (?, ?, ?, ?, ?, ?)",
-                       (r["id"], r["project_id"], r["placed_by"], to_project, revision, store.now_iso()))
+def _record(conn, r, to_project, revision, kind="move", data=None):
+    """Record a change of item row `r` (as it was before it) in the move ledger, for Undo: a `kind`
+    from store.MOVE_KINDS, the revision it produced, and `data`, what its Undo needs. Returns the move id."""
+    cur = conn.execute("INSERT INTO moves (item_id, from_project, from_placed_by, to_project, revision, at, kind, "
+                       "data_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                       (r["id"], r["project_id"], r["placed_by"], to_project, revision, store.now_iso(), kind,
+                        json.dumps(data or {}, sort_keys=True)))
     return cur.lastrowid
 
 
@@ -266,12 +291,20 @@ def _undo_project(conn, m):
 
 
 def undo(conn, move_id):
+    """Put back what one ledger row did: a project's move, or an item's change by its kind (`UNDO`).
+    Refused when the item or project changed since (its revision is not the one the row produced)."""
     m = _move_by_id(conn, move_id)
     if m["project_id"]:
         return _undo_project(conn, m)
     r = row(conn, m["item_id"])
     if r["revision"] != m["revision"]:
-        raise Refused("Can't undo: %s was moved again since." % r["title"])
+        raise Refused("Can't undo: %s was %s again since." % (r["title"], "moved" if m["kind"] == "move" else "changed"))
+    if m["kind"] not in UNDO:
+        raise Refused("Can't undo move %d: this Project Studio does not know a %r change." % (m["id"], m["kind"]))
+    return UNDO[m["kind"]](conn, m, r)
+
+
+def _undo_move(conn, m, r):
     if not m["from_project"]:
         raise Refused("Can't undo: %s had no project before this move." % r["title"])
     tree = model.Tree(conn)
@@ -286,6 +319,83 @@ def undo(conn, move_id):
     return MoveResult(item=to_item(row(conn, r["id"]), tree), project=None, move_id=new_id,
                       from_project_id=m["to_project"], to_project_id=m["from_project"], followed=followed,
                       message=message)
+
+
+# ---------------------------------------------------------------- dismissing
+
+def _attached(conn, run):
+    """A run's auto-attached items (placed by title or cwd: the ones that follow its move) still shown."""
+    if run["kind"] not in WORKSPACE_KINDS:
+        return []
+    return [dict(c) for c in conn.execute("SELECT * FROM items WHERE workspace_item_id = ? AND placed_by IN (?, ?) "
+                                          "AND dismissed_at IS NULL", (run["id"],) + AUTO_LINK)]
+
+
+def _rows(conn, ids):
+    found = [conn.execute("SELECT * FROM items WHERE id = ?", (i,)).fetchone() for i in ids]
+    return [dict(r) for r in found if r is not None]
+
+
+def _ledger_data(m):
+    try:
+        data = json.loads(m.get("data_json") or "{}")
+    except ValueError:
+        data = {}
+    return data if isinstance(data, dict) else {}
+
+
+def _set_dismissed(conn, r, stamp, kind, followers, message):
+    """Dismiss (`stamp`) or restore (None) row `r` and `followers`, bumping each revision, and record
+    it as one `kind` ledger row that names the followers, so its Undo takes them along too."""
+    revision = r["revision"] + 1
+    conn.execute("UPDATE items SET dismissed_at = ?, revision = ? WHERE id = ?", (stamp, revision, r["id"]))
+    for child in followers:
+        conn.execute("UPDATE items SET dismissed_at = ?, revision = ? WHERE id = ?",
+                     (stamp, child["revision"] + 1, child["id"]))
+    ids = [c["id"] for c in followers]
+    move_id = _record(conn, r, r["project_id"], revision, kind, {"followed": ids})
+    return MoveResult(item=to_item(row(conn, r["id"]), model.Tree(conn)), project=None, move_id=move_id,
+                      from_project_id=r["project_id"], to_project_id=r["project_id"], followed=ids, message=message,
+                      kind=kind)
+
+
+def _unchanged(conn, r, kind, message):
+    return MoveResult(item=to_item(r, model.Tree(conn)), project=None, move_id=None, from_project_id=r["project_id"],
+                      to_project_id=r["project_id"], message=message, kind=kind)
+
+
+def dismiss(conn, item_id):
+    """Hide an item, and a run's auto-attached items with it, from every list. Deletes nothing."""
+    r = row(conn, item_id)
+    if r["dismissed_at"]:
+        return _unchanged(conn, r, "dismiss", "%s is already dismissed" % r["title"])
+    return _set_dismissed(conn, r, store.now_iso(), "dismiss", _attached(conn, r), "Dismissed %s" % r["title"])
+
+
+def restore(conn, item_id):
+    """Show a dismissed item again, with the attached items its newest dismissal took along."""
+    r = row(conn, item_id)
+    if not r["dismissed_at"]:
+        return _unchanged(conn, r, "restore", "%s is not dismissed" % r["title"])
+    last = conn.execute("SELECT * FROM moves WHERE item_id = ? AND kind = 'dismiss' ORDER BY id DESC LIMIT 1",
+                        (r["id"],)).fetchone()
+    ids = (_ledger_data(dict(last)).get("followed") or []) if last else []
+    followers = [c for c in _rows(conn, ids) if c["dismissed_at"]]
+    return _set_dismissed(conn, r, None, "restore", followers, "Restored %s" % r["title"])
+
+
+def _undo_dismissal(conn, m, r):
+    """Undo a dismiss (restore it) or a restore (dismiss it again), with the items the row names."""
+    back = m["kind"] == "dismiss"
+    ids = _ledger_data(m).get("followed") or []
+    followers = [c for c in _rows(conn, ids) if bool(c["dismissed_at"]) == back]
+    if back:
+        return _set_dismissed(conn, r, None, "restore", followers, "Restored %s" % r["title"])
+    return _set_dismissed(conn, r, store.now_iso(), "dismiss", followers, "Dismissed %s again" % r["title"])
+
+
+# A ledger row's kind -> the function that puts back what it did: (conn, move row, item row) -> MoveResult.
+UNDO = {"move": _undo_move, "dismiss": _undo_dismissal, "restore": _undo_dismissal}
 
 
 # ---------------------------------------------------------------- adding by hand
@@ -363,12 +473,12 @@ def inbox(conn, now=None):
     now = time.time() if now is None else now
     tree = model.Tree(conn)
     filed = []
-    for r in conn.execute("SELECT project_id, data_json FROM items WHERE project_id != ? AND gone_at IS NULL",
-                          (store.INBOX_ID,)):
+    for r in conn.execute("SELECT project_id, data_json FROM items WHERE project_id != ? AND gone_at IS NULL "
+                          "AND dismissed_at IS NULL", (store.INBOX_ID,)):
         if not tree.hidden(r["project_id"]):
             filed.append((r["project_id"], (item_data(r).get("signals") or {}).get("repo")))
-    rows = [dict(r) for r in conn.execute("SELECT * FROM items WHERE project_id = ? AND gone_at IS NULL",
-                                          (store.INBOX_ID,)) if recent(r, now)]
+    rows = [dict(r) for r in conn.execute("SELECT * FROM items WHERE project_id = ? AND gone_at IS NULL AND "
+                                          "dismissed_at IS NULL", (store.INBOX_ID,)) if recent(r, now)]
     entries = [InboxEntry(item=to_item(r, tree), suggestion=suggest(conn, r, tree, filed)) for r in rows]
     entries.sort(key=lambda e: _recency(e.item), reverse=True)
     return entries
@@ -396,6 +506,8 @@ def save_rule(conn, move_id):
     m = _move_by_id(conn, move_id)
     if m["project_id"]:
         raise Refused("A rule learns from an item's move, not a project's.")
+    if m["kind"] != "move":
+        raise Refused("A rule learns from a move into a project, not a %s." % m["kind"])
     r = row(conn, m["item_id"])
     tree = model.Tree(conn)
     if m["to_project"] == store.INBOX_ID:

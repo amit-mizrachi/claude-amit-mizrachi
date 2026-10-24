@@ -70,6 +70,8 @@ ACTIONS = {
     "/api/move": lambda b: api.move(b.get("target_id"), b.get("to_project_id"), b.get("revision")),
     "/api/undo": lambda b: api.undo_move(b.get("move_id")),
     "/api/accept": lambda b: api.accept_suggestion(b.get("item_id")),
+    "/api/dismiss": lambda b: api.dismiss_item(b.get("item_id")),
+    "/api/restore": lambda b: api.restore_item(b.get("item_id")),
     "/api/rule": lambda b: api.save_rule_from_move(b.get("move_id")),
     "/api/rule/delete": lambda b: api.delete_rule(b.get("rule_id")),
 }

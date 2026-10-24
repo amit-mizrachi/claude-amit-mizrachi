@@ -95,6 +95,8 @@ class Item:
     gone_at: Optional[str]
     seen_at: Optional[str]
     data: Dict[str, Any] = field(default_factory=dict)
+    dismissed: bool = False         # hidden from home, the project view's lists, the Inbox, list / status / find
+    dismissed_at: Optional[str] = None
 
 
 @dataclass
@@ -165,9 +167,10 @@ class RuleList:
 
 @dataclass
 class MoveResult:
-    """A move of an item (or, through `move`, a project). `move_id` is what `undo_move` (and, for an
-    item, `save_rule_from_move`) take; it is None when nothing moved. `followed` lists the
-    auto-attached items that moved with a run. `message` is the toast: "Moved to Project Studio"."""
+    """A move of an item (or, through `move`, a project), or a dismissal or restore of an item
+    (`kind`). `move_id` is what `undo_move` (and, for an item's move, `save_rule_from_move`) take;
+    it is None when nothing changed. `followed` lists the auto-attached items that went with a run.
+    `message` is the toast: "Moved to Project Studio", "Dismissed alpha"."""
 
     item: Optional[Item]
     project: Optional[Project]
@@ -178,6 +181,7 @@ class MoveResult:
     rule_preview: Optional[RulePreview] = None
     created: bool = False
     message: str = ""
+    kind: str = "move"              # what the ledger row records: move, dismiss or restore
 
 
 @dataclass
@@ -412,7 +416,7 @@ class ViewRow:
     item_id: str
     title: str
     text: str
-    action: str                     # "Open" or "Show in Finder"
+    action: str                     # "Open", "Show in Finder", or "Restore" (a dismissed row)
 
 
 @dataclass
@@ -420,7 +424,7 @@ class ViewFold:
     """One collapsed line of "Everything else": "Pull requests 2 - 1 open, 1 merged". The sessions
     fold (only when no session is active) has no `rows`: its rows are `ProjectView.sessions`."""
 
-    kind: str                       # sessions, prs, worktrees, artifacts
+    kind: str                       # sessions, prs, worktrees, artifacts, dismissed
     label: str
     count: int
     summary: str
@@ -444,6 +448,7 @@ class ProjectView:
     folds: List[ViewFold]
     generated_at: str
     rules: List[Rule] = field(default_factory=list)   # this project's attach rules, each deletable
+    dismissed: Optional[ViewFold] = None   # the "Dismissed" fold at the bottom (rows: Restore), None when empty
 
 
 # ---------------------------------------------------------------- the Inbox drawer and the picker (ticket 06)

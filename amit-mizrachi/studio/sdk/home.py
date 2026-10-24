@@ -11,6 +11,7 @@ Every rule the home page shows lives here, not in the web server or the page scr
 - The state is built from what the store holds and never waits for a read: a source still being
   read is named in a quiet note ("Still reading PRs...") until it lands.
 - The Inbox count leaves out items quiet for longer than `items.INBOX_DAYS`.
+- A dismissed item shows nowhere here: not as a card's run, not in its PR line, not in a count.
 """
 
 import time
@@ -168,11 +169,13 @@ def _card(tree, pid, runs):
 
 def _cards(conn):
     tree = model.Tree(conn)
-    every_pr = [items.to_item(dict(r), tree) for r in conn.execute("SELECT * FROM items WHERE kind = 'pr'")]
-    arts = [items.to_item(dict(r), tree) for r in conn.execute("SELECT * FROM items WHERE kind = 'artifact'")]
+    shown = "dismissed_at IS NULL"
+    every_pr = [items.to_item(dict(r), tree) for r in conn.execute("SELECT * FROM items WHERE kind = 'pr' AND " + shown)]
+    arts = [items.to_item(dict(r), tree) for r in conn.execute("SELECT * FROM items WHERE kind = 'artifact' AND " + shown)]
     runs_by_home = {}
     marks = ",".join("?" * len(WORKSPACE_KINDS))
-    for r in conn.execute("SELECT * FROM items WHERE gone_at IS NULL AND kind IN (%s)" % marks, WORKSPACE_KINDS):
+    for r in conn.execute("SELECT * FROM items WHERE gone_at IS NULL AND %s AND kind IN (%s)" % (shown, marks),
+                          WORKSPACE_KINDS):
         run = items.to_run(items.to_item(dict(r), tree), every_pr, arts)
         runs_by_home.setdefault(run.project_id, []).append(run)
     cards = []
@@ -201,8 +204,8 @@ def _banner(entry, now):
 
 def _inbox_counts(conn, now):
     counts = {}
-    for r in conn.execute("SELECT kind, data_json, seen_at FROM items WHERE project_id = ? AND gone_at IS NULL",
-                          (store.INBOX_ID,)):
+    for r in conn.execute("SELECT kind, data_json, seen_at FROM items WHERE project_id = ? AND gone_at IS NULL "
+                          "AND dismissed_at IS NULL", (store.INBOX_ID,)):
         if items.recent(r, now):
             counts[r["kind"]] = counts.get(r["kind"], 0) + 1
     return counts
