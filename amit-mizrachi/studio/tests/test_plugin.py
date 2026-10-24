@@ -49,7 +49,8 @@ class OneLayer(unittest.TestCase):
         """Each studio_* handler is `return api.<function>(...)` and nothing else: no branch, loop or rule."""
         with open(os.path.join(STUDIO, "mcp_server.py")) as fh:
             tree = ast.parse(fh.read())
-        handlers = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name.startswith("tool_")]
+        handlers = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name.startswith("tool_")
+                    and n.name != "tool_error"]       # the shared error shape, not a handler
         self.assertGreaterEqual(len(handlers), 9)
         for fn in handlers:
             self.assertEqual(len(fn.body), 1, fn.name)
