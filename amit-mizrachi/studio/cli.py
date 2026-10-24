@@ -109,7 +109,7 @@ def text_list(result):
         name = "  " * (len(p.path) - 1) + p.name + (" (archived)" if p.archived_at else "")
         line = "%d item%s" % (p.item_count, "" if p.item_count == 1 else "s") if p.is_inbox \
             else result.run_lines.get(p.id, "")
-        rows.append([short(p.id), name, line])
+        rows.append([short(p.id), name, line] + ([result.last_activity.get(p.id, "")] if result.last_activity else []))
     return table(rows) + cut(len(result.projects), result.total)
 
 
@@ -325,6 +325,8 @@ def add_no_refresh(parser):
 
 def setup_list(parser):
     parser.add_argument("--all", action="store_true", help="include archived projects")
+    parser.add_argument("--by", choices=api.LIST_ORDERS, default="tree",
+                        help="tree (default) or activity: latest activity first, as home orders its rows")
     add_limit(parser, api.MAX_LIST_LIMIT)
 
 
@@ -581,8 +583,10 @@ COMMANDS = [
     Command("status", "Without a project: whether the studio server runs. With one: its night runs (each "
             "sub-project's under it) and items.",
             "project-studio status 'Project Studio'", setup_status, run_status, text_status),
-    Command("list", "Print the project tree with each project's night runs in words (\"2 blocked, 1 done\").", "project-studio list --all",
-            setup_list, lambda a: api.list_projects(include_archived=a.all, limit=a.limit, with_runs=True), text_list),
+    Command("list", "Print the project tree with each project's night runs in words (\"2 blocked, 1 done\"); "
+            "--by activity puts the latest activity first and says when (\"12 min ago\").", "project-studio list --by activity",
+            setup_list, lambda a: api.list_projects(include_archived=a.all, limit=a.limit, with_runs=True, by=a.by),
+            text_list),
     Command("show", "Print one project's view: sub-projects, its runs, each sub-project's runs under it, sessions, "
             "PRs, worktrees, artifacts, rules.",
             "project-studio show p_1a2b3c", setup_show,

@@ -64,23 +64,35 @@ def create_project(name: str, parent_id: Optional[str] = None) -> Project:
         return model.Tree(conn).project(pid)
 
 
+LIST_ORDERS = ("tree", "activity")
+
+
 def list_projects(parent_id: Optional[str] = None, top_level: bool = False,
-                  include_archived: bool = False, limit: Optional[int] = None, with_runs: bool = False) -> ProjectList:
+                  include_archived: bool = False, limit: Optional[int] = None, with_runs: bool = False,
+                  by: str = "tree") -> ProjectList:
     """Projects in tree order (the Inbox first, then by path), at most `limit` of them.
 
     `parent_id` keeps only that project's direct sub-projects; `top_level` keeps only
     top-level projects. Archived projects, and everything under them, are left out unless
     `include_archived`. `total` counts every match before the limit. `with_runs` also fills
     `run_lines`: each shown project's night-run line, rolled up over its sub-projects.
+    `by` "activity" orders them the way home orders its rows (the Inbox still first): latest
+    activity of a project and its sub-projects first, quiet ones last, ties by name; the ones
+    under a listed project stay under it in tree order. It also fills `last_activity` ("12 min ago").
     """
     parent_id = _optional_id(parent_id, "parent_id")
     top_level, include_archived = _flag(top_level, "top_level"), _flag(include_archived, "include_archived")
     limit, with_runs = _limit(limit), _flag(with_runs, "with_runs")
+    if by not in LIST_ORDERS:
+        raise InvalidInput("by must be one of %s, not %r." % (", ".join(LIST_ORDERS), by))
     with store.read() as conn:
-        found = model.list_projects(conn, parent_id, top_level, include_archived)
+        found, words = model.list_projects(conn, parent_id, top_level, include_archived), {}
+        if by == "activity":
+            found, words = homepage.by_activity(conn, found)
         shown, total, truncated = _page(found, limit)
         lines = projectview.run_lines(conn, [p.id for p in shown]) if with_runs else {}
-    return ProjectList(projects=shown, total=total, truncated=truncated, run_lines=lines)
+    return ProjectList(projects=shown, total=total, truncated=truncated, run_lines=lines,
+                       last_activity={p.id: words[p.id] for p in shown if p.id in words})
 
 
 def resolve_project(ref: str) -> Project:
@@ -542,10 +554,14 @@ def attach_session(session_id: str, cwd: str, job_dir: Optional[str] = None,
 # ---------------------------------------------------------------- the studio (ticket 04)
 
 def home(refresh: bool = False) -> HomeState:
-    """The studio's home page: one card per active top-level project (its active sub-projects as
-    lines of their own in tree order, each with its glyph, status word, run line and "2 inside";
-    at most 3 runs of it and its sub-projects, ranked needs-you > blocked > running > latest, a
-    sub-project's run tagged "in <sub-project>"; "+ n earlier runs"; the newest PR state), cards ordered needs-you, blocked, running, then latest change; plus the
+    """The studio's home page: one full-width row per active top-level project, ordered by latest
+    activity (the newest run state change, session transcript write or PR update in it or its
+    sub-projects; ties by name), quiet projects (no runs, nothing new in 14 days) last with
+    `quiet` set and `quiet_text` ("3 quiet projects"), and `order`, the row ids in that order. A
+    row has its status, `counts` in words, `last_activity` ("12 min ago"), at most 6 of its own
+    runs ranked needs-you > blocked > running > latest then "+ n more", the newest PR state, and
+    its active sub-projects as blocks in tree order (glyph, status word, runs in words, "2 inside",
+    at most 3 runs of it and below, a deeper run tagged "in <sub-project>", "+ n more"); plus the
     Inbox count (items active in the last 14 days), the PR source age, a banner per failed source
     (last-good states kept), `first_run` when there is no project, and `reading` / `reading_text`
     naming the sources still being read ("Still reading PRs..."), and `archived`, every archived

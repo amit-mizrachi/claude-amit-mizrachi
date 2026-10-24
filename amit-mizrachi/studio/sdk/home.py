@@ -1,27 +1,36 @@
-"""The studio's home page: one card per top-level project, and the bar above the cards.
+"""The studio's home page: one full-width row per top-level project, and the bar above the rows.
 
 Every rule the home page shows lives here, not in the web server or the page script:
-- A card shows at most 3 night runs of the project and everything under it, ranked
-  needs-you > blocked > running > paused > latest change, then "+ n earlier runs".
-- Cards are ordered needs-you first, then blocked, then running, then by latest change.
-- A card lists its active sub-projects in tree order, each a line of its own (glyph, status word,
-  "1 blocked, 2 done" / "no runs", "2 inside" for the levels below it); a run that lives in one
-  says which ("in Machina decision units"). Archived sub-projects do not show.
+- Rows are ordered by latest activity: the newest event among the project's own and its
+  sub-projects' items (a run's newest state change, a session's last transcript write, a PR
+  update). Ties go by name (any case), then id. A project with no runs and nothing new in
+  `QUIET_DAYS` days (nor made in them) is quiet: quiet rows come last, and the page folds them
+  into "n quiet projects". `order` is the row order; the page keeps it from the load on.
+- A row says its status (its top run's), its night runs in words ("2 blocked, 1 running, 4 done")
+  and its last activity ("12 min ago"), then at most 6 of its OWN runs, ranked needs-you >
+  blocked > running > paused > latest change, then "+ n more".
+- Each active sub-project is a block inside its parent's row, in tree order: glyph, status word,
+  its runs in words, "2 inside" for the levels below it, and at most 3 runs of it and everything
+  under it, then "+ n more"; a run that lives deeper says where ("in Inner"). Archived
+  sub-projects do not show.
 - A failed source gives a banner; its items keep their last-good state.
 - The state is built from what the store holds and never waits for a read: a source still being
   read is named in a quiet note ("Still reading PRs...") until it lands.
 - The Inbox count leaves out items quiet for longer than `items.INBOX_DAYS`.
-- A dismissed item shows nowhere here: not as a card's run, not in its PR line, not in a count.
+- A dismissed item shows nowhere here: not as a row's run, not in its PR line, not in a count,
+  and its activity does not count.
 """
 
 import time
 
 from . import cache, items, model, store
-from .reconcile import WORKSPACE_KINDS
+from .reconcile import WORKSPACE_KINDS, item_data
 from .results import HomeBanner, HomeCard, HomeRun, HomeState, HomeSubProject
 
-MAX_RUNS = 3
-CARD_RANK = {"needs-you": 0, "blocked": 1, "running": 2}
+MAX_RUNS = 6           # a row's own runs before "+ n more"
+MAX_SUB_RUNS = 3       # a sub-project block's runs before "+ n more"
+QUIET_DAYS = 14        # no runs and nothing new for longer: the row folds into "n quiet projects"
+ACTIVITY_KEYS = ("changed_at", "last_active", "updated_at", "started_at")   # an item's activity stamps
 GLYPHS = {"needs-you": "!", "blocked": "\u2717", "running": "\u25cf", "paused": "\u2016", "pending": "\u25cb",
           "done": "\u2713", "unknown": "?"}
 WORDS = {"needs-you": "Waiting on you", "blocked": "Blocked", "running": "Running", "paused": "Paused",
@@ -30,7 +39,7 @@ COMMANDS = {"prs": "gh pr list", "agents": "claude agents", "jobs": "the jobs fo
             "transcripts": "the session transcripts", "conductors": "the conductor scan",
             "worktrees": "git worktree list",
             "workspaces": "the workspace scan", "workspace": "a workspace's state files"}
-CAPTION = "Needs you first, then running, then latest change"
+CAPTION = "Latest activity first"
 READING = {"prs": "PRs", "worktrees": "worktrees", "agents": "sessions", "jobs": "sessions",
            "transcripts": "sessions", "conductors": "sessions", "workspaces": "night runs", "workspace": "night runs"}
 
@@ -119,9 +128,72 @@ def home_run(run):
 def _more_text(hidden):
     if not hidden:
         return ""
-    noun = "run" if len(hidden) == 1 else "runs"
     tail = ", all done" if all(r.status == "done" for r in hidden) else ""
-    return "+ %d earlier %s%s" % (len(hidden), noun, tail)
+    return "+ %d more%s" % (len(hidden), tail)
+
+
+def _epoch(stamp):
+    return cache.epoch(stamp[:19] + "Z") if isinstance(stamp, str) and len(stamp) >= 19 else 0
+
+
+def _iso(then):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(then)) if then else ""
+
+
+def activity(conn, tree):
+    """{project id: epoch seconds of its newest activity, 0 for none}, over it and every active project
+    under it: the newest changed_at / last_active / updated_at / started_at of any item it holds that
+    is not dismissed (a run's state change, a session's last transcript write, a PR update)."""
+    own = {}
+    for r in conn.execute("SELECT project_id, data_json FROM items WHERE dismissed_at IS NULL"):
+        data = item_data(r)
+        own[r["project_id"]] = max([own.get(r["project_id"], 0)] + [_epoch(data.get(k)) for k in ACTIVITY_KEYS])
+    return {pid: max(own.get(home, 0) for home in items.subtree(tree, pid)) for pid in tree.rows}
+
+
+def ranking(conn, tree, now):
+    """{project id: (quiet, newest activity epoch)}. Quiet: no night run (not gone, not dismissed) in it or
+    under it, and neither activity nor a project made in it or under it in the last QUIET_DAYS days."""
+    then = activity(conn, tree)
+    marks = ",".join("?" * len(WORKSPACE_KINDS))
+    with_runs = {r["project_id"] for r in conn.execute(
+        "SELECT DISTINCT project_id FROM items WHERE gone_at IS NULL AND dismissed_at IS NULL AND kind IN (%s)"
+        % marks, WORKSPACE_KINDS)}
+    out = {}
+    for pid in tree.rows:
+        homes = items.subtree(tree, pid)
+        made = max(_epoch(tree.rows[home]["created_at"]) for home in homes)
+        quiet = not with_runs.intersection(homes) and now - max(then[pid], made) > QUIET_DAYS * 86400
+        out[pid] = (quiet, then[pid])
+    return out
+
+
+def rank_key(tree, rank, pid):
+    """The home order: active before quiet, newest activity first, then by name (any case), then id."""
+    quiet, then = rank[pid]
+    return (quiet, -then, tree.rows[pid]["name"].lower(), pid)
+
+
+def activity_words(then, now):
+    """'12 min ago' for an activity epoch, 'no activity yet' for 0."""
+    return ago(_iso(then), now) if then else "no activity yet"
+
+
+def by_activity(conn, projects, now=None):
+    """`projects` (tree order) in the home order, and {id: '12 min ago'}. The Inbox stays first; each
+    project with no ancestor in the list is placed by `rank_key`, and the ones under it follow it in
+    tree order, so an indented list still reads as a tree."""
+    now = time.time() if now is None else now
+    tree = model.Tree(conn)
+    rank = ranking(conn, tree, now)
+    ids = {p.id for p in projects}
+
+    def key(p):
+        if p.is_inbox:
+            return (0,)
+        anchor = next((a for a in reversed(tree.ancestors(p.id)) if a in ids), p.id)
+        return (1,) + rank_key(tree, rank, anchor)
+    return sorted(projects, key=key), {p.id: activity_words(rank[p.id][1], now) for p in projects if not p.is_inbox}
 
 
 def _active_children(tree, pid):
@@ -135,19 +207,15 @@ def _holder(tree, pid, home):
     return next((p for p in [home] + tree.ancestors(home) if tree.rows[p]["parent_id"] == pid), None)
 
 
-def _sub_line(tree, sub, runs):
-    """A sub-project as its card line; `runs` (ranked) are the card's runs."""
-    from .projectview import tile_state   # projectview imports this module
-    homes = set(items.subtree(tree, sub))
-    status, text = tile_state([r for r in runs if r.project_id in homes])
-    deeper = len(_active_children(tree, sub))
-    return HomeSubProject(project_id=sub, name=tree.rows[sub]["name"], status=status,
-                          glyph="\u00b7" if status == "pending" else GLYPHS.get(status, "?"),
-                          word="" if status == "pending" else WORDS.get(status, status.title()),
-                          text=text, inside="%d inside" % deeper if deeper else "")
+def _status_words(status):
+    """(glyph, word) for a row's or block's status; a middle dot and '' with no runs."""
+    if status == "pending":
+        return "\u00b7", ""
+    return GLYPHS.get(status, "?"), WORDS.get(status, status.title())
 
 
 def _card_run(tree, pid, run):
+    """A run as a line in `pid`'s row or block, tagged "in <sub-project>" when it lives under `pid`."""
     line = home_run(run)
     holder = _holder(tree, pid, run.project_id)
     if holder:
@@ -155,19 +223,41 @@ def _card_run(tree, pid, run):
     return line
 
 
-def _card(tree, pid, runs):
+def _block(tree, sub, runs):
+    """A sub-project as a block in its parent's row; `runs` (ranked) are those of it and everything under it."""
+    from .projectview import tile_state   # projectview imports this module
+    status, text = tile_state(runs)
+    glyph, word = _status_words(status)
+    deeper = len(_active_children(tree, sub))
+    return HomeSubProject(project_id=sub, name=tree.rows[sub]["name"], status=status, glyph=glyph, word=word,
+                          text=text, inside="%d inside" % deeper if deeper else "",
+                          runs=[_card_run(tree, sub, r) for r in runs[:MAX_SUB_RUNS]],
+                          more=_more_text(runs[MAX_SUB_RUNS:]))
+
+
+def _card(tree, pid, runs, rank, now):
+    """`pid`'s row; `runs` (ranked) are those of it and everything under it."""
+    from .projectview import tile_state   # projectview imports this module
     project = tree.project(pid)
-    shown, hidden = runs[:MAX_RUNS], runs[MAX_RUNS:]
-    top = shown[0].status if shown else None
-    pr = next((pr_text(r.pr) for r in shown if pr_text(r.pr)), "")
+    own = [r for r in runs if r.project_id == pid]
+    blocks = []
+    for sub in _active_children(tree, pid):
+        homes = set(items.subtree(tree, sub))
+        blocks.append(_block(tree, sub, [r for r in runs if r.project_id in homes]))
+    status, counts = tile_state(runs)
+    glyph, word = _status_words(status)
+    pr = next((pr_text(r.pr) for r in runs[:MAX_RUNS] if pr_text(r.pr)), "")
     changed = max([r.updated_at for r in runs] + [project.updated_at])
-    return HomeCard(project=project, sub_projects=[_sub_line(tree, c, runs) for c in _active_children(tree, pid)],
-                    runs=[_card_run(tree, pid, r) for r in shown], more=_more_text(hidden), pr=pr,
-                    attention="needs-you" if top == "needs-you" else "blocked" if top == "blocked" else "",
-                    empty="No night runs yet" if not runs else "", changed_at=changed)
+    quiet, then = rank[pid]
+    return HomeCard(project=project, sub_projects=blocks, runs=[home_run(r) for r in own[:MAX_RUNS]],
+                    more=_more_text(own[MAX_RUNS:]), pr=pr,
+                    attention=status if status in ("needs-you", "blocked") else "",
+                    empty="No night runs yet" if not runs else "", changed_at=changed, status=status,
+                    glyph=glyph, word=word, counts=counts, last_activity_at=_iso(then),
+                    last_activity=activity_words(then, now), quiet=quiet)
 
 
-def _cards(conn):
+def _cards(conn, now):
     tree = model.Tree(conn)
     shown = "dismissed_at IS NULL"
     every_pr = [items.to_item(dict(r), tree) for r in conn.execute("SELECT * FROM items WHERE kind = 'pr' AND " + shown)]
@@ -178,16 +268,17 @@ def _cards(conn):
                           WORKSPACE_KINDS):
         run = items.to_run(items.to_item(dict(r), tree), every_pr, arts, known)
         runs_by_home.setdefault(run.project_id, []).append(run)
-    cards = []
-    for pid in tree.children.get(None, []):
-        row = tree.rows[pid]
-        if row["archived_at"] or pid == store.INBOX_ID:
-            continue
-        runs = [r for home in items.subtree(tree, pid) for r in runs_by_home.get(home, [])]
-        cards.append(_card(tree, pid, items.rank_runs(runs)))
-    cards.sort(key=lambda c: c.changed_at, reverse=True)
-    cards.sort(key=lambda c: CARD_RANK.get(c.runs[0].status if c.runs else "", len(CARD_RANK)))
-    return cards
+    rank = ranking(conn, tree, now)
+    tops = [pid for pid in tree.children.get(None, []) if not tree.rows[pid]["archived_at"] and pid != store.INBOX_ID]
+    tops.sort(key=lambda pid: rank_key(tree, rank, pid))
+    return [_card(tree, pid, items.rank_runs([r for home in items.subtree(tree, pid)
+                                              for r in runs_by_home.get(home, [])]), rank, now) for pid in tops]
+
+
+def quiet_text(cards):
+    """'3 quiet projects', '1 quiet project', or '' when no row is quiet."""
+    n = sum(1 for c in cards if c.quiet)
+    return "%d quiet project%s" % (n, "" if n == 1 else "s") if n else ""
 
 
 def _banner(entry, now):
@@ -251,10 +342,11 @@ def state(conn, now=None, reading=()):
     prs = [e for (source, _), e in entries.items() if source == "prs"]
     prs_at = min((e.good_at for e in prs if e.good_at), default="")
     counts = _inbox_counts(conn, now)
-    cards = _cards(conn)
+    cards = _cards(conn, now)
     banners = [_banner(e, now) for _, e in sorted(entries.items()) if not e.ok]
     return HomeState(cards=cards, caption=CAPTION, inbox_count=sum(counts.values()),
                      source_age="PRs %s" % ago(prs_at, now) if prs_at else "",
                      loading=False, first_run=not cards, first_run_text=_first_run_text(counts),
                      banners=banners, reading=list(reading), reading_text=reading_text(reading),
-                     generated_at=store.now_iso(), archived=archived(conn))
+                     generated_at=store.now_iso(), archived=archived(conn),
+                     order=[c.project.id for c in cards], quiet_text=quiet_text(cards))

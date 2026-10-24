@@ -29,12 +29,14 @@ class Project:
 @dataclass
 class ProjectList:
     """A bounded page of projects. `total` counts every match; `truncated` says some were cut.
-    `run_lines` (only when asked for) maps a project id to its night-run line, "2 blocked, 1 running, 4 done"."""
+    `run_lines` (only when asked for) maps a project id to its night-run line, "2 blocked, 1 running, 4 done".
+    `last_activity` (only with by="activity") maps a project id to its last activity, "12 min ago"."""
 
     projects: List[Project]
     total: int
     truncated: bool
     run_lines: Dict[str, str] = field(default_factory=dict)
+    last_activity: Dict[str, str] = field(default_factory=dict)   # by="activity": id -> "12 min ago"
 
 
 @dataclass
@@ -416,9 +418,9 @@ class HomeRun:
 
 @dataclass
 class HomeSubProject:
-    """One active sub-project as a line on its parent's home card: its own glyph, status word and
-    run line ("1 blocked, 2 done", "no runs"), and "2 inside" for the levels below it. A click
-    opens `project_id`'s view."""
+    """One active sub-project as an indented block in its parent's home row: its own glyph, status
+    word and run line ("1 blocked, 2 done", "no runs"), "2 inside" for the levels below it, and at
+    most 3 runs of it and everything under it, then `more` ("+ 2 more"). A click opens `project_id`'s view."""
 
     project_id: str
     name: str
@@ -427,12 +429,15 @@ class HomeSubProject:
     word: str                       # "Running", "Done", ...; '' with no runs
     text: str
     inside: str
+    runs: List[HomeRun] = field(default_factory=list)   # ranked; a deeper one tagged "in <sub-project>"
+    more: str = ""                  # "+ 2 more", "+ 2 more, all done", '' when every run shows
 
 
 @dataclass
 class HomeCard:
-    """One top-level project on the home page: its active sub-projects in tree order, at most 3
-    runs, "+ n earlier runs"."""
+    """One top-level project as a full-width home row: its status, runs in words and last activity,
+    at most 6 of its OWN runs then "+ n more", and its active sub-projects as blocks in tree order
+    (each with its own runs). `quiet`: no runs and nothing new in 14 days; the page folds it."""
 
     project: Project
     sub_projects: List[HomeSubProject]
@@ -442,6 +447,13 @@ class HomeCard:
     attention: str                  # needs-you, blocked or ''
     empty: str
     changed_at: str
+    status: str = "pending"         # its top run's status over it and its sub-projects, pending with no runs
+    glyph: str = "\u00b7"
+    word: str = ""                  # "Blocked", "Running", ...; '' with no runs
+    counts: str = "no runs"         # its runs and its sub-projects' in words: "2 blocked, 1 running, 4 done"
+    last_activity_at: str = ""      # ISO 8601 UTC of its newest activity (and its sub-projects'), '' for none
+    last_activity: str = ""         # "12 min ago", "no activity yet"
+    quiet: bool = False
 
 
 @dataclass
@@ -474,6 +486,9 @@ class HomeState:
     generated_at: str
     archived: List[Dict[str, str]] = field(default_factory=list)   # [{"id", "name", "archived_at"}]: each
     # archived project ("Alpha / Old"), in tree order, for the page's "Show archived" list and its Unarchive
+    order: List[str] = field(default_factory=list)   # the cards' project ids in order: latest activity first,
+    # quiet ones last. The page keeps the order it loaded with and offers "Re-sort" when this differs
+    quiet_text: str = ""            # "3 quiet projects", '' when no card is quiet
 
 
 @dataclass

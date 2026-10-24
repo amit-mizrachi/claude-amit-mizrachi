@@ -3,8 +3,9 @@
    again on every `state` event), at #/inbox the Inbox drawer (GET /inbox) beside the cards, and the
    "Move to..." / "Set parent" picker (GET /choices?id=). The order, the texts and every status word
    come from the SDK (studio/sdk/home.py, projectview.py, inboxview.py); an action POSTs ids, never
-   a URL, path or command. No ranking, sorting or status rule lives here. All text goes in through
-   textContent, never as HTML. Live re-ordering waits while a drag or the picker is open. */
+   a URL, path or command. No ranking, sorting or status rule lives here: the home rows keep the
+   SDK's `order` from the load on, until "Re-sort". All text goes in through textContent, never as
+   HTML. Live re-ordering waits while a drag or the picker is open. */
 (function () {
   "use strict";
 
@@ -113,15 +114,25 @@
     return add(line, st);
   }
 
-  // A sub-project's own line on its parent's card: a click (or Enter) opens the sub-project, not the card.
-  function subLine(s) {
+  // The runs of a home row or block, laid across the width: several per line, each in a cell of its own.
+  function runCells(runs) {
+    var grid = el("div", "runs");
+    runs.forEach(function (run) { grid.appendChild(runLine(run)); });
+    return grid;
+  }
+
+  // A sub-project's block inside its parent's row: its name, status, runs in words, "2 inside", and
+  // its runs. A click (or Enter) opens the sub-project, not the row.
+  function subBlock(s) {
     var tone = TONE[s.status] || "stale";
     var href = "#/p/" + encodeURIComponent(s.project_id);
     var name = el("span", "nm", s.name);
     name.title = s.name;
-    var st = add(el("span", "st"), s.word ? el("span", "w " + tone, s.word) : null, el("span", null, s.text),
-      s.inside ? el("span", null, s.inside) : null);
-    var node = add(el("div", "subp"), el("span", "g " + tone, s.glyph), name, st);
+    var head = add(el("div", "bh"), el("span", "g " + tone, s.glyph), name,
+      s.word ? el("span", "w " + tone, s.word) : null, el("span", "sub", s.text),
+      s.inside ? el("span", "sub", s.inside) : null);
+    var node = add(el("div", "block"), head, s.runs.length ? runCells(s.runs) : null,
+      s.more ? el("span", "more", s.more) : null);
     node.setAttribute("data-project-id", s.project_id);
     node.setAttribute("role", "link");
     node.tabIndex = 0;
@@ -131,8 +142,10 @@
     return node;
   }
 
+  // A project's full-width home row: name, status, runs in words, last activity; its own runs; then
+  // a block per active sub-project. Names that do not fit end in "..." and show in full on hover.
   function card(c) {
-    var node = el("div", "card" + (ATTENTION[c.attention] ? " " + ATTENTION[c.attention] : ""));
+    var node = el("div", "card prow" + (ATTENTION[c.attention] ? " " + ATTENTION[c.attention] : ""));
     var href = "#/p/" + encodeURIComponent(c.project.id);
     node.setAttribute("data-project-id", c.project.id);
     draggable(node, { id: c.project.id, name: c.project.name, revision: null });
@@ -143,16 +156,19 @@
     node.addEventListener("keydown", function (e) { if (e.key === "Enter") { window.location.hash = href; } });
     var title = el("h4", null, c.project.name);
     title.title = c.project.name;
-    node.appendChild(add(el("div", "ct"), title));
-    if (c.sub_projects.length) {
-      var subs = el("div", "subs");
-      c.sub_projects.forEach(function (s) { subs.appendChild(subLine(s)); });
-      node.appendChild(subs);
-    }
-    c.runs.forEach(function (run) { node.appendChild(runLine(run)); });
-    if (c.empty) { node.appendChild(el("span", "none", c.empty)); }
+    var tone = TONE[c.status] || "stale";
+    node.appendChild(add(el("div", "ct"), el("span", "g " + tone, c.glyph), title,
+      c.word ? el("span", "w " + tone, c.word) : null, el("span", "sub", c.counts),
+      el("span", "age", c.last_activity)));
+    if (c.runs.length) { node.appendChild(runCells(c.runs)); }
     if (c.more) { node.appendChild(el("span", "more", c.more)); }
     if (c.pr) { node.appendChild(prLine(c.pr)); }
+    if (c.sub_projects.length) {
+      var blocks = el("div", "blocks");
+      c.sub_projects.forEach(function (s) { blocks.appendChild(subBlock(s)); });
+      node.appendChild(blocks);
+    }
+    if (c.empty && !c.sub_projects.length) { node.appendChild(el("span", "none", c.empty)); }
     return node;
   }
 
@@ -170,9 +186,9 @@
   }
 
   function skeleton() {
-    var grid = el("div", "grid");
+    var grid = el("div", "prows");
     for (var i = 0; i < 4; i++) {
-      grid.appendChild(add(el("div", "card"), el("div", "sk w60"), el("div", "sk w90"), el("div", "sk w40")));
+      grid.appendChild(add(el("div", "card prow"), el("div", "sk w60"), el("div", "sk w90"), el("div", "sk w40")));
     }
     var frag = document.createDocumentFragment();
     return add(frag, grid, el("p", "none loading", "Reading workspaces and sessions..."));
@@ -1123,6 +1139,70 @@
   var showArchived = false;   // the home page's "Show archived" list is open
   var lastState = null;
 
+  // The home rows keep the order they loaded with: a live update changes what a row says, never its
+  // place. `pinned` is the SDK's `order` (and which rows were quiet) at load or at the last Re-sort; a
+  // project the page has not seen yet (just made) goes first. "Re-sort" shows when the SDK's order
+  // differs from the one on the page.
+  var pinned = null;          // {at: {project id: place}, quiet: {project id: true}}
+  var showQuiet = false;      // the "n quiet projects" fold is open
+
+  function pin(s) {
+    pinned = { at: {}, quiet: {} };
+    s.order.forEach(function (id, i) { pinned.at[id] = i; });
+    s.cards.forEach(function (c) { if (c.quiet) { pinned.quiet[c.project.id] = true; } });
+  }
+
+  function place(c) { return c.project.id in pinned.at ? pinned.at[c.project.id] : -1; }
+  function foldsQuiet(c) { return c.project.id in pinned.at ? !!pinned.quiet[c.project.id] : c.quiet; }
+
+  function placed(s) {
+    var cards = s.cards.slice().sort(function (a, b) { return place(a) - place(b); });
+    return { rows: cards.filter(function (c) { return !foldsQuiet(c); }), quiet: cards.filter(foldsQuiet) };
+  }
+
+  function moved(s, shown) {
+    var ids = shown.rows.concat(shown.quiet).map(function (c) { return c.project.id; });
+    return ids.join(" ") !== s.order.join(" ") || shown.quiet.some(function (c) { return !c.quiet; });
+  }
+
+  function resortLink(s, shown) {
+    var slot = $("resort");
+    clear(slot);
+    if (!moved(s, shown)) { return; }
+    var link = button("Re-sort", "ghost", function () { pin(lastState); render(lastState); });
+    link.title = "The activity order changed since the page loaded";
+    slot.appendChild(link);
+  }
+
+  function quietFold(s, rows) {
+    var label = rows.length === s.cards.filter(function (c) { return c.quiet; }).length ? s.quiet_text
+      : rows.length + (rows.length === 1 ? " quiet project" : " quiet projects");
+    var wrap = el("div", "quiet");
+    var fold = el("button", "fold", (showQuiet ? "\u25be " : "\u25b8 ") + label);
+    fold.type = "button";
+    fold.setAttribute("aria-expanded", showQuiet ? "true" : "false");
+    fold.addEventListener("click", function () { showQuiet = !showQuiet; render(lastState); });
+    wrap.appendChild(fold);
+    if (showQuiet) {
+      var list = el("div", "prows");
+      rows.forEach(function (c) { list.appendChild(card(c)); });
+      wrap.appendChild(list);
+    }
+    return wrap;
+  }
+
+  function homeRows(s) {
+    if (!pinned) { pin(s); }
+    var shown = placed(s);
+    resortLink(s, shown);
+    var frag = document.createDocumentFragment();
+    var list = el("div", "prows");
+    shown.rows.forEach(function (c) { list.appendChild(card(c)); });
+    frag.appendChild(list);
+    if (shown.quiet.length) { frag.appendChild(quietFold(s, shown.quiet)); }
+    return frag;
+  }
+
   function archivedList(s) {
     var wrap = el("div", "archived");
     var label = (showArchived ? "Hide archived" : "Show archived") + " (" + s.archived.length + ")";
@@ -1153,9 +1233,7 @@
     } else if (s.first_run) {
       body.appendChild(firstRun(s.first_run_text));
     } else {
-      var grid = el("div", "grid");
-      s.cards.forEach(function (c) { grid.appendChild(card(c)); });
-      body.appendChild(grid);
+      body.appendChild(homeRows(s));
     }
     if (!s.loading && s.archived && s.archived.length) { body.appendChild(archivedList(s)); }
   }

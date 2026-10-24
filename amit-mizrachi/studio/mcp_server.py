@@ -199,8 +199,12 @@ TOOLS = [
         "description": (
             "List Project Studio projects in tree order: the Inbox first, then by path. Each "
             "project has its id, name, parent, path, sub-project and item counts, and linked "
-            "project ids. Archived projects are left out unless include_archived is true. The "
-            "list is bounded: `total` counts every match and `truncated` says some were cut."
+            "project ids. Archived projects are left out unless include_archived is true. by "
+            "\"activity\" orders them as the studio's home rows: latest activity first (the newest run "
+            "state change, session transcript write or PR update in a project or under it), quiet "
+            "ones last, ties by name, the Inbox still first and sub-projects still under their parent; "
+            "`last_activity` then says when (\"12 min ago\"). The list is bounded: `total` counts every "
+            "match and `truncated` says some were cut."
         ),
         "inputSchema": {
             "type": "object",
@@ -211,6 +215,8 @@ TOOLS = [
                 "include_archived": {"type": "boolean", "description": "Also list archived projects. Default false."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": LIST_MAX,
                           "description": "At most this many projects, default %d, max %d." % (LIST_DEFAULT, LIST_MAX)},
+                "by": {"type": "string", "enum": ["tree", "activity"],
+                       "description": "tree (default): by path. activity: latest activity first, as home orders its rows."},
             },
         },
         "outputSchema": {
@@ -220,6 +226,8 @@ TOOLS = [
                 "projects": {"type": "array", "items": PROJECT_SCHEMA},
                 "total": {"type": "integer"},
                 "truncated": {"type": "boolean"},
+                "last_activity": {"type": "object", "additionalProperties": {"type": "string"},
+                                  "description": "With by activity: project id -> \"12 min ago\", \"no activity yet\"."},
             },
         },
         "annotations": {"title": "List projects", "readOnlyHint": True, "destructiveHint": False,
@@ -799,7 +807,7 @@ TOOLS = [
 def tool_list(args):
     return api.list_projects(parent_id=args.get("parent_id"), top_level=args.get("top_level", False),
                              include_archived=args.get("include_archived", False),
-                             limit=args.get("limit", LIST_DEFAULT))
+                             limit=args.get("limit", LIST_DEFAULT), by=args.get("by", "tree"))
 
 
 def tool_create(args):
