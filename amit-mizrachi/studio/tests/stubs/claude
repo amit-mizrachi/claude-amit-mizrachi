@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# A stand-in for the `claude` CLI in the studio's tests (see skills/night-sprint/tests/mock-claude.sh).
+#
+# Reads under $STUDIO_STUB:
+#   agents.json   what `claude agents --json --all` prints. Default: [].
+#   agents-fail   if present, `agents` exits 1 with no output (a CLI that cannot answer).
+# Appends every call to $STUDIO_STUB/calls. Anything but `agents` exits 0 quietly.
+
+set -uo pipefail
+S="${STUDIO_STUB:?the claude stub needs STUDIO_STUB}"
+printf 'claude %s\n' "$*" >> "$S/calls"
+case "${1:-}" in
+  agents)
+    [ -e "$S/agents-fail" ] && exit 1
+    cat "$S/agents.json" 2>/dev/null || printf '[]'
+    ;;
+esac
+exit 0

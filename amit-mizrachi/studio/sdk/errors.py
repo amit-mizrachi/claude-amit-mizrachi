@@ -1,0 +1,59 @@
+"""Errors the public SDK raises. Every adapter shows `str(error)` to the user as it is.
+
+Each class has a stable `code`, so an adapter can map it (an MCP tool error, an HTTP status)
+without matching on the message text.
+"""
+
+
+class StudioError(Exception):
+    """Base class for every error the SDK raises on purpose."""
+
+    code = "error"
+
+    def to_dict(self):
+        """The error as JSON-ready fields: its `code`, its `message`, and any detail the class adds."""
+        return {"code": self.code, "message": str(self)}
+
+
+class NotFound(StudioError):
+    """The id names no project (or no item) in the store."""
+
+    code = "not_found"
+
+
+class Ambiguous(StudioError):
+    """A reference (an id prefix or a name) names more than one project or item. `candidates` lists
+    them, so the caller can pick one by its id."""
+
+    code = "ambiguous"
+
+    def __init__(self, message, candidates):
+        super().__init__(message)
+        self.candidates = candidates
+
+    def to_dict(self):
+        return dict(super().to_dict(), candidates=self.candidates)
+
+
+class InvalidInput(StudioError):
+    """An argument has the wrong type, shape or length."""
+
+    code = "invalid_input"
+
+
+class Refused(StudioError):
+    """The input is well formed, but a rule forbids it (a cycle, a non-empty delete, the Inbox)."""
+
+    code = "refused"
+
+
+class ReadOnlyStore(StudioError):
+    """The store was written by a newer SDK, so this SDK may only read it."""
+
+    code = "read_only"
+
+
+class StartFailed(StudioError):
+    """The studio web server did not come up (its log says why)."""
+
+    code = "start_failed"

@@ -203,8 +203,12 @@ Decide that deliberately rather than discovering it in the morning.
    <WS>`, which starts every ticket with no blockers up to the cap - then start the runner and arm
    the Monitor that listens to it, and go into the monitor loop:
 
+       bash <WS>/conductor.sh <WS>             # appends your session id to state/CONDUCTOR.session
        bash <WS>/runner.sh start <WS>          # must print `runner: running`
        Monitor: bash <WS>/runner.sh follow <WS>   (timeout_ms 1800000; re-arm on every expiry)
+
+   `state/CONDUCTOR.session` names the conductor, one session id per line, newest last: it is
+   how Project Studio offers "Open conductor" on the run.
 
    The runner changes to `<WS>` itself, so the folder you call it from does not matter. Still,
    never `cd` into `inputs/` or any folder a peer may re-copy: your Bash cwd persists between
@@ -290,6 +294,7 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
 | `references/ci-prompt.md` | the `CI` ticket (and `CI2`): sync to the pushed head, `accept.sh`, read the failing log, fix, push, repeat; BLOCKED after three passes |
 | `references/agents.sh` | shared: ask the harness for background sessions, with the `--cwd` fallback |
 | `references/context-used.sh` | the gauge: percent of a window already USED |
+| `references/conductor.sh` | appends the conductor's own session id (`$CLAUDE_CODE_SESSION_ID`) to `state/CONDUCTOR.session`, at kickoff and after every conductor relay |
 | `references/rationale.md` | **maintainer only, never loaded at runtime**: the incident behind every rule here |
 | `tests/run.sh` | offline tests for the classifier, the transition owner, the renderer and the `set -u` guards |
 | `tests/blitz.sh` | offline tests for the queue, the landing lock, the render blocks and the relay's worktree |
@@ -427,9 +432,10 @@ through:
 
 1. Flush live state to `LOG.md`: every ledger row, which tags are open under which session ids,
    what you were about to do.
-2. `/next-prompt` a fresh conductor whose prompt points at the workspace and says: read
-   `PLAN.md` + `LOG.md` + `state/`, check `runner.sh status`, arm its Monitor on
-   `runner.sh follow`, resume the monitor loop, hold itself to the same two rungs.
+2. `/next-prompt` a fresh conductor whose prompt points at the workspace and says: run
+   `bash <WS>/conductor.sh <WS>` first (it appends the new conductor's own session id to
+   `state/CONDUCTOR.session`), read `PLAN.md` + `LOG.md` + `state/`, check `runner.sh status`,
+   arm its Monitor on `runner.sh follow`, resume the monitor loop, hold itself to the same two rungs.
 3. Record the relay as its own ledger row, stop your own Monitor, then stop. Do **not** stop the
    running sessions or the runner - the new conductor adopts them.
 

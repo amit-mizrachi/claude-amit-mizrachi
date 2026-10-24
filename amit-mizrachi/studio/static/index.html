@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="studio-token" content="{{TOKEN}}">
+<title>Project Studio</title>
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/app.js"></script>
+</head>
+<body>
+<header class="top">
+  <b>Project Studio</b>
+  <span class="live off" id="live"><i></i><span id="live-text">Connecting...</span></span>
+  <span id="age"></span>
+  <span class="sp"></span>
+  <button class="btn" id="inbox" type="button">Inbox <span class="cnt" id="inbox-count">0</span></button>
+  <button class="btn" id="new" type="button">+ New project</button>
+  <button class="btn ghost" id="theme" type="button" title="Switch light and dark">Dark</button>
+</header>
+<div class="lay" id="lay">
+<main class="page">
+  <div id="home">
+    <div class="h"><h1>Projects</h1><span class="m" id="caption"></span><span id="resort"></span></div>
+    <div id="banners"></div>
+    <div id="body"></div>
+  </div>
+  <div id="project" hidden></div>
+  <div id="toasts" aria-live="polite"></div>
+</main>
+<aside class="drawer" id="drawer" aria-label="Inbox" hidden></aside>
+</div>
+<div id="picker"></div>
+<div id="runmenu" hidden></div>
+<span class="dragghost" id="ghost" aria-hidden="true"></span>
+</body>
+</html>

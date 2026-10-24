@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# A stand-in for macOS `osascript` in the studio's tests: no app is told anything.
+#
+# Reads under $STUDIO_STUB:
+#   osascript-fail   if present, exits 1 (the app could not be reached).
+# Appends every call to $STUDIO_STUB/calls, with only the script's arguments (after the -e lines).
+
+set -uo pipefail
+S="${STUDIO_STUB:?the osascript stub needs STUDIO_STUB}"
+args=()
+while [ $# -gt 0 ]; do
+  if [ "$1" = "-e" ]; then shift 2; else args+=("$1"); shift; fi
+done
+printf 'osascript %s\n' "${args[*]}" >> "$S/calls"
+[ -e "$S/osascript-fail" ] && exit 1
+exit 0

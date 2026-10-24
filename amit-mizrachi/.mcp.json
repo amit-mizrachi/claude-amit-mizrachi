@@ -3,6 +3,10 @@
     "codex-bridge": {
       "command": "python3",
       "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/codex-bridge/server.py"]
+    },
+    "project-studio": {
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/studio/mcp_server.py"]
     }
   }
 }
