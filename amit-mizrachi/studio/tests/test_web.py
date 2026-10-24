@@ -110,19 +110,35 @@ class Web(TempHome):
         self.assertIn("width:14px;flex:0 1 auto", segment)
         self.assertIn(".run .st span:not(.bar){flex:none}", css)   # the words keep their width, the bar gives
 
-    def test_a_sub_project_line_opens_the_sub_project_not_its_card(self):
+    def test_a_sub_project_block_opens_the_sub_project_not_its_row(self):
         script = self.request("GET", "/static/app.js")[1].decode()
-        line = re.search(r"function subLine\(s\) \{(.*?)\n  \}\n", script, re.S).group(1)
+        line = re.search(r"function subBlock\(s\) \{(.*?)\n  \}\n", script, re.S).group(1)
         self.assertIn('var href = "#/p/" + encodeURIComponent(s.project_id);', line)
         self.assertIn("function go(e) { e.stopPropagation(); window.location.hash = href; }", line)
         self.assertIn('node.addEventListener("click", go);', line)
         self.assertIn('if (e.key === "Enter") { go(e); }', line)
-        self.assertIn("c.sub_projects.forEach(function (s) { subs.appendChild(subLine(s)); });", script)
+        self.assertIn("c.sub_projects.forEach(function (s) { blocks.appendChild(subBlock(s)); });", script)
         css = self.request("GET", "/static/app.css")[1].decode()
-        name = re.search(r"\.subp \.nm\{([^}]*)\}", css).group(1)
+        name = re.search(r"\.bh \.nm\{([^}]*)\}", css).group(1)
         self.assertIn("text-overflow:ellipsis", name)
-        self.assertIn("minmax(0,1fr)", re.search(r"\.subp\{([^}]*)\}", css).group(1))
+        self.assertIn("max-width:100%", name)
         self.assertIn("min-width:0", re.search(r"\.run \.st span\.in\{([^}]*)\}", css).group(1))
+
+    def test_nothing_in_a_row_runs_past_its_edge(self):
+        """D3: a chip cut to "in Ma..." and a line past the card's edge. A row clips, its head line and a
+        run's status line wrap, and every word in them is capped at the row's width."""
+        css = self.request("GET", "/static/app.css")[1].decode()
+        self.assertIn(".prow{overflow:hidden}", css)
+        self.assertIn(".prow .run .st{flex-wrap:wrap", css)
+        self.assertIn("flex-wrap:wrap", re.search(r"\.prow \.ct\{([^}]*)\}", css).group(1))
+        self.assertIn("max-width:100%", re.search(r"\.run \.st span\{([^}]*)\}", css).group(1))
+        self.assertIn("minmax(min(100%,300px),1fr)", re.search(r"\.runs\{([^}]*)\}", css).group(1))
+
+    def test_the_rows_keep_their_load_order_until_re_sort(self):
+        script = self.request("GET", "/static/app.js")[1].decode()
+        self.assertIn("if (!pinned) { pin(s); }", script)
+        self.assertIn('button("Re-sort", "ghost", function () { pin(lastState); render(lastState); })', script)
+        self.assertIn('<span id="resort"></span>', self.request("GET", "/")[1].decode())
 
     def test_the_first_event_is_a_full_snapshot(self):
         api.create_project("Alpha")

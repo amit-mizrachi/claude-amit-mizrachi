@@ -1,7 +1,8 @@
-"""The studio's home page through the public SDK: card order, at most 3 runs, "+ n earlier runs",
-sub-project lines (tree order, their own run line, "in <sub-project>" on a card run, archived ones
-left out), the empty text, first run, a failed source's banner, the "Still reading" note while a
-slow source is read, and the 14-day Inbox window."""
+"""The studio's home page through the public SDK: a row's status words, at most 6 own runs, "+ n more",
+sub-project blocks (tree order, their own run line and runs, "in <sub-project>" on a deeper run,
+archived ones left out), the empty text, first run, a failed source's banner, the "Still reading"
+note while a slow source is read, and the 14-day Inbox window. The activity order and the quiet
+fold are in test_home_rows.py."""
 
 import os
 import threading
@@ -30,7 +31,8 @@ class Home(Sources):
         self.assertTrue(state.first_run)
         self.assertEqual(state.cards, [])
         self.assertEqual((state.reading, state.reading_text), ([], ""))
-        self.assertEqual(state.caption, "Needs you first, then running, then latest change")
+        self.assertEqual(state.caption, "Latest activity first")
+        self.assertEqual((state.order, state.quiet_text), ([], ""))
 
     def test_a_project_without_runs_says_so(self):
         alpha = api.create_project("Alpha")
@@ -41,16 +43,19 @@ class Home(Sources):
         [card] = state.cards
         self.assertEqual((card.project.id, card.empty, card.runs, card.more), (alpha.id, "No night runs yet", [], ""))
 
-    def test_blocked_comes_before_done_and_empty(self):
+    def test_a_row_says_its_status_and_runs_in_words(self):
         done, blocked = self.workspace("done-20261023", tags=DONE3), self.workspace(
             "blk-20261023", tags=(("T01", "DONE"), ("T02", "BLOCKED: tests red"), ("T03", None)))
         a, b, c = api.create_project("A"), api.create_project("B"), api.create_project("C")
         self.file([done], a.id)
         self.file([blocked], b.id)
         cards = api.home().cards
-        self.assertEqual(cards[0].project.id, b.id)
-        self.assertEqual(cards[0].attention, "blocked")
-        self.assertEqual(cards[0].runs[0].word, "Blocked")
+        rows = {card.project.id: card for card in cards}
+        self.assertEqual((rows[b.id].attention, rows[b.id].status, rows[b.id].word, rows[b.id].counts),
+                         ("blocked", "blocked", "Blocked", "1 blocked"))
+        self.assertEqual(rows[b.id].runs[0].word, "Blocked")
+        self.assertEqual((rows[a.id].word, rows[a.id].counts), ("Done", "1 done"))
+        self.assertEqual((rows[c.id].glyph, rows[c.id].word, rows[c.id].counts), ("\u00b7", "", "no runs"))
         self.assertEqual({card.project.id for card in cards}, {a.id, b.id, c.id})
         self.assertEqual([card.empty for card in cards if card.project.id == c.id], ["No night runs yet"])
 
@@ -87,18 +92,18 @@ class Home(Sources):
         self.assertEqual(lines, {"m-20261023": ("Done", "PR merged", "1 of 2"),
                                  "c-20261023": ("Done", "PR merged", "3 of 3")})
 
-    def test_at_most_three_runs_then_the_earlier_ones_as_text(self):
+    def test_at_most_six_runs_then_the_rest_as_text(self):
         running = self.workspace("live-20261023", tags=(("T01", "DONE"), ("T02", ""), ("T03", None)))
-        done = [self.workspace("old%d-20261020" % n, tags=DONE3) for n in range(4)]
+        done = [self.workspace("old%d-20261020" % n, tags=DONE3) for n in range(7)]
         p = api.create_project("P")
         self.file([running] + done, p.id)
         [card] = api.home().cards
-        self.assertEqual(len(card.runs), 3)
+        self.assertEqual(len(card.runs), 6)
         self.assertEqual(card.runs[0].status, "running")
         self.assertEqual(card.runs[0].progress, "T02 of 3")
-        self.assertEqual(card.more, "+ 2 earlier runs, all done")
+        self.assertEqual(card.more, "+ 2 more, all done")
 
-    def test_sub_projects_are_lines_of_their_own_in_tree_order(self):
+    def test_sub_projects_are_blocks_of_their_own_in_tree_order(self):
         p = api.create_project("P")
         beta = api.create_project("beta", parent_id=p.id)
         alpha = api.create_project("Alpha", parent_id=p.id)
@@ -111,7 +116,7 @@ class Home(Sources):
                                  (beta.id, "beta", "pending", "\u00b7", "", "no runs", "")])
         self.assertFalse(hasattr(card, "inside"))
 
-    def test_a_sub_project_line_opens_the_sub_project_and_carries_its_own_runs(self):
+    def test_a_sub_project_block_carries_its_runs_and_the_row_only_its_own(self):
         live = self.workspace("live-20261023", tags=(("T01", "DONE"), ("T02", ""), ("T03", None)))
         deep = self.workspace("deep-20261022", tags=DONE3)
         own = self.workspace("own-20261021", tags=DONE3)
@@ -129,11 +134,21 @@ class Home(Sources):
         self.assertEqual((units_line.status, units_line.glyph, units_line.word, units_line.text, units_line.inside),
                          ("running", "\u25cf", "Running", "1 running, 1 done", "1 inside"))
         self.assertEqual((evals_line.word, evals_line.text), ("", "no runs"))
-        tags = {r.title: (r.sub_project_id, r.sub_project) for r in card.runs}
-        self.assertEqual(tags, {"live-20261023": (units.id, "in Machina decision units"),
-                                "deep-20261022": (units.id, "in Machina decision units"),
-                                "own-20261021": ("", "")})
-        self.assertEqual(card.runs[0].title, "live-20261023")
+        self.assertEqual([(r.title, r.sub_project) for r in card.runs], [("own-20261021", "")])
+        tags = [(r.title, r.sub_project_id, r.sub_project) for r in units_line.runs]
+        self.assertEqual(tags, [("live-20261023", "", ""), ("deep-20261022", inner.id, "in Inner")])
+        self.assertEqual((evals_line.runs, evals_line.more), ([], ""))
+        self.assertEqual((card.status, card.counts), ("running", "1 running, 2 done"))
+
+    def test_a_sub_project_block_shows_three_runs_then_the_rest_as_text(self):
+        live = self.workspace("live-20261023", tags=(("T01", "DONE"), ("T02", ""), ("T03", None)))
+        done = [self.workspace("old%d-20261020" % n, tags=DONE3) for n in range(3)]
+        p = api.create_project("P")
+        sub = api.create_project("Sub", parent_id=p.id)
+        self.file([live] + done, sub.id)
+        [block] = api.home().cards[0].sub_projects
+        self.assertEqual([r.title for r in block.runs][0], "live-20261023")
+        self.assertEqual((len(block.runs), block.more), (3, "+ 1 more, all done"))
 
     def test_archived_sub_projects_do_not_show(self):
         ws = self.workspace("arch-20261023", tags=DONE3)

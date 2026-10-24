@@ -35,7 +35,7 @@ every command, its options and an example.
 | `stop` | `project-studio stop` | ask the running studio to stop |
 | `status` | `project-studio status` | whether the studio runs, and where |
 | `status <project>` | `project-studio status 'Project Studio'` | a project's night runs and items |
-| `list` | `project-studio list --all` | the project tree with each project's night runs in words ("2 blocked, 1 running, 4 done") |
+| `list` | `project-studio list --by activity` | the project tree with each project's night runs in words ("2 blocked, 1 running, 4 done"); `--by activity` puts the latest activity first, as home does, and says when ("12 min ago"); `--all` adds archived ones |
 | `show` | `project-studio show p_1a2b3c` | one project's view: sub-projects, its own runs, then each sub-project's runs under an "In <name>" heading (one indent per level), sessions, PRs, rules; `--json` has them as `sub_runs` |
 | `find` | `project-studio find alpha --kind session-bg` | items that match, newest activity first (`--gone`, `--dismissed` include those) |
 | `inbox` | `project-studio inbox --limit 20` | unfiled items with the suggested project |
@@ -106,8 +106,16 @@ Exit codes: 0 ok; 1 a studio error (`not_found`, `ambiguous`, `invalid_input`, `
 where each goes, OK removes it (one `remove_project` call), the page goes to the parent (or home)
 and the toast's **Undo** brings the project back with the same id and everything in it.
 
-The studio is a local web server on `127.0.0.1` only. The home page is a grid of project cards
-that show only each project's night-run status; a click on a card opens the project view
+The studio is a local web server on `127.0.0.1` only. The home page is a scrolling list of
+full-width project rows, latest activity first (the newest run state change, session transcript
+write or PR update in the project or under it). The order is fixed when the page loads: a live
+update changes what a row says, never its place, and a small **Re-sort** link shows when the
+activity order has changed since. A row says the project's status, its night runs in words and
+its last activity ("12 min ago"), then up to 6 of its own runs across the width (needs-you
+first, "+ n more"), then each active sub-project as an indented block with its own status and up
+to 3 runs. Projects with no runs and nothing new in 14 days fold into "n quiet projects" at the
+bottom. A long name ends in "..." and shows in full on hover; nothing runs past a row's edge. A
+click on a row (or Enter on it) opens the project view
 (its own runs, then a section per sub-project with that sub-project's runs, sessions, everything
 else), where a session row's **Open in Terminal** opens Terminal on
 `claude attach <id>` (a background session) or `cd <cwd> && claude --resume <id>` (an
@@ -158,7 +166,7 @@ Each tool is one SDK call:
 
 | Tool | SDK function | Reads or writes |
 |---|---|---|
-| `studio_list` | `api.list_projects(parent_id, top_level, include_archived, limit)` | reads |
+| `studio_list` | `api.list_projects(parent_id, top_level, include_archived, limit, by)` | reads |
 | `studio_create` | `api.create_project(name, parent_id)` | writes |
 | `studio_find` | `api.find_items(query, kind, project_id, include_gone, limit, include_dismissed)` | reads (refreshes due sources) |
 | `studio_status` | `api.project_status(project_id)` | reads (refreshes due sources); `groups` has the runs by sub-project |

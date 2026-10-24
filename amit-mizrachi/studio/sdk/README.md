@@ -27,7 +27,7 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | Function | Returns | Notes |
 |---|---|---|
 | `create_project(name, parent_id=None)` | `Project` | Refused under the Inbox or an archived parent, or for an active sibling's name (any case). |
-| `list_projects(parent_id=None, top_level=False, include_archived=False, limit=None, with_runs=False)` | `ProjectList` | Inbox first, then by path. `total` counts every match; `truncated` says the limit cut some. `with_runs` fills `run_lines` (id -> "2 blocked, 1 running, 4 done" / "no runs", `runwords.run_counts_text` over it and its sub-projects; none for the Inbox), the CLI's `list` line. |
+| `list_projects(parent_id=None, top_level=False, include_archived=False, limit=None, with_runs=False, by="tree")` | `ProjectList` | Inbox first, then by path. `total` counts every match; `truncated` says the limit cut some. `with_runs` fills `run_lines` (id -> "2 blocked, 1 running, 4 done" / "no runs", `runwords.run_counts_text` over it and its sub-projects; none for the Inbox), the CLI's `list` line. `by="activity"` orders it as `home` orders its rows (`home.by_activity`: latest activity first, quiet ones last, ties by name; the Inbox stays first and a listed project's sub-projects stay under it in tree order) and fills `last_activity` (id -> "12 min ago" / "no activity yet"). Any other `by` is `InvalidInput`. |
 | `get_project(project_id)` | `Project` | Archived or not. |
 | `resolve_project(ref)` | `Project` | What a person types: the exact id, then a unique id prefix (4+ characters, the `p_` optional), then a name (any case) among active projects. A unique name beats a prefix that matches several ids. `NotFound`, or `Ambiguous` with `candidates` ({id, name, parent_path}, at most 20). |
 | `resolve_item(ref)` | `Item` | The exact id or a unique id prefix (4+ characters, the `i_` optional); no title matching. `NotFound`, or `Ambiguous` with `candidates` ({id, title, kind, project_path}, at most 20). |
@@ -61,7 +61,7 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `list_rules(project_id=None)` / `delete_rule(rule_id)` | `RuleList` / `Rule` | Strongest signal first, then newest (same second: save order). |
 | `purge_gone(item_id=None, all_gone=None)` | `PurgeResult` | Deletes gone items for good, only when asked. `all_gone` False with no `item_id` is refused, True with one is `InvalidInput`; None (the CLI) reads no `item_id` as every gone item. |
 | `attach_session(session_id, cwd, job_dir=None, entrypoint=None)` | `AttachResult` | The SessionStart hook: files a starting session by title > cwd > rule > Inbox over what the store holds, no reader run. Headless (`sdk*`) runs are skipped; a known session stays put. |
-| `home(refresh=False)` | `HomeState` | The studio's home page: cards in final order (needs-you, blocked, running, latest change), a line per active sub-project (`HomeCard.sub_projects`, below), at most 3 runs per card with "+ n earlier runs" (a sub-project's run tagged "in <sub-project>"), PR line, a banner per failed source (last-good states kept), `first_run` with no project, `reading` / `reading_text` ("Still reading PRs...") for sources still being read, `archived` ({id, name as a path, archived_at} per archived project, tree order: the page's "Show archived" list). Answers from the store and never waits for a slow source. |
+| `home(refresh=False)` | `HomeState` | The studio's home page: one row per active top-level project, latest activity first (the newest `changed_at` / `last_active` / `updated_at` / `started_at` of a not-dismissed item in it or under it; ties by name, any case, then id), quiet rows (no runs, nothing new and nothing made in 14 days) last; `order` (the row ids in that order) and `quiet_text` ("2 quiet projects"). A row has its status, `counts` in words, `last_activity` ("12 min ago"), at most 6 of its own runs with "+ n more", a block per active sub-project (`HomeCard.sub_projects`, below) with at most 3 runs, a PR line, a banner per failed source (last-good states kept), `first_run` with no project, `reading` / `reading_text` ("Still reading PRs...") for sources still being read, `archived` ({id, name as a path, archived_at} per archived project, tree order: the page's "Show archived" list). Answers from the store and never waits for a slow source. |
 | `open_studio()` | `StudioServer` | Starts `studio/web.py` on 127.0.0.1 unless one of this code version runs (`started` False); asks an older one to stop first. Never opens a browser. `StartFailed` after 5 s (see `studio.log`). |
 | `studio_status()` | `StudioServer` | The running studio, or `running` False. |
 | `stop_studio()` | `StudioServer` | POST /shutdown with the token, waits up to 5 s. Never kills. |
@@ -153,16 +153,20 @@ done", not "T17 of 17"; a done run says how many tickets settled, "12 of 13".
 | `ReadOnlyStore` | `read_only` | The store was written by a newer SDK. |
 | `StartFailed` | `start_failed` | The studio web server did not come up (its log, `studio.log`, says why). |
 
-`HomeCard` fields: `project`, `sub_projects`, `runs` (at most 3), `more` ("+ 2 earlier runs"), `pr`,
-`attention` (`needs-you`, `blocked` or ''), `empty` ("No night runs yet"), `changed_at`. Each of
-`sub_projects` is a `HomeSubProject`, the card's active (not archived) sub-projects in tree order
+`HomeCard` fields: `project`, `sub_projects`, `runs` (the project's OWN runs, at most 6), `more`
+("+ 2 more", "+ 2 more, all done"), `pr`, `attention` (`needs-you`, `blocked` or ''), `empty` ("No
+night runs yet", with no run in it or under it), `changed_at`, `status` / `glyph` / `word` (its top
+run's over it and its sub-projects; `pending`, a middle dot and '' with none), `counts` ("1 blocked,
+2 done"), `last_activity_at` (ISO, '' for none), `last_activity` ("12 min ago", "no activity yet"),
+`quiet`. Each of `sub_projects` is a `HomeSubProject`, the row's active (not archived) sub-projects in tree order
 (by name, any case): `project_id` (what a click opens), `name`, `status` (`pending` with no runs,
 else the top run's, as the project view's tile says it), `glyph`, `word` ("Running"; '' with no
 runs), `text` ("1 blocked, 2 done", "no runs"; over its own active sub-projects too,
 runs not gone) and `inside` ("2 inside" for its active sub-projects, '' with none; deeper levels
-stay a count). A card run (`HomeRun`) that lives in a sub-project, or under one, carries that
-sub-project's `sub_project_id` and its tag `sub_project` ("in Machina decision units"); both are ''
-for the card's own runs. A card has no "n inside" count any more: the lines replace it.
+stay a count), `runs` (at most 3 of it and everything under it, ranked) and `more` ("+ 2 more").
+A block's run (`HomeRun`) that lives deeper, in one of the block's own sub-projects or under one,
+carries that sub-project's `sub_project_id` and its tag `sub_project` ("in Inner"); both are '' for
+the block's own runs and always for the row's own `runs`.
 
 `Project` fields: `id`, `name`, `parent_id`, `path` (names from the top level down),
 `is_inbox`, `archived_at`, `created_at`, `updated_at` (ISO 8601 UTC), `child_count`,
