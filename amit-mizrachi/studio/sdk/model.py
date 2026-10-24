@@ -199,11 +199,16 @@ def move_project(conn, project_id, new_parent_id):
     _parent_ok(tree, new_parent_id, row["name"])
     if tree.sibling_named(new_parent_id, row["name"], skip=project_id):
         raise Refused("A project named %s already exists there." % row["name"])
+    return reparent(conn, row, new_parent_id)
+
+
+def reparent(conn, row, new_parent_id):
+    """Set project `row`'s parent with no checks, bump its revision and record the move. Returns the move id."""
     stamp, revision = store.now_iso(), row["revision"] + 1
     conn.execute("UPDATE projects SET parent_id = ?, revision = ?, updated_at = ? WHERE id = ?",
-                 (new_parent_id, revision, stamp, project_id))
+                 (new_parent_id, revision, stamp, row["id"]))
     cur = conn.execute("INSERT INTO moves (project_id, from_project, to_project, revision, at) VALUES (?, ?, ?, ?, ?)",
-                       (project_id, row["parent_id"], new_parent_id, revision, stamp))
+                       (row["id"], row["parent_id"], new_parent_id, revision, stamp))
     return cur.lastrowid
 
 
@@ -295,11 +300,54 @@ def delete_plan(conn, project_id):
 def delete_project(conn, project_id):
     """Delete an empty project with its links and rules. Returns its name."""
     name = delete_plan(conn, project_id)[0]
+    drop_project(conn, project_id)
+    return name
+
+
+def drop_project(conn, project_id):
+    """Delete a project row that holds nothing any more, with its links, rules and its own move rows."""
     conn.execute("DELETE FROM links WHERE a_id = ? OR b_id = ?", (project_id, project_id))
     conn.execute("DELETE FROM rules WHERE project_id = ?", (project_id,))
     conn.execute("DELETE FROM moves WHERE project_id = ?", (project_id,))
     conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
-    return name
+
+
+class Removal(object):
+    """What removing a project moves where (`remove_plan`): its row, its sub-project rows (to
+    `parent_id`, None = the top level), every item row it holds, dismissed and gone ones too (to
+    `to_project`: the parent, or the Inbox), and the link and rule rows that go with it."""
+
+    def __init__(self, row, to_project, to_name, children, items, links, rules):
+        self.row, self.parent_id = row, row["parent_id"]
+        self.to_project, self.to_name = to_project, to_name
+        self.children, self.items, self.links, self.rules = children, items, links, rules
+
+
+def remove_plan(conn, project_id):
+    """What `items.remove_project` would do, as a Removal. Refused for the Inbox, an archived project
+    (or one under an archived project), and when a sub-project would land next to an active project
+    of its own name."""
+    tree = Tree(conn)
+    row = tree.row(project_id)
+    if project_id == store.INBOX_ID:
+        raise Refused("The Inbox can't be removed.")
+    if tree.hidden(project_id):
+        raise Refused("Can't remove %s: it is archived. Unarchive it first." % row["name"])
+    parent = row["parent_id"]
+    children = sorted((dict(tree.rows[c]) for c in tree.children.get(project_id, [])),
+                      key=lambda r: (r["name"].lower(), r["id"]))
+    for child in children:
+        twin = None if child["archived_at"] else tree.sibling_named(parent, child["name"], skip=project_id)
+        if twin:
+            where = "at the top level" if parent is None else "in %s" % tree.rows[parent]["name"]
+            raise Refused("Can't remove %s: its sub-project %s would land next to the project %s %s. "
+                          "Rename one of them first." % (row["name"], child["name"], twin["name"], where))
+    to_project = parent or store.INBOX_ID
+    items = [dict(r) for r in conn.execute("SELECT * FROM items WHERE project_id = ? ORDER BY id", (project_id,))]
+    links = [dict(r) for r in conn.execute("SELECT * FROM links WHERE a_id = ? OR b_id = ?", (project_id, project_id))]
+    rules = [dict(r) for r in conn.execute("SELECT * FROM rules WHERE project_id = ? ORDER BY created_at, id",
+                                           (project_id,))]
+    return Removal(dict(row), to_project, tree.rows[to_project]["name"], children, items, links, rules)
 
 
 # ---------------------------------------------------------------- export

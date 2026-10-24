@@ -66,6 +66,7 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'se
 ACTIONS = {
     "/api/rename": lambda b: api.rename_project(b.get("project_id"), b.get("name")),
     "/api/archive": lambda b: api.archive_project(b.get("project_id")),
+    "/api/remove-project": lambda b: api.remove_project(b.get("project_id"), b.get("confirmed") is True),
     "/api/unarchive": lambda b: api.unarchive_project(b.get("project_id")),
     "/api/link": lambda b: api.link_projects(b.get("project_id"), b.get("other_id")),
     "/api/unlink": lambda b: api.unlink_projects(b.get("project_id"), b.get("other_id")),

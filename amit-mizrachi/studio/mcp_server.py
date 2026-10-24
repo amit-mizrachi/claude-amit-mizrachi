@@ -95,7 +95,8 @@ MOVE_SCHEMA = {
         "created": {"type": "boolean"},
         "message": {"type": "string", "description": "What moved where: \"Moved to Project Studio\"."},
         "kind": {"type": "string", "enum": list(store.MOVE_KINDS),
-                 "description": "What the change was: move, dismiss, restore, mark-done or unmark-done."},
+                 "description": "What the change was: move, dismiss, restore, mark-done, unmark-done or "
+                                "remove-project (an undone removal)."},
     },
 }
 RUN_SCHEMA = {
@@ -485,13 +486,57 @@ TOOLS = [
                         "idempotentHint": False, "openWorldHint": False},
     },
     {
+        "name": "studio_remove_project",
+        "title": "Remove a project and move what it holds up",
+        "description": (
+            "Remove a project that may still hold things (studio_delete is for empty ones). Its night "
+            "runs and other items move to its parent project (a top-level project's go to the Inbox) "
+            "and its sub-projects move up to the parent (or the top level), each recorded as a move; "
+            "its links and rules go; then the project is deleted. No session, folder or PR is touched. "
+            "confirm is required: with confirm false it changes nothing and returns needs_confirm and "
+            "a message listing what is inside and where each part goes - show that to the user, and "
+            "call again with confirm true only once they agree. The result's move_id is one "
+            "studio_undo handle that brings the project back (same id, name and parent) with "
+            "everything in it. Refused for the Inbox, an archived project, and a sub-project that "
+            "would land next to an active project of its name."
+        ),
+        "inputSchema": {"type": "object", "required": ["project_id", "confirm"], "additionalProperties": False,
+                        "properties": {"project_id": PROJECT_ID,
+                                       "confirm": {"type": "boolean",
+                                                   "description": "Really remove it. false: only say what would move where."}}},
+        "outputSchema": {
+            "type": "object",
+            "required": ["id", "name", "parent_id", "to_project_id", "to_name", "sub_projects", "runs", "run_titles",
+                         "items", "removed", "needs_confirm", "move_id", "message"],
+            "properties": {
+                "id": {"type": "string"}, "name": {"type": "string"},
+                "parent_id": dict(NULLABLE_TEXT, description="Where the sub-projects go; null: the top level."),
+                "to_project_id": {"type": "string", "description": "Where the runs and items go: the parent, or inbox."},
+                "to_name": {"type": "string"},
+                "sub_projects": {"type": "array", "items": {"type": "object", "required": ["id", "name"],
+                                                            "properties": {"id": {"type": "string"},
+                                                                           "name": {"type": "string"}}}},
+                "runs": {"type": "integer", "description": "Night runs that move."},
+                "run_titles": {"type": "array", "items": {"type": "string"}, "description": "Up to 5 of them."},
+                "items": {"type": "integer", "description": "Other items that move (sessions, PRs, worktrees, artifacts)."},
+                "removed": {"type": "boolean"},
+                "needs_confirm": {"type": "boolean", "description": "True when nothing changed: ask, then call again with confirm true."},
+                "move_id": {"type": ["integer", "null"], "description": "studio_undo's handle once removed; null before."},
+                "message": {"type": "string"},
+            },
+        },
+        "annotations": {"title": "Remove a project", "readOnlyHint": False, "destructiveHint": True,
+                        "idempotentHint": False, "openWorldHint": False},
+    },
+    {
         "name": "studio_undo",
         "title": "Undo a move",
         "description": (
             "Put back what a move did (studio_move, studio_add, studio_accept, studio_remove, an item's or "
             "a project's): the item or project goes back where move_id took it from. A studio_dismiss "
             "move is undone by restoring the item, a studio_restore move by dismissing it again, a "
-            "studio_mark_done move by taking the mark back. Refused "
+            "studio_mark_done move by taking the mark back, a studio_remove_project move by bringing "
+            "the project back (same id, name and parent) with everything that was in it. Refused "
             "when it changed again since."
         ),
         "inputSchema": {"type": "object", "required": ["move_id"], "additionalProperties": False,
@@ -753,6 +798,10 @@ def tool_delete(args):
     return api.delete_project_guarded(args["project_id"], confirmed=args.get("confirmed", False))
 
 
+def tool_remove_project(args):
+    return api.remove_project(args["project_id"], confirmed=args["confirm"])
+
+
 def tool_undo(args):
     return api.undo_move(args["move_id"])
 
@@ -811,6 +860,7 @@ HANDLERS = {
     "studio_unarchive": tool_unarchive,
     "studio_rename": tool_rename,
     "studio_delete": tool_delete,
+    "studio_remove_project": tool_remove_project,
     "studio_undo": tool_undo,
     "studio_rules": tool_rules,
     "studio_rule_save": tool_rule_save,

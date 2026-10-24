@@ -21,11 +21,12 @@ Output and exit codes, the same for every command:
 - 0 on success. 1 on an SDK error: `project-studio: <code>: <message>` on stderr, or with `--json`
   `{"error": {"code", "message", ...}}` on stdout (an ambiguous name adds `candidates`).
   2 on a usage error (argparse prints the usage on stderr), and when a command that needs `--yes`
-  did not get it (`delete`; `terminal` and `throw` without a tty): the message says what it would have done,
-  code `confirm_needed`, on stderr or as `--json` error.
+  did not get it (`delete`; `terminal`, `throw` and `remove-project` without a tty): the message says what it
+  would have done, code `confirm_needed`, on stderr or as `--json` error.
 - A move (`file`, `add`, `accept`, `nest`, `remove`, `dismiss`, `restore`, `mark-done`, `undo`) prints
   its move id and the `undo` command. `command <item>` prints only the command, so `$(project-studio command <item>)` works.
 - `project-studio` alone is `open`, and `open | status | stop` print what they printed before.
+- `remove-project` prints what moved where, its move id and the `undo` command that brings it all back.
 - `rule-add` prints the rule and, with `--apply`, one move id and `undo` command per filed item;
   `--dry-run` saves nothing. `--branch-prefix` without `--repo` is a usage error (exit 2).
 
@@ -410,6 +411,31 @@ def run_delete(args):
     return api.delete_project(project.id)
 
 
+def setup_remove_project(parser):
+    add_project_arg(parser)
+    add_yes(parser, "remove it without asking")
+
+
+def run_remove_project(args):
+    """Without --yes: what is inside and where it goes, then y/N on a tty (confirm_needed without one)."""
+    project_id = project_ref(args.project)
+    result = api.remove_project(project_id, confirmed=args.yes)
+    if not result.needs_confirm:
+        return result
+    if not sys.stdin.isatty():
+        raise NeedsYes("%s Nothing was removed. Run again with --yes to do it." % result.message)
+    if not ask(result.message + "\nRemove it?"):
+        raise NeedsYes("Nothing was removed.")
+    return api.remove_project(project_id, confirmed=True)
+
+
+def text_remove_project(result):
+    lines = [result.message]
+    if result.move_id is not None:
+        lines.append("Move %d. Undo: %s undo %d" % (result.move_id, PROG, result.move_id))
+    return lines
+
+
 def setup_nest(parser):
     add_project_arg(parser)
     where = parser.add_mutually_exclusive_group(required=True)
@@ -544,6 +570,10 @@ COMMANDS = [
             lambda a: api.unarchive_project(project_ref(a.project)), text_project("Unarchived")),
     Command("delete", "Delete an EMPTY project for good. Needs --yes; without it, says what it would delete.",
             "project-studio delete Scratch --yes", setup_delete, run_delete, text_delete),
+    Command("remove-project", "Remove a project that holds things: its runs and items move to its parent (the "
+            "Inbox for a top-level one), its sub-projects move up. Nothing on disk changes. Needs --yes or a y; "
+            "undoable.", "project-studio remove-project Scratch --yes", setup_remove_project, run_remove_project,
+            text_remove_project),
     Command("nest", "Move a project under another (--under) or to the top level (--top). Undoable.",
             "project-studio nest Docs --under Beta", setup_nest,
             lambda a: api.move(project_ref(a.project), None if a.top else project_ref(a.under)), text_move),
@@ -558,7 +588,8 @@ COMMANDS = [
     Command("file", "Move an item into a project by hand. Prints the move id for undo and rule-save.",
             "project-studio file i_1a2b3c4d Alpha", setup_file,
             lambda a: api.move_item(item_ref(a.item), project_ref(a.project), a.revision), text_move),
-    Command("undo", "Put back what a move (file, add, accept, nest, remove, dismiss, restore, mark-done) did.",
+    Command("undo", "Put back what a move (file, add, accept, nest, remove, dismiss, restore, mark-done, "
+            "remove-project) did.",
             "project-studio undo 42",
             add_move_id, lambda a: api.undo_move(a.move_id), text_move),
     Command("remove", "Take an item out of its project, back to the Inbox. It deletes nothing.",

@@ -78,6 +78,29 @@ class DeleteRequest:
 
 
 @dataclass
+class ProjectRemoval:
+    """What `remove_project` would do or did. `removed` False with `needs_confirm`: nothing changed, and
+    `message` lists what is inside and where it goes. Its `sub_projects` ({id, name}) go to `parent_id`
+    (None: they become top-level); its `runs` and other `items` (counts; `run_titles` names up to 5)
+    go to `to_project_id` (the parent, or the Inbox). `move_id` (once removed) is what `undo_move`
+    takes to bring the project back, same id, with everything that was in it."""
+
+    id: str
+    name: str
+    parent_id: Optional[str]
+    to_project_id: str
+    to_name: str
+    sub_projects: List[Dict[str, str]]
+    runs: int
+    run_titles: List[str]
+    items: int
+    removed: bool
+    needs_confirm: bool
+    move_id: Optional[int]
+    message: str
+
+
+@dataclass
 class ThrowWorktree:
     """One worktree a throw removes with `git worktree remove` (never forced): its folder, its repo, its
     branch, and the gitignored entries in it (`ignored`, relative paths), which git deletes for good."""
@@ -258,7 +281,7 @@ class MoveResult:
     rule_preview: Optional[RulePreview] = None
     created: bool = False
     message: str = ""
-    kind: str = "move"              # what the ledger row records: move, dismiss, restore, mark-done, unmark-done
+    kind: str = "move"              # what the ledger row records: move, dismiss, restore, mark-done, unmark-done, remove-project
 
 
 @dataclass

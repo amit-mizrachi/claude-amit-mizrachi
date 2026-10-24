@@ -23,7 +23,7 @@ from . import (actions, attach, home as homepage, inboxview, items, model, proje
 from .errors import InvalidInput, Refused
 from .results import (AttachResult, DeleteRequest, DeleteResult, Export, HomeState, InboxList, InboxView, Item, ItemList,
                       LinkResult, MoveChoices, MoveResult, OpenResult, Project, ProjectList, ProjectStatus, ProjectView,
-                      PurgeResult, RefreshResult, Rule, RuleAdd, RuleList, Settings, StudioServer, TerminalCommand,
+                      ProjectRemoval, PurgeResult, RefreshResult, Rule, RuleAdd, RuleList, Settings, StudioServer, TerminalCommand,
                       TerminalOpen, ThrowAway, UnlinkResult)
 
 MAX_LIST_LIMIT = 1000
@@ -205,6 +205,22 @@ def delete_project_guarded(project_id: str, confirmed: bool = False) -> DeleteRe
                    % (name, project_id, _count(links, "link"), _count(rules, "rule")))
     return DeleteRequest(id=project_id, name=name, deleted=confirmed, needs_confirm=not confirmed, links=links,
                          rules=rules, message=message)
+
+
+def remove_project(project_id: str, confirmed: bool = False) -> ProjectRemoval:
+    """Remove a project that may still hold things. Unless `confirmed`, change nothing: `needs_confirm`
+    True and `message` lists what is inside (sub-projects, night runs, other items) and where each
+    goes. Confirmed, in one transaction: its items move to the parent (a top-level project's to the
+    Inbox) and its sub-projects move up to the parent (or the top level), each recorded as a move;
+    its links and rules go; the empty project is deleted. `move_id` is ONE ledger row: `undo_move`
+    on it brings the project back with the same id, name and parent and puts everything back,
+    refused as other moves are when something moved since. Refused for the Inbox, an archived
+    project, and a sub-project that would land next to an active project of its name. It never
+    touches a session, folder or PR. `delete_project` stays for empty projects only.
+    """
+    confirmed = _flag(confirmed, "confirmed")
+    with (store.write() if confirmed else store.read()) as conn:
+        return items.remove_project(conn, project_id, confirmed)
 
 
 def export_json(dest: Optional[str] = None) -> Export:
