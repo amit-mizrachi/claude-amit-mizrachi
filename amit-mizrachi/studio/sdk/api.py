@@ -570,29 +570,31 @@ def project_view(project_id: str, refresh: bool = False) -> ProjectView:
         return projectview.state(conn, project_id)
 
 
-def terminal_command(item_id: str) -> TerminalCommand:
+def terminal_command(item_id: str, target: str = "session") -> TerminalCommand:
     """The command that opens a session again, built from the store: `claude attach <short id>` when
     `claude agents` lists the session, else `cd <recorded cwd> && claude --resume <session id>`
-    (every value pattern-checked and shlex-quoted). `item_id` is a session, or a night run (its
-    newest listed session). `confirm` is set when the transcript changed in the last 5 minutes.
-    It runs nothing: this is what "Copy command" copies.
+    (every value pattern-checked and shlex-quoted). `item_id` is a session, or a night run: with
+    `target` "session" its newest listed ticket session, with "conductor" its conductor session
+    (`Run.conductor_item_id`; `Refused` when none is known). `confirm` is set when the transcript
+    changed in the last 5 minutes. It runs nothing: this is what "Copy command" copies.
     """
     with store.read() as conn:
-        found = actions.session_of(conn, item_id)
+        found = actions.session_of(conn, item_id, target)
     return actions.terminal_command(found)
 
 
-def open_in_terminal(item_id: str, confirmed: bool = False) -> TerminalOpen:
+def open_in_terminal(item_id: str, confirmed: bool = False, target: str = "session") -> TerminalOpen:
     """Open a session (or a night run's live session) in a terminal: write the `terminal_command` to
     `<data dir>/open/<item id>.command` (mode 0700) and open it in the `terminal` setting's app
     (`settings()`): by default `open <file>` (Terminal), or Terminal or iTerm by name. A setting
     it does not know falls back to Terminal and the message says so. When the open fails, the
     command goes to the clipboard (`copied`). A resume whose transcript changed in the last
     5 minutes runs nothing and returns `needs_confirm` until called with `confirmed` True.
+    `target` "conductor" opens a night run's conductor session instead (as `terminal_command`).
     It never stops, kills or removes a session.
     """
     confirmed = _flag(confirmed, "confirmed")
-    return actions.open_in_terminal(terminal_command(item_id), confirmed)
+    return actions.open_in_terminal(terminal_command(item_id, target), confirmed)
 
 
 def settings() -> Settings:

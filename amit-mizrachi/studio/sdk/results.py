@@ -302,6 +302,7 @@ class Run:
     progress_text: str = ""         # "T03 of 5", "5 of 5" once done, "at CI - 5 of 5 done", as home and show say it
     pr_text: str = ""               # "PR #12 draft - checks green", or ""
     marked_done: bool = False       # Done because a person marked it, not its files ("marked done by you")
+    conductor_item_id: Optional[str] = None   # the session that conducts the run ("Open conductor"), None unknown
 
 
 @dataclass
@@ -365,6 +366,7 @@ class HomeRun:
     gone: bool
     sub_project_id: str = ""        # the card's sub-project the run lives in (or under), '' for the card's own
     sub_project: str = ""           # its tag: "in Machina decision units", '' for the card's own
+    conductor_item_id: Optional[str] = None   # the run's conductor session, None when unknown
 
 
 @dataclass
@@ -457,7 +459,8 @@ class ViewTile:
 @dataclass
 class ViewRun:
     """One run panel. `detail` sits before the stage bar ("REDRAW - T03 of 5"), `started` and `pr`
-    after it. `terminal_item_id` is the run's live session (None: no "Open in Terminal")."""
+    after it. `terminal_item_id` is the run's live ticket session (None: no "Open in Terminal");
+    `conductor_item_id` the session that conducts it (None: no "Open conductor")."""
 
     item_id: str
     title: str
@@ -473,6 +476,7 @@ class ViewRun:
     terminal_item_id: Optional[str]
     gone: bool
     can_mark_done: bool = False     # a Blocked or Waiting-on-you run shows "Mark done"
+    conductor_item_id: Optional[str] = None
 
 
 @dataclass

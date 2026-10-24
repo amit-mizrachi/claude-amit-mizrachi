@@ -27,11 +27,12 @@ GLYPHS = {"needs-you": "!", "blocked": "\u2717", "running": "\u25cf", "paused": 
 WORDS = {"needs-you": "Waiting on you", "blocked": "Blocked", "running": "Running", "paused": "Paused",
          "pending": "Pending", "done": "Done", "unknown": "Unknown"}
 COMMANDS = {"prs": "gh pr list", "agents": "claude agents", "jobs": "the jobs folder",
-            "transcripts": "the session transcripts", "worktrees": "git worktree list",
+            "transcripts": "the session transcripts", "conductors": "the conductor scan",
+            "worktrees": "git worktree list",
             "workspaces": "the workspace scan", "workspace": "a workspace's state files"}
 CAPTION = "Needs you first, then running, then latest change"
 READING = {"prs": "PRs", "worktrees": "worktrees", "agents": "sessions", "jobs": "sessions",
-           "transcripts": "sessions", "workspaces": "night runs", "workspace": "night runs"}
+           "transcripts": "sessions", "conductors": "sessions", "workspaces": "night runs", "workspace": "night runs"}
 
 
 def ago(stamp, now):
@@ -111,7 +112,8 @@ def home_run(run):
                    word=WORDS.get(run.status, run.status.title()),
                    reason=run.reason if run.status in ("needs-you", "done") else "", progress=_progress_text(run) if run.status != "needs-you" else "",
                    bar=_stage_bar(run) if run.status != "needs-you" else [],
-                   open_plan_url=url if run.status == "needs-you" else "", pr=pr_text(run.pr), gone=run.gone)
+                   open_plan_url=url if run.status == "needs-you" else "", pr=pr_text(run.pr), gone=run.gone,
+                   conductor_item_id=run.conductor_item_id)
 
 
 def _more_text(hidden):
@@ -172,11 +174,11 @@ def _cards(conn):
     shown = "dismissed_at IS NULL"
     every_pr = [items.to_item(dict(r), tree) for r in conn.execute("SELECT * FROM items WHERE kind = 'pr' AND " + shown)]
     arts = [items.to_item(dict(r), tree) for r in conn.execute("SELECT * FROM items WHERE kind = 'artifact' AND " + shown)]
-    runs_by_home = {}
+    runs_by_home, known = {}, items.session_ids(conn)
     marks = ",".join("?" * len(WORKSPACE_KINDS))
     for r in conn.execute("SELECT * FROM items WHERE gone_at IS NULL AND %s AND kind IN (%s)" % (shown, marks),
                           WORKSPACE_KINDS):
-        run = items.to_run(items.to_item(dict(r), tree), every_pr, arts)
+        run = items.to_run(items.to_item(dict(r), tree), every_pr, arts, known)
         runs_by_home.setdefault(run.project_id, []).append(run)
     cards = []
     for pid in tree.children.get(None, []):

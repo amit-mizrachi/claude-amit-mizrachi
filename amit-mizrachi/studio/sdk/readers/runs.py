@@ -11,6 +11,13 @@ workspace (no `.next` files) and one that fails to read are `unknown`, never dro
 `changed_at` is the newest change to the run's state files (an EVENTS.log line, a `.status` file
 rewritten): a mark-done made before it is out of date (`items.marked_done`).
 
+The run's conductor (the session that set it up and watches its runner) comes from
+`state/CONDUCTOR.session` (one session id per line, newest last; night-sprint writes it at kickoff
+and on every conductor relay) and, for a marathon, `phases/state/CONDUCTOR.session`. The newest
+file's last id is `conductor_session_id`; every id is in `conductor_session_ids` and in `sessions`,
+so the conductor attaches to the run by title. A run with no such file gets one from the
+transcripts (`sessions.conductor_scan`, chosen in `inventory`).
+
 Built on `readers.workspace` (night-watch's readers). Only READS files.
 """
 
@@ -96,13 +103,45 @@ def _changed_at(state_dirs):
     return iso(max(stamps or [0]))
 
 
+CONDUCTOR_FILE = "CONDUCTOR.session"
+
+
 def _sessions(state_dir):
+    """The ticket sessions: the first id of each `state/<TAG>.session` (not the conductor's file)."""
     out = []
     for path in sorted(glob.glob(os.path.join(state_dir, "*.session"))):
+        if os.path.basename(path) == CONDUCTOR_FILE:
+            continue
         sid = read1(path).split(" ")[0]
         if sid and sid not in out:
             out.append(sid)
     return out
+
+
+def _lines(path):
+    try:
+        with open(path, errors="replace") as fh:
+            return [line.split(" ")[0].strip() for line in fh if line.strip()]
+    except OSError:
+        return []
+
+
+def conductors(state_dirs):
+    """Every conductor session id in the `CONDUCTOR.session` files of `state_dirs`, oldest first:
+    files by mtime, lines in order, the newest last (a repeated id keeps its newest place)."""
+    files = [os.path.join(d, CONDUCTOR_FILE) for d in state_dirs]
+    files = sorted((f for f in files if os.path.isfile(f)), key=mtime)
+    out = []
+    for sid in (sid for f in files for sid in _lines(f)):
+        if sid in out:
+            out.remove(sid)
+        out.append(sid)
+    return out
+
+
+def _conductor_fields(state_dirs):
+    ids = conductors(state_dirs)
+    return {"conductor_session_ids": ids, "conductor_session_id": ids[-1] if ids else ""}
 
 
 def _joins(ws, sp_dirs):
@@ -132,6 +171,8 @@ def _joins(ws, sp_dirs):
                 add("worktrees", "%s-%s" % (tree, tag))
             add("worktrees", read1(os.path.join(state, tag + ".cwd")))
     for sid in _sessions(os.path.join(ws, "phases", "state")):
+        add("sessions", sid)
+    for sid in conductors([os.path.join(d, "state") for d in sp_dirs] + [os.path.join(ws, "phases", "state")]):
         add("sessions", sid)
     return out
 
@@ -176,6 +217,7 @@ def read_sprint(ws, world):
                started_at=iso(sp.started_at()), updated_at=iso(sp.last_event or mtime(sp.state)),
                changed_at=_changed_at([sp.state]))
     rec.update(_joins(ws, [ws]))
+    rec.update(_conductor_fields([sp.state]))
     rec["artifacts"] = _artifacts(ws, [ws], False)
     return rec
 
@@ -231,6 +273,7 @@ def read_marathon(ws, world):
             rec[key] = build_rec[key] or rec[key]
         rec["slugs"] = sorted(set(rec["slugs"]) | set(build_rec["slugs"]) - {os.path.basename(b)})
     rec.update(_joins(ws, [ws] + builds))
+    rec.update(_conductor_fields([pstate, os.path.join(ws, "state")] + [os.path.join(b, "state") for b in builds]))
     rec["artifacts"] = _artifacts(ws, [ws] + builds, True)
     return rec
 
@@ -253,7 +296,7 @@ def unknown_workspace(ws, reason, error=""):
     rec = _base(ws, "night-sprint", facts(ws))
     rec.update(status="unknown", reason=reason, error=error, progress=None, stage="", stages=[], pr_url="",
                acceptance="", started_at="", updated_at=iso(mtime(ws)), sessions=[], branches=[],
-               worktrees=[], repo_slugs=[], artifacts=[])
+               worktrees=[], repo_slugs=[], artifacts=[], conductor_session_ids=[], conductor_session_id="")
     return rec
 
 

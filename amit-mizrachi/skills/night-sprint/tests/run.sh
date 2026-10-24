@@ -317,7 +317,7 @@ check "with facts.env: bootstrap succeeds" "0" "$rc"
 # agents.sh is sourced on the first line of four scripts. A workspace without it has a
 # launcher, a reviver, a runner and a closer that all fail before doing anything.
 for need in agents.sh launch.sh advance.sh watch.sh runner.sh revive.sh classify-error.sh \
-            context-used.sh schedule.sh land.sh accept.sh ci-prompt.md render.sh continuation-prompt.md; do
+            context-used.sh schedule.sh land.sh accept.sh ci-prompt.md render.sh continuation-prompt.md conductor.sh; do
   [ -f "$BWS/$need" ] && ok "copied $need" || no "copied $need" "absent from $BWS"
 done
 check "PERMISSION_MODE defaults to auto" "auto" "$(cat "$BWS/PERMISSION_MODE")"
@@ -1653,6 +1653,18 @@ printf '%s\n' "$TQ" > "$PP/state/CONDUCTOR.cwd"
 env -u CLAUDE_CONFIG_DIR HOME="$TH/home" MOCK_STATE="$TH/mock" PATH="$TBIN:$PATH" bash "$PP/launch.sh" "$PP" CONDUCTOR >/dev/null 2>&1
 check "a marathon conductor's <WS> (the phase chain's parent) is trusted" "True" "$(trusted "$TH/home/.claude.json" "$TQ")"
 rm -rf "$TH"
+
+# conductor.sh: the conductor appends its own id at kickoff and after each relay, newest last.
+CW="$(mktemp -d)"
+CLAUDE_CODE_SESSION_ID=11111111-1111-1111-1111-111111111111 bash "$REF/conductor.sh" "$CW" >/dev/null
+CLAUDE_CODE_SESSION_ID=11111111-1111-1111-1111-111111111111 bash "$REF/conductor.sh" "$CW" >/dev/null
+CLAUDE_CODE_SESSION_ID=22222222-2222-2222-2222-222222222222 bash "$REF/conductor.sh" "$CW" >/dev/null
+check "conductor.sh: one id per line, a repeat written once, the relay last" \
+  "11111111-1111-1111-1111-111111111111 22222222-2222-2222-2222-222222222222" \
+  "$(tr '\n' ' ' < "$CW/state/CONDUCTOR.session" | sed 's/ $//')"
+env -u CLAUDE_CODE_SESSION_ID bash "$REF/conductor.sh" "$CW" >/dev/null 2>&1; rc=$?
+check "conductor.sh: no session id is an error, nothing written" "1 2" "$rc $(wc -l < "$CW/state/CONDUCTOR.session" | tr -d ' ')"
+rm -rf "$CW"
 
 echo
 echo "== $pass passed, $fail failed =="

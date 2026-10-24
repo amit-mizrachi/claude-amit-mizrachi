@@ -2,8 +2,8 @@
 
 Every rule the project view shows lives here, not in the web server or the page script:
 - Runs are ranked as on the card (needs-you > blocked > running > paused > latest); a run panel
-  offers Open plan (it has a plan page), Open PR (it has a PR) and Open in Terminal (a session of
-  it is still listed by `claude agents`).
+  offers Open plan (it has a plan page), Open PR (it has a PR), Open in Terminal (a ticket session
+  of it is still listed by `claude agents`) and Open conductor (its conductor session is known).
 - A bg session still listed opens ("Open in Terminal"); an interactive or removed one resumes.
 - Sessions fold into "Everything else" when none is active; PRs, worktrees and artifacts always do.
 - Gone PRs, worktrees and artifacts are left out; gone sessions show greyed, "(removed)".
@@ -96,7 +96,8 @@ def view_run(conn, run, arts):
                    started="started %s" % started if started else "", pr=pr_text(run.pr),
                    has_plan=has_plan, has_pr=bool(run.pr and run.pr.get("url")),
                    terminal_item_id=live["id"] if live else None, gone=run.gone,
-                   can_mark_done=run.status in ("needs-you", "blocked") and not run.gone)
+                   can_mark_done=run.status in ("needs-you", "blocked") and not run.gone,
+                   conductor_item_id=run.conductor_item_id if not run.gone else None)
 
 
 def _runs_text(n):
