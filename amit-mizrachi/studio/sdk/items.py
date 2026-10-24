@@ -122,8 +122,11 @@ def to_run(item, prs, artifacts):
     if pr is None and d.get("pr_url"):
         pr = {"key": "", "number": None, "state": "", "draft": False, "url": d["pr_url"], "good_at": None,
               "checks": None}
+    status, reason = item.status or "unknown", str(d.get("reason") or "")
+    if status in ("blocked", "needs-you") and pr and pr.get("state") == "merged":
+        status, reason = "done", "PR merged"     # its state files froze before the merge; the merge ended it
     run = Run(item_id=item.id, kind=item.kind, title=item.title, project_id=item.project_id,
-              status=item.status or "unknown", reason=str(d.get("reason") or ""), progress=d.get("progress"),
+              status=status, reason=reason, progress=d.get("progress"),
               stage=str(d.get("stage") or ""), stages=d.get("stages") or [], pr=pr,
               artifact_url=arts[0].data.get("url", "") if arts else "", started_at=str(d.get("started_at") or ""),
               updated_at=str(d.get("updated_at") or ""), gone=item.gone)

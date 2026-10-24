@@ -204,7 +204,7 @@ class Run:
     started_at: str
     updated_at: str
     gone: bool
-    progress_text: str = ""         # "T03 of 5", "5 of 5" once done, as home and show say it
+    progress_text: str = ""         # "T03 of 5", "5 of 5" once done, "at CI - 5 of 5 done", as home and show say it
     pr_text: str = ""               # "PR #12 draft - checks green", or ""
 
 

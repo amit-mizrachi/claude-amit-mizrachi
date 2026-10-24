@@ -102,6 +102,12 @@ ticket later wrote `PASS at <same head>` to `state/CI.summary` (accept.sh writes
 `gh pr checks` exits 1, which it also does on a PR with no checks). A finished sprint whose CI
 summary says it had no checks (`no CI`, `0 checks`) is `done` with the reason "no CI".
 
+A run's state files freeze when its sessions end, so a `blocked` or `needs-you` run whose PR is
+merged (and that has no open PR) is `done` with the reason "PR merged" wherever a `Run` is shown
+(home, project view, `status`, `list`); `find` and the Inbox keep the reader's word. A run blocked
+at a stage after its tickets (CI, FIX-FINAL) says so in its progress words, "at CI - 17 of 17
+done", not "T17 of 17"; a done run says how many tickets settled, "12 of 13".
+
 | Error | `code` | When |
 |---|---|---|
 | `NotFound` | `not_found` | No project with that id (a malformed id included). |

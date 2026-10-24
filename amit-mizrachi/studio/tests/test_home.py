@@ -53,6 +53,39 @@ class Home(Sources):
         self.assertEqual({card.project.id for card in cards}, {a.id, b.id, c.id})
         self.assertEqual([card.empty for card in cards if card.project.id == c.id], ["No night runs yet"])
 
+    def test_a_run_blocked_after_its_last_ticket_names_the_blocked_stage(self):
+        ws = self.workspace("ci-20261023", tags=(("T01", "DONE"), ("T02", "DONE"),
+                                                 ("CI", "BLOCKED: PR conflicts with main")))
+        p = api.create_project("P")
+        self.file([ws], p.id)
+        [run] = api.home().cards[0].runs
+        self.assertEqual((run.word, run.progress, run.bar), ("Blocked", "at CI - 2 of 2 done", ["d", "d"]))
+        [status_run] = api.project_status(p.id, refresh=False).runs
+        self.assertEqual(status_run.progress_text, "at CI - 2 of 2 done")
+
+    def test_a_blocked_ticket_still_reads_as_that_ticket(self):
+        ws = self.workspace("t-20261023", tags=(("T01", "BLOCKED: repo archived"), ("CI", None)))
+        p = api.create_project("P")
+        self.file([ws], p.id)
+        [run] = api.home().cards[0].runs
+        self.assertEqual((run.word, run.progress), ("Blocked", "T01 of 1"))
+
+    def test_a_merged_pr_ends_a_blocked_or_waiting_run(self):
+        facts = {"REPO_SLUG": "me/r", "BRANCH": "feat/a"}
+        ws = self.workspace("m-20261023", facts=facts, tags=(("T01", "DONE"), ("T02", "BLOCKED: tests red")))
+        red = self.workspace("c-20261023", facts=dict(facts, BRANCH="feat/c"), tags=DONE3,
+                             files={"state/ACCEPTANCE.verdict": "FAIL abc1234 required checks failing\n"})
+        self.prs("me/r", [{"number": n, "title": b, "headRefName": "feat/" + b, "state": "MERGED", "isDraft": False,
+                           "url": "https://github.com/me/r/pull/%d" % n, "updatedAt": "2026-10-20T00:00:00Z"}
+                          for n, b in ((4, "a"), (5, "c"))])
+        p = api.create_project("P")
+        self.file([ws, red], p.id)
+        card = api.home().cards[0]
+        self.assertEqual(card.attention, "")
+        lines = {r.title: (r.word, r.reason, r.progress) for r in card.runs}
+        self.assertEqual(lines, {"m-20261023": ("Done", "PR merged", "1 of 2"),
+                                 "c-20261023": ("Done", "PR merged", "3 of 3")})
+
     def test_at_most_three_runs_then_the_earlier_ones_as_text(self):
         running = self.workspace("live-20261023", tags=(("T01", "DONE"), ("T02", ""), ("T03", None)))
         done = [self.workspace("old%d-20261020" % n, tags=DONE3) for n in range(4)]

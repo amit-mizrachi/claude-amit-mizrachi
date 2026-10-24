@@ -69,9 +69,13 @@ def pr_text(pr):
     return " - ".join(parts)
 
 
+def _ticket(name):
+    return name[:1] == "T" and name[1:].isdigit()
+
+
 def _stage_bar(run):
     """One cell per ticket stage: d done, r running, b blocked, w waiting on you, '' to do."""
-    tickets = [s for s in run.stages if s.get("name", "")[:1] == "T" and s.get("name", "")[1:].isdigit()]
+    tickets = [s for s in run.stages if _ticket(s.get("name", ""))]
     total = (run.progress or {}).get("total") or len(tickets)
     cells = []
     for s in tickets[:total]:
@@ -82,9 +86,18 @@ def _stage_bar(run):
 
 
 def _progress_text(run):
+    """"T03 of 5"; once done, the tickets settled ("5 of 5"); blocked at a stage after the tickets
+    (CI, FIX-FINAL), that stage ("at CI - 17 of 17 done"), so the last ticket is not named for it."""
     progress = run.progress or {}
-    if run.status == "done" and progress.get("total"):
-        return "%d of %d" % (progress["total"], progress["total"])
+    total = progress.get("total")
+    if not total:
+        return progress.get("text") or ""
+    settled = _stage_bar(run).count("d")
+    stage = next((s for s in run.stages if s.get("name") == run.stage), {})
+    if run.status == "done":
+        return "%d of %d" % (settled, total)
+    if run.status == "blocked" and stage.get("status") == "blocked" and not _ticket(run.stage):
+        return "at %s - %d of %d done" % (run.stage, settled, total)
     return progress.get("text") or ""
 
 
