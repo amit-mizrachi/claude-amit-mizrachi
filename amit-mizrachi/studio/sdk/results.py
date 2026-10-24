@@ -176,6 +176,45 @@ class RuleList:
 
 
 @dataclass
+class RuleSample:
+    """One Inbox item a rule written by pattern would file now."""
+
+    item_id: str
+    title: str
+    kind: str
+
+
+@dataclass
+class RuleFiling:
+    """One Inbox item `add_rule` with apply filed: its own `move_id` for `undo_move`, and the
+    auto-attached items that went with it (`followed`)."""
+
+    item_id: str
+    title: str
+    move_id: Optional[int]
+    followed: List[str] = field(default_factory=list)
+
+
+@dataclass
+class RuleAdd:
+    """A rule written by pattern (`add_rule`). `preview` is the rule as it is stored and shown;
+    `rule` is the saved one (None on a dry run; `created` False when the same rule was there).
+    `matching` counts the Inbox items it files now, `sample` names up to 5 of them (newest first),
+    `filed` holds one move per item when it was applied. `message` says it in words."""
+
+    preview: RulePreview
+    project_id: str
+    project_name: str
+    rule: Optional[Rule]
+    dry_run: bool
+    created: bool
+    matching: int
+    sample: List[RuleSample] = field(default_factory=list)
+    filed: List[RuleFiling] = field(default_factory=list)
+    message: str = ""
+
+
+@dataclass
 class MoveResult:
     """A move of an item (or, through `move`, a project), a dismissal or restore of an item,
     or a night run's mark-done (`kind`). `move_id` is what `undo_move` (and, for an item's move, `save_rule_from_move`) take;

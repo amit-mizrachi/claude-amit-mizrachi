@@ -29,6 +29,7 @@ Each route is one SDK call:
     POST /api/accept     {"item_id"} -> api.accept_suggestion
     POST /api/rule       {"move_id"} -> api.save_rule_from_move ("Always file items like this here")
     POST /api/rule/delete {"rule_id"} -> api.delete_rule
+    POST /api/rule/add   {"project_id", "signal", "pattern", "apply", "dry_run"} -> api.add_rule (the "Add rule" form)
     POST /shutdown       stop
 Every request needs `Host: 127.0.0.1:<port>`; every POST needs the token (X-Studio-Token) and, when
 it sends one, this Origin. The guard and the lifecycle live in `sdk/server.py`, every rule the page
@@ -79,6 +80,8 @@ ACTIONS = {
     "/api/mark-done": lambda b: api.mark_done(b.get("item_id")),
     "/api/rule": lambda b: api.save_rule_from_move(b.get("move_id")),
     "/api/rule/delete": lambda b: api.delete_rule(b.get("rule_id")),
+    "/api/rule/add": lambda b: api.add_rule(b.get("project_id"), b.get("signal"), b.get("pattern"),
+                                            apply=b.get("apply") is True, dry_run=b.get("dry_run") is True),
 }
 
 

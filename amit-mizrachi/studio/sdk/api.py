@@ -23,7 +23,7 @@ from . import (actions, attach, home as homepage, inboxview, items, model, proje
 from .errors import InvalidInput, Refused
 from .results import (AttachResult, DeleteRequest, DeleteResult, Export, HomeState, InboxList, InboxView, Item, ItemList,
                       LinkResult, MoveChoices, MoveResult, OpenResult, Project, ProjectList, ProjectStatus, ProjectView,
-                      PurgeResult, RefreshResult, Rule, RuleList, Settings, StudioServer, TerminalCommand,
+                      PurgeResult, RefreshResult, Rule, RuleAdd, RuleList, Settings, StudioServer, TerminalCommand,
                       TerminalOpen, UnlinkResult)
 
 MAX_LIST_LIMIT = 1000
@@ -407,6 +407,26 @@ def save_rule_from_move(move_id: int) -> Rule:
     returns the existing one (`created` False)."""
     with store.write() as conn:
         return items.save_rule(conn, move_id)
+
+
+def add_rule(project_id: str, signal: str, pattern: str, apply: bool = False, dry_run: bool = False) -> RuleAdd:
+    """Write a filing rule by hand: file what `pattern` matches on `signal` into `project_id`.
+
+    `signal` is one of the three a learned rule uses, and the rule ranks and matches exactly like
+    one: `workspace` (a glob on a run's slug, `sis-*`; `*` alone is refused), `repo-branch`
+    ("<repo>" or "<repo> <branch prefix>": `shapes-platform eval/`, a prefix with no `*` gets one;
+    no branch is every branch) or `cwd` (an absolute folder, `~` allowed, and everything under it;
+    `/` and the home folder are refused). Refused into the Inbox or an archived project.
+
+    Returns `matching`, the Inbox items it files now (a refresh may file them on its own; items
+    put in the Inbox by hand, gone or dismissed are left out), with a `sample` of up to 5. A
+    `dry_run` saves and files nothing. `apply` files each of them now through a move by hand, one
+    `move_id` each in `filed` for `undo_move`; items filed elsewhere are left alone. Writing the
+    same rule twice keeps the one there (`created` False). Deleting it later leaves what it filed.
+    """
+    apply, dry_run = _flag(apply, "apply"), _flag(dry_run, "dry_run")
+    with (store.read() if dry_run else store.write()) as conn:
+        return items.add_rule(conn, project_id, signal, pattern, apply, dry_run)
 
 
 def list_rules(project_id: Optional[str] = None) -> RuleList:

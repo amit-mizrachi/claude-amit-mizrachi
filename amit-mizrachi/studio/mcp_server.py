@@ -141,6 +141,27 @@ RULE_SCHEMA = {
         "parts": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
     },
 }
+RULE_ADD_SCHEMA = {
+    "type": "object",
+    "required": ["preview", "project_id", "project_name", "rule", "dry_run", "created", "matching", "sample", "filed",
+                 "message"],
+    "properties": {
+        "preview": {"type": "object", "required": ["signal", "pattern", "description", "parts"],
+                    "description": "The rule as it is stored and shown: sis-* stays sis-*, a branch prefix eval/ "
+                                   "becomes eval/*."},
+        "project_id": {"type": "string"},
+        "project_name": {"type": "string"},
+        "rule": dict(RULE_SCHEMA, type=["object", "null"], description="The saved rule; null on a dry run."),
+        "dry_run": {"type": "boolean"},
+        "created": {"type": "boolean", "description": "False on a dry run or when the same rule was already there."},
+        "matching": {"type": "integer", "description": "Inbox items the rule files now."},
+        "sample": {"type": "array", "description": "Up to 5 of them, newest first.",
+                   "items": {"type": "object", "required": ["item_id", "title", "kind"]}},
+        "filed": {"type": "array", "description": "With apply: one move per filed item, move_id for studio_undo.",
+                  "items": {"type": "object", "required": ["item_id", "title", "move_id", "followed"]}},
+        "message": {"type": "string"},
+    },
+}
 SUGGESTION_SCHEMA = {
     "type": ["object", "null"],
     "required": ["project_id", "project_name", "reason"],
@@ -510,6 +531,32 @@ TOOLS = [
                         "idempotentHint": True, "openWorldHint": False},
     },
     {
+        "name": "studio_rule_add",
+        "title": "Write a filing rule by pattern",
+        "description": (
+            "Write a filing rule directly, not from a move: file what pattern matches on signal into "
+            "project_id. signal workspace: a glob on a run's slug (\"sis-*\"; \"*\" alone is refused). "
+            "repo-branch: \"<repo>\" or \"<repo> <branch prefix>\" (\"shapes-platform eval/\"; the repo "
+            "is matched exactly, no branch means every branch). cwd: an absolute folder and everything under "
+            "it (\"/\" and the home folder are refused). It ranks and matches exactly like a learned rule: "
+            "workspace > repo-branch > cwd, newest first. Returns matching, the Inbox items it files now, with "
+            "a sample of up to 5. dry_run true saves and files nothing: call it first and show the count. "
+            "apply true also files each matching Inbox item now, one move_id each for studio_undo; items filed "
+            "elsewhere are left alone. Writing the same rule twice keeps the one there (created false)."
+        ),
+        "inputSchema": {"type": "object", "required": ["project_id", "signal", "pattern"], "additionalProperties": False,
+                        "properties": {
+                            "project_id": dict(PROJECT_ID, description="The project the rule files into (not the Inbox)."),
+                            "signal": {"type": "string", "enum": ["workspace", "repo-branch", "cwd"]},
+                            "pattern": {"type": "string", "minLength": 1, "maxLength": 300,
+                                        "description": "sis-*, shapes-platform eval/, or /Users/me/work/shapes."},
+                            "apply": {"type": "boolean", "description": "Also file the matching Inbox items now."},
+                            "dry_run": {"type": "boolean", "description": "Say what it would file; save nothing."}}},
+        "outputSchema": RULE_ADD_SCHEMA,
+        "annotations": {"title": "Write a filing rule by pattern", "readOnlyHint": False, "destructiveHint": False,
+                        "idempotentHint": True, "openWorldHint": False},
+    },
+    {
         "name": "studio_rule_delete",
         "title": "Delete a filing rule",
         "description": "Delete one rule (ids from studio_rules) and return it. Items it filed stay where they are.",
@@ -676,6 +723,11 @@ def tool_rule_save(args):
     return api.save_rule_from_move(args["move_id"])
 
 
+def tool_rule_add(args):
+    return api.add_rule(args["project_id"], args["signal"], args["pattern"], apply=args.get("apply", False),
+                        dry_run=args.get("dry_run", False))
+
+
 def tool_rule_delete(args):
     return api.delete_rule(args["rule_id"])
 
@@ -716,6 +768,7 @@ HANDLERS = {
     "studio_undo": tool_undo,
     "studio_rules": tool_rules,
     "studio_rule_save": tool_rule_save,
+    "studio_rule_add": tool_rule_add,
     "studio_rule_delete": tool_rule_delete,
     "studio_inbox": tool_inbox,
     "studio_accept": tool_accept,

@@ -26,6 +26,8 @@ Output and exit codes, the same for every command:
 - A move (`file`, `add`, `accept`, `nest`, `remove`, `dismiss`, `restore`, `mark-done`, `undo`) prints
   its move id and the `undo` command. `command <item>` prints only the command, so `$(project-studio command <item>)` works.
 - `project-studio` alone is `open`, and `open | status | stop` print what they printed before.
+- `rule-add` prints the rule and, with `--apply`, one move id and `undo` command per filed item;
+  `--dry-run` saves nothing. `--branch-prefix` without `--repo` is a usage error (exit 2).
 
 Zero dependencies. Python 3.9+. Data in `$PROJECT_STUDIO_HOME`, default `~/.project-studio`.
 """
@@ -217,6 +219,16 @@ def text_rule(verb):
     return lines
 
 
+def text_rule_add(result):
+    """add_rule's message, then the rule's id with its delete command, and one undo line per filed item."""
+    lines = [result.message]
+    if result.rule:
+        lines.append("Rule %s. Delete it: %s rule-delete %s" % (result.rule.id, PROG, result.rule.id))
+    for f in result.filed:
+        lines.append("Move %d: %s. Undo: %s undo %d" % (f.move_id, f.title, PROG, f.move_id))
+    return lines
+
+
 def text_export(result):
     if result.path:
         return ["Wrote the store to %s" % result.path]
@@ -250,6 +262,15 @@ class NeedsYes(Exception):
     """A command that needs `--yes` (or a y on a tty) before it acts: exit 2, the message says what it would do."""
 
     code = "confirm_needed"
+
+    def to_dict(self):
+        return {"code": self.code, "message": str(self)}
+
+
+class UsageError(Exception):
+    """Arguments argparse accepts but that do not go together: exit 2, like an argparse usage error."""
+
+    code = "usage_error"
 
     def to_dict(self):
         return {"code": self.code, "message": str(self)}
@@ -322,6 +343,32 @@ def setup_refresh(parser):
 
 def setup_rules(parser):
     parser.add_argument("--project", help="only this project's rules")
+
+
+def setup_rule_add(parser):
+    parser.add_argument("project", help="the project the rule files into: id, unique id prefix or name")
+    signal = parser.add_mutually_exclusive_group(required=True)
+    signal.add_argument("--workspace", metavar="GLOB", help="a night run's slug, as a glob: 'sis-*'")
+    signal.add_argument("--repo", metavar="NAME", help="a repo folder name, matched exactly (every branch unless "
+                                                       "--branch-prefix)")
+    signal.add_argument("--cwd-prefix", metavar="FOLDER", help="a folder: what runs in it or under it")
+    parser.add_argument("--branch-prefix", metavar="PREFIX", help="with --repo: branches that start with it ('eval/')")
+    parser.add_argument("--apply", action="store_true", help="also file the matching Inbox items now, one undoable "
+                                                             "move each")
+    parser.add_argument("--dry-run", action="store_true", help="say how many items it would file, and which; "
+                                                               "save nothing")
+
+
+def run_rule_add(args):
+    if args.branch_prefix is not None and args.repo is None:
+        raise UsageError("--branch-prefix narrows a repo rule: add --repo <name>.")
+    if args.workspace is not None:
+        signal, pattern = "workspace", args.workspace
+    elif args.repo is not None:
+        signal, pattern = "repo-branch", " ".join(p for p in (args.repo, args.branch_prefix) if p)
+    else:
+        signal, pattern = "cwd", args.cwd_prefix
+    return api.add_rule(project_ref(args.project), signal, pattern, apply=args.apply, dry_run=args.dry_run)
 
 
 def add_project_arg(parser, name="project"):
@@ -509,6 +556,10 @@ COMMANDS = [
     Command("rule-save", "Always file items like this here: save a rule from a filing's move id.",
             "project-studio rule-save 42", add_move_id, lambda a: api.save_rule_from_move(a.move_id),
             text_rule("Saved")),
+    Command("rule-add", "Write a filing rule by pattern: a workspace glob, a repo (+ branch prefix) or a folder. "
+            "Says how many Inbox items it files now; --apply files them, --dry-run saves nothing.",
+            "project-studio rule-add Shapes --workspace 'sis-*' --dry-run", setup_rule_add, run_rule_add,
+            text_rule_add),
     Command("rule-delete", "Delete one rule (ids from `rules`). Items it filed stay where they are.",
             "project-studio rule-delete r_1a2b3c4d5e6f", lambda p: p.add_argument("rule_id", help="the rule's id"),
             lambda a: api.delete_rule(a.rule_id), text_rule("Deleted")),
@@ -582,7 +633,7 @@ def main(argv):
         result = command.run(args)
     except StudioError as exc:
         return emit_error(args, exc)
-    except NeedsYes as exc:
+    except (NeedsYes, UsageError) as exc:
         emit_error(args, exc)
         return 2
     if args.json:

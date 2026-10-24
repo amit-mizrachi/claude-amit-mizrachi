@@ -29,13 +29,14 @@ from collections import Counter
 from . import cache, model, rules, store
 from .errors import InvalidInput, NotFound, Refused
 from .reconcile import AUTO_LINK, WORKSPACE_KINDS, item_data, new_item_id
-from .results import (InboxEntry, Item, MoveResult, Rule, RulePreview, Run, SourceState,
-                      SubProject, Suggestion)
+from .results import (InboxEntry, Item, MoveResult, Rule, RuleAdd, RuleFiling, RulePreview, RuleSample, Run,
+                      SourceState, SubProject, Suggestion)
 
 ITEM_ID = re.compile(r"^i_[0-9a-f]{12}$")
 SESSION_KEY = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 PR_KEY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$")
 RUN_RANK = {"needs-you": 0, "blocked": 1, "running": 2, "paused": 3}
+RULE_SAMPLE = 5         # how many matching items a rule written by pattern names
 
 
 def check_item_id(value):
@@ -580,6 +581,69 @@ def save_rule(conn, move_id):
     conn.execute("INSERT INTO rules (id, project_id, signal, pattern, created_at, move_id) VALUES (?, ?, ?, ?, ?, ?)",
                  (rule["id"], rule["project_id"], rule["signal"], rule["pattern"], rule["created_at"], m["id"]))
     return to_rule(rule, tree, created=True)
+
+
+def would_file(conn, tree, rule):
+    """The Inbox items `rule` would file now, newest first: ones a refresh may still file (placed_by
+    "inbox": not put there by hand, not following a run), not gone or dismissed, whose signals meet
+    this rule before any other (`rules.match` over every rule, this one ranked among them)."""
+    loaded = rules.load(conn)
+    ranked = loaded if any(r["id"] == rule["id"] for r in loaded) else rules.rank(loaded + [rule])
+    rows = [dict(r) for r in conn.execute("SELECT * FROM items WHERE project_id = ? AND placed_by = ? AND "
+                                          "gone_at IS NULL AND dismissed_at IS NULL", (store.INBOX_ID, "inbox"))]
+    found = [to_item(r, tree) for r in rows
+             if (rules.match(ranked, item_data(r).get("signals"), tree) or {}).get("id") == rule["id"]]
+    found.sort(key=_recency, reverse=True)
+    return found
+
+
+def add_rule(conn, project_id, signal, pattern, apply, dry_run):
+    """A rule written by pattern (`rules.check`) into `project_id`, with the Inbox items it files now.
+    A dry run saves and files nothing. With `apply`, each of those items is filed through `move`
+    (one undoable move id each); items filed elsewhere are never touched."""
+    signal, pattern = rules.check(signal, pattern)
+    tree = model.Tree(conn)
+    target = _target(tree, project_id)
+    if project_id == store.INBOX_ID:
+        raise Refused("A rule can't file items into the Inbox.")
+    same = conn.execute("SELECT * FROM rules WHERE project_id = ? AND signal = ? AND pattern = ?",
+                        (project_id, signal, pattern)).fetchone()
+    rule = dict(same) if same else {"id": rules.new_rule_id(), "project_id": project_id, "signal": signal,
+                                    "pattern": pattern, "created_at": store.now_iso()}
+    found = would_file(conn, tree, rule)
+    result = RuleAdd(preview=RulePreview(signal=signal, pattern=pattern, description=rules.describe(signal, pattern),
+                                         parts=rules.parts(signal, pattern)),
+                     project_id=project_id, project_name=target["name"], rule=None, dry_run=dry_run, created=False,
+                     matching=len(found), sample=[RuleSample(i.id, i.title, i.kind) for i in found[:RULE_SAMPLE]])
+    if not dry_run:
+        if same is None:
+            conn.execute("INSERT INTO rules (id, project_id, signal, pattern, created_at, move_id) "
+                         "VALUES (?, ?, ?, ?, ?, NULL)",
+                         (rule["id"], project_id, signal, pattern, rule["created_at"]))
+        result.rule, result.created = to_rule(rule, tree, created=same is None), same is None
+        if apply:
+            for item in found:
+                moved = move(conn, item.id, project_id, None)
+                result.filed.append(RuleFiling(item.id, item.title, moved.move_id, moved.followed))
+    result.message = _rule_words(result)
+    return result
+
+
+def _rule_words(result):
+    """add_rule's message: what was saved, and what it files now or would file."""
+    rule = "%s -> %s" % (result.preview.description, result.project_name)
+    count = "%d Inbox item%s" % (result.matching, "" if result.matching == 1 else "s")
+    names = ", ".join(s.title for s in result.sample) + (", ..." if result.matching > len(result.sample) else "")
+    if result.dry_run:
+        if not result.matching:
+            return "Nothing saved. The rule %s matches no Inbox item now; new items would follow it." % rule
+        return "Nothing saved. The rule %s would file %s now: %s." % (rule, count, names)
+    head = ("Saved rule %s." if result.created else "Already saved: rule %s.") % rule
+    if result.filed:
+        return "%s Filed %s there, one move each: %s." % (head, count, names)
+    if result.matching:
+        return "%s It matches %s now: %s. Add it again with apply to file them now, each undoable." % (head, count, names)
+    return "%s No Inbox item matches it now; new items will follow it." % head
 
 
 def list_rules(conn, project_id):

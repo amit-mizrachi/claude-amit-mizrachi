@@ -7,6 +7,8 @@ A rule is (project, signal, pattern). Three signals, strongest first:
 `for_signals` picks the strongest one an item has, so a rule is never weaker than it could be.
 `match` returns the first rule an item's signals satisfy (strongest signal first, then newest),
 skipping rules whose project is archived: an archived project gets nothing new.
+A rule written by hand (`check`, then `items.add_rule`) is stored in the same shape, so it ranks
+and matches exactly like a learned one.
 """
 
 import fnmatch
@@ -14,10 +16,13 @@ import os
 import re
 import uuid
 
+from .errors import InvalidInput, Refused
 from .inventory import rule_pattern_for_slug
 
 SIGNALS = ("workspace", "repo-branch", "cwd")
 RULE_ID = re.compile(r"^r_[0-9a-f]{12}$")
+GLOB = re.compile(r"[*?\[\]]")
+MAX_PATTERN = 300
 
 
 def new_rule_id():
@@ -44,6 +49,62 @@ def for_signals(signals):
 def _too_wide(cwd):
     """"/" and the home folder hold every session: a cwd rule there would catch them all."""
     return (cwd.rstrip("/") or "/") in ("/", os.path.expanduser("~").rstrip("/"))
+
+
+def check(signal, pattern):
+    """A rule written by hand as the stored (signal, pattern), or InvalidInput / Refused saying why.
+
+    - workspace: a glob on the run's slug (`sis-*`); it needs some fixed text, so `*` is refused.
+    - repo-branch: "<repo>" or "<repo> <branch>". The repo is matched exactly; a branch with no
+      `*` or `?` is a prefix (`eval/` -> `eval/*`); no branch means every branch of the repo.
+    - cwd: an absolute folder (`~` allowed); it files that folder and everything under it, so it
+      takes no glob. `/` and the home folder hold every session and are refused.
+    """
+    if signal not in SIGNALS:
+        raise InvalidInput("signal must be one of %s." % ", ".join(SIGNALS))
+    if not isinstance(pattern, str) or not pattern.strip():
+        raise InvalidInput("The pattern is empty: say what the rule matches.")
+    pattern = pattern.strip()
+    if len(pattern) > MAX_PATTERN or any(ord(c) < 32 or ord(c) == 127 for c in pattern):
+        raise InvalidInput("A pattern is 1-%d characters with no control characters." % MAX_PATTERN)
+    if signal == "workspace":
+        return signal, _workspace_glob(pattern)
+    if signal == "repo-branch":
+        return signal, _repo_branch(pattern)
+    return signal, _folder(pattern)
+
+
+def _workspace_glob(pattern):
+    if " " in pattern:
+        raise InvalidInput("A workspace pattern has no spaces: it matches a run's slug, like sis-*.")
+    if not re.sub(r"[*?]", "", pattern):
+        raise Refused("%s matches every workspace. Give it some fixed text, like sis-*." % pattern)
+    return pattern
+
+
+def _repo_branch(pattern):
+    words = pattern.split()
+    if len(words) > 2:
+        raise InvalidInput("A repo rule is a repo and at most one branch prefix, like shapes-platform eval/.")
+    repo, branch = words[0], words[1] if len(words) == 2 else "*"
+    if GLOB.search(repo):
+        raise InvalidInput("The repo %s is matched exactly, so it takes no * or ?." % repo)
+    if not GLOB.search(branch):
+        branch += "*"
+    return "%s %s" % (repo, "*" if not re.sub(r"[*?]", "", branch) else branch)
+
+
+def _folder(pattern):
+    folder = os.path.expanduser(pattern)
+    if not folder.startswith("/"):
+        raise InvalidInput("A folder rule takes an absolute folder, like ~/work/shapes: %s is not one." % pattern)
+    if GLOB.search(folder):
+        raise InvalidInput("A folder rule files the folder and everything under it, so it takes no * or ?.")
+    folder = os.path.normpath(folder).rstrip("/") or "/"
+    if _too_wide(folder):
+        raise Refused("%s holds every session, so a rule there would file them all. Pick a folder under it."
+                      % pattern)
+    return folder
 
 
 def parts(signal, pattern):
@@ -78,11 +139,16 @@ def matches(signal, pattern, signals):
 
 def load(conn):
     """Every rule, strongest signal first, newest first within a signal."""
-    rows = [dict(r) for r in conn.execute("SELECT id, project_id, signal, pattern, created_at FROM rules")]
-    rank = {s: i for i, s in enumerate(SIGNALS)}
-    rows.sort(key=lambda r: r["id"])
-    rows.sort(key=lambda r: r["created_at"], reverse=True)
-    rows.sort(key=lambda r: rank.get(r["signal"], len(SIGNALS)))
+    return rank([dict(r) for r in conn.execute("SELECT rowid AS seq, id, project_id, signal, pattern, created_at "
+                                               "FROM rules")])
+
+
+def rank(rows):
+    """Rules in match order: strongest signal first, newest first within a signal. Two rules saved in
+    the same second keep the order they were saved in (`seq`); a rule not saved yet is the newest."""
+    order = {s: i for i, s in enumerate(SIGNALS)}
+    rows.sort(key=lambda r: (r["created_at"], r.get("seq", float("inf"))), reverse=True)
+    rows.sort(key=lambda r: order.get(r["signal"], len(SIGNALS)))
     return rows
 
 
