@@ -143,6 +143,15 @@ class HomeAndViewDrawTheSameList(RunMenu):
             self.assertEqual([to_dict(a) for a in lines[run.id].actions], want, run.title)
             self.assertEqual([to_dict(a) for a in panels[run.id].actions], want, run.title)
 
+    def test_a_dismissed_plan_artifact_leaves_open_plan_off_all_three(self):
+        plan = self.items()[PLAN]
+        self.assertEqual(plan.workspace_item_id, self.live.id)
+        api.dismiss_item(plan.id)
+        want = to_dict(api.run_actions(self.live.id))["actions"]
+        self.assertNotIn("open-plan", [a["id"] for a in want])
+        self.assertEqual([to_dict(a) for a in self.lines()[self.live.id].actions], want)
+        self.assertEqual([to_dict(a) for a in self.panels()[self.live.id].actions], want)
+
     def test_a_waiting_line_on_home_shows_open_conductor_beside_open_plan(self):
         lines = self.lines()
         self.assertEqual(lines[self.wait.id].quick, ["open-conductor"])

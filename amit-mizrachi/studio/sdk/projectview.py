@@ -25,7 +25,7 @@ import os
 import time
 
 from . import cache, items, model, store
-from .runmenu import for_run, live_session, panel_quick
+from .runmenu import for_run, has_plan as run_has_plan, live_session, panel_quick
 from .reconcile import WORKSPACE_KINDS
 from .home import GLYPHS, WORDS, _active_children, _progress_text, _stage_bar, clock, pr_text
 from .results import ProjectView, RunGroup, ViewFold, ViewRow, ViewRun, ViewSession, ViewTile
@@ -95,8 +95,9 @@ def _detail(run):
 
 
 def view_run(conn, run, arts):
+    """`run` as a ViewRun; `arts`: the artifacts that are not dismissed, gone ones too (`has_plan`)."""
     live = live_session(conn, run)
-    has_plan = any(a.workspace_item_id == run.item_id for a in arts) or bool(run.artifact_url)
+    has_plan = run_has_plan(run, arts)
     menu = for_run(run, has_plan, live)
     started = clock(run.started_at) if run.status != "done" else ""
     return ViewRun(item_id=run.item_id, title=run.title, status=run.status, glyph=GLYPHS.get(run.status, "?"),
@@ -288,9 +289,10 @@ def state(conn, project_id, now=None):
     folded = not any(r.status == "running" for r in rows)
     live_cwds = [s.data.get("cwd") or "" for s, r in zip(sessions, rows) if r.status == "running"]
     live_cwds = [c for c in live_cwds if os.path.isabs(c)]
+    plans = arts
     prs, trees, arts = ([i for i in found if not i.gone] for found in (prs, trees, arts))
-    own = [view_run(conn, r, arts) for r in runs if r.project_id == project.id]
-    groups = run_groups(tree, project.id, runs, lambda r: view_run(conn, r, arts))
+    own = [view_run(conn, r, plans) for r in runs if r.project_id == project.id]
+    groups = run_groups(tree, project.id, runs, lambda r: view_run(conn, r, plans))
     return ProjectView(project=project, crumbs=crumbs, linked=linked, link_choices=choices,
                        inside=[view_tile(s) for s in subs], runs=own, sub_runs=groups,
                        sessions=rows, sessions_folded=folded, folds=folds(rows, folded, prs, trees, arts, live_cwds),

@@ -268,13 +268,12 @@ def _cards(conn, now):
     every_pr = [items.to_item(dict(r), tree) for r in conn.execute("SELECT * FROM items WHERE kind = 'pr' AND " + shown)]
     arts = [items.to_item(dict(r), tree) for r in conn.execute("SELECT * FROM items WHERE kind = 'artifact' AND " + shown)]
     runs_by_home, known, menus = {}, items.session_ids(conn), {}
-    plans = {a.workspace_item_id for a in arts if not a.gone}
     marks = ",".join("?" * len(WORKSPACE_KINDS))
     for r in conn.execute("SELECT * FROM items WHERE gone_at IS NULL AND %s AND kind IN (%s)" % (shown, marks),
                           WORKSPACE_KINDS):
         run = items.to_run(items.to_item(dict(r), tree), every_pr, arts, known)
         runs_by_home.setdefault(run.project_id, []).append(run)
-        menus[run.item_id] = runmenu.for_run(run, run.item_id in plans, runmenu.live_session(conn, run))
+        menus[run.item_id] = runmenu.for_run(run, runmenu.has_plan(run, arts), runmenu.live_session(conn, run))
     rank = ranking(conn, tree, now)
     tops = [pid for pid in tree.children.get(None, []) if not tree.rows[pid]["archived_at"] and pid != store.INBOX_ID]
     tops.sort(key=lambda pid: rank_key(tree, rank, pid))

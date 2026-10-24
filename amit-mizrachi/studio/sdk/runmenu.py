@@ -2,7 +2,8 @@
 project view's run panels, the CLI's `actions` and the MCP's `studio_run_actions` all draw.
 
 Rules kept here, in menu order:
-- Open plan: it has a plan page. Open PR: it has a PR with a URL.
+- Open plan: it has a plan page (`has_plan`: an artifact of it that is not dismissed; a gone one
+  still counts, as Open plan opens it). Open PR: it has a PR with a URL.
 - Open in Terminal: a ticket session of it is still listed by `claude agents` (`target_id` is that
   session). Open conductor: its conductor session is known (`target_id` is that session). Neither
   for a gone run.
@@ -46,6 +47,11 @@ def _action(action_id, target_id):
     removes = action_id == "throw-away"
     return RunAction(id=action_id, label=LABELS[action_id], destructive=removes, needs_confirm=removes,
                      target_id=target_id, hint=HINTS[action_id])
+
+
+def has_plan(run, arts):
+    """Whether `run` has a plan page among `arts` (artifact `Item`s): one of its own, not dismissed."""
+    return any(a.workspace_item_id == run.item_id and not a.dismissed for a in arts)
 
 
 def for_run(run, has_plan, terminal_item_id=None, dismissed=False):
@@ -97,9 +103,9 @@ def of(conn, item_id):
     prs = [items.to_item(dict(p), tree) for p in conn.execute("SELECT * FROM items WHERE kind = 'pr' AND "
                                                               "dismissed_at IS NULL")]
     arts = [items.to_item(dict(a), tree) for a in conn.execute("SELECT * FROM items WHERE kind = 'artifact' AND "
-                                                               "workspace_item_id = ? AND gone_at IS NULL", (r["id"],))]
+                                                               "workspace_item_id = ? AND dismissed_at IS NULL", (r["id"],))]
     run = items.to_run(item, prs, arts, items.session_ids(conn))
     return RunActions(item_id=run.item_id, title=run.title, status=run.status,
                       word=WORDS.get(run.status, run.status.title()), project_id=run.project_id,
-                      dismissed=bool(item.dismissed), actions=for_run(run, bool(arts), live_session(conn, run),
+                      dismissed=bool(item.dismissed), actions=for_run(run, has_plan(run, arts), live_session(conn, run),
                                                                       bool(item.dismissed)))
