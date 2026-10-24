@@ -162,7 +162,7 @@ GROUP_SCHEMA = {
         "name": {"type": "string"},
         "parent_id": {"type": "string", "description": "The project or sub-project it sits under."},
         "depth": {"type": "integer", "minimum": 1, "description": "1 for a direct sub-project, 2 below it, ..."},
-        "status": {"type": "string", "description": "Its top run's status; \"pending\" with no runs."},
+        "status": {"type": "string", "description": "Its runs rolled up worst first (runstatus.roll_up); \"pending\" with no runs."},
         "glyph": {"type": "string"},
         "word": {"type": "string", "description": "\"Blocked\", \"Running\", ...; \"\" with no runs."},
         "text": {"type": "string", "description": "Counts in words over it and everything under it: "
@@ -328,6 +328,9 @@ TOOLS = [
                 "include_gone": {"type": "boolean", "description": "Also gone items. Default false."},
                 "include_dismissed": {"type": "boolean",
                                       "description": "Also dismissed items (listed last). Default false."},
+                "status": {"type": "string", "maxLength": 40,
+                           "description": "Only night runs with this one status: " + ", ".join(api.RUN_STATUSES)
+                           + " (needs-you is Waiting on you); a word like \"In review\" works too."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": LIST_MAX,
                           "description": "At most this many, default %d, max %d." % (LIST_DEFAULT, LIST_MAX)},
             },

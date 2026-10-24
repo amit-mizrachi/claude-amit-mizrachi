@@ -41,9 +41,11 @@ MARKABLE = ("needs-you", "blocked")         # what a person may mark done by han
 CI_PASS = re.compile(r"^PASS at ([0-9a-f]{7,40})\b")
 NO_CI = re.compile(r"\bno CI\b|\b0 checks\b|\bno checks\b", re.I)
 PR_NUMBER = re.compile(r"/pull/(\d+)")
-# A BLOCKED detail that names what only a person can do: a merge a session refused, a login, a manual step.
-HUMAN = re.compile(r"\bhuman\b|\bperson\b|\bmanual(ly)?\b|\bby hand\b|\bmerge conflict|\bconflicts? with\b"
-                   r"|\blog ?in\b|\bre-?auth", re.I)
+# A BLOCKED detail that asks a person to act: a merge a session refused, a login, a manual step. Bare
+# "person", "manual" or "login" do not count ("person-sync tests red", "login form tests red").
+HUMAN = re.compile(r"\bhuman\b|\bby hand\b|\bmerge conflict|\bconflicts? with\b|\bre-?auth"
+                   r"|\b(?:a |the )?person (?:must|needs? to|has to|should)\b|\bmanual steps?\b|\bmanually\b"
+                   r"|\blog ?in (?:needed|required|expired)\b|\bneeds? (?:a |to )?log ?in\b", re.I)
 HUMAN_ACTION = re.compile(r"\b(?:human|person|you)\s+(?:must|needs? to|has to|should)\s+([^(;.,]+)", re.I)
 
 

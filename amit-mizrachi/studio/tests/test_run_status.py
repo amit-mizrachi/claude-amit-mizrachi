@@ -11,6 +11,7 @@ import subprocess
 import sys
 import unittest
 
+import mcp_server
 from sdk import api, runstatus
 from sdk.errors import InvalidInput
 from sdk.results import Run
@@ -62,6 +63,14 @@ class OneRule(unittest.TestCase):
         self.assertEqual((red.key, red.reason), ("blocked", "PR #12 open, 2 checks red"))
         files = runstatus.decide(state(acceptance="FAIL abc1234 required checks failing"), pr(12))
         self.assertEqual((files.key, files.reason), ("blocked", "PR #12 open, CI red"))
+
+    def test_a_failure_that_only_names_a_person_or_a_login_is_blocked(self):
+        for detail in ("T07 person-sync tests red", "login form tests still red", "manual QA step script crashed"):
+            found = runstatus.decide(state(blocked=[{"stage": "T07", "detail": detail}]))
+            self.assertEqual(found.key, "blocked", detail)
+        for detail in ("a person must rotate the key", "login required", "needs a login", "manual step: approve"):
+            found = runstatus.decide(state(blocked=[{"stage": "T07", "detail": detail}]))
+            self.assertEqual(found.key, "needs-you", detail)
 
     def test_paused(self):
         found = runstatus.decide(state(finished=False, runner=True, paused="budget 5h retry-at 04:10"))
@@ -178,6 +187,13 @@ class Everywhere(Sources):
                          [self.ids[self.conflict]])
         with self.assertRaises(InvalidInput):
             api.find_items(status="stuck", refresh=False)
+
+    def test_the_mcp_find_takes_status(self):
+        for status in ("in-review", "In review"):
+            out = mcp_server.call_tool("studio_find", {"status": status})
+            self.assertNotIn("isError", out, out["content"])
+            self.assertEqual([i["id"] for i in out["structuredContent"]["items"]], [self.ids[self.review]])
+        self.assertTrue(mcp_server.call_tool("studio_find", {"status": "stuck"})["isError"])
 
     def test_a_mark_done_on_a_merged_run_changes_nothing(self):
         result = api.mark_done(self.ids[self.merged])

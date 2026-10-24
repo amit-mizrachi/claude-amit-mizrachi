@@ -154,7 +154,7 @@ which only the refresh's "re-read live runs" check uses. The PR is the run's new
 |---|---|---|
 | Merged (`merged`) | its PR is merged, whatever its files froze on (a merged PR beats a frozen BLOCKED) | "PR #738 merged" |
 | Done (`done`) | marked done by hand (`mark_done`), until its files change | "marked done by you" |
-| Waiting on you (`needs-you`) | a gate a person answers; a login stop (PAUSED auth...); a stage BLOCKED on what only a person can do: its detail names a human, a person, a manual step, a login or a merge conflict | "plan gate", "login needed", "merge conflict with main: merge origin/main" |
+| Waiting on you (`needs-you`) | a gate a person answers; a login stop (PAUSED auth...); a stage BLOCKED on what only a person can do: its detail names a human, asks a person to act ("a person must ..."), a manual step, a login needed or a merge conflict (a bare "person-sync" or "login form" in a failure stays Blocked) | "plan gate", "login needed", "merge conflict with main: merge origin/main" |
 | Waiting on you (`needs-you`) | it started and its runner is dead (nothing advances it), or it never started and no runner runs | "runner stopped", "not started" |
 | Blocked (`blocked`) | a stage BLOCKED or ABANDONED on any other failure; or every stage settled and CI is red (PR checks red, or a FAIL verdict the CI ticket did not overrule with `PASS at <same head>`) | "T11 of 13 blocked: tests red", "PR #12 open, 2 checks red", "CI red" |
 | Paused (`paused`) | a budget wait (PAUSED) its live runner resumes by itself | "waiting for capacity" |
