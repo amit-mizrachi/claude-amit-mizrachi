@@ -570,8 +570,10 @@ def home(refresh: bool = False) -> HomeState:
     its active sub-projects as blocks in tree order (glyph, status word, runs in words, "2 inside",
     at most 3 runs of it and below, a deeper run tagged "in <sub-project>", "+ n more"); plus the
     Inbox count (items active in the last 14 days), the PR source age, a banner per failed source
-    (last-good states kept), `first_run` when there is no project, and `reading` / `reading_text`
-    naming the sources still being read ("Still reading PRs..."), and `archived`, every archived
+    (kept while its last read failed, last-good states kept), `first_run` when there is no project,
+    `reading` / `reading_text` naming the sources still being read ("Reading PRs..."), `status_text`
+    for the header's status line ("Reading PRs..." while a read runs, else "PRs 5 min ago": the one
+    place a read shows), and `archived`, every archived
     project for the page's "Show archived" list. It answers from what the store
     holds and never waits for a slow source: `refresh` True reads only the due fast ones first.
     """

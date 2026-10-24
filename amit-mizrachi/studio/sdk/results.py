@@ -517,7 +517,9 @@ class HomeState:
     """The whole home page: the cards in order and the top bar's facts. `loading` is False once
     the store answered (the page shows its skeleton only before that); `first_run` is True when
     there is no project yet. `reading` names the sources still being read (say ["prs"]) and
-    `reading_text` is the quiet note for them ("Still reading PRs..."), '' when none is."""
+    `reading_text` says so ("Reading PRs..."), '' when none is. `status_text` is the header's
+    status line, the one place a read shows: `reading_text` while a read runs, else `source_age`
+    ("PRs 5 min ago")."""
 
     cards: List[HomeCard]
     caption: str
@@ -535,6 +537,7 @@ class HomeState:
     order: List[str] = field(default_factory=list)   # the cards' project ids in order: latest activity first,
     # quiet ones last. The page keeps the order it loaded with and offers "Re-sort" when this differs
     quiet_text: str = ""            # "3 quiet projects", '' when no card is quiet
+    status_text: str = ""           # the header's status line: "Reading PRs..." or "PRs 5 min ago"
 
 
 @dataclass

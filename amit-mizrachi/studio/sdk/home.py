@@ -13,9 +13,12 @@ Every rule the home page shows lives here, not in the web server or the page scr
   its runs in words, "2 inside" for the levels below it, and at most 3 runs of it and everything
   under it, then "+ n more"; a run that lives deeper says where ("in Inner"). Archived
   sub-projects do not show.
-- A failed source gives a banner; its items keep their last-good state.
+- A failed source gives a banner while its last read failed, and only then: a read in flight does
+  not touch it, so it stays put through the polls until the source reads fine; its items keep
+  their last-good state.
 - The state is built from what the store holds and never waits for a read: a source still being
-  read is named in a quiet note ("Still reading PRs...") until it lands.
+  read is named in the header's status line ("Reading PRs...") until it lands, and that line is
+  "PRs 5 min ago" otherwise (`status_text`). Nothing else in the state changes for a read.
 - The Inbox count leaves out items quiet for longer than `items.INBOX_DAYS`.
 - A dismissed item shows nowhere here: not as a row's run, not in its PR line, not in a count,
   and its activity does not count.
@@ -299,7 +302,7 @@ def _inbox_counts(conn, now):
 
 
 def reading_text(sources):
-    """'Still reading PRs...', 'Still reading night runs and PRs...', or '' when nothing is read."""
+    """'Reading PRs...', 'Reading night runs and PRs...', or '' when nothing is read."""
     words = []
     for source in sources:
         word = READING.get(source, source)
@@ -307,7 +310,7 @@ def reading_text(sources):
             words.append(word)
     if not words:
         return ""
-    return "Still reading %s..." % (", ".join(words[:-1]) + " and " + words[-1] if len(words) > 1 else words[0])
+    return "Reading %s..." % (", ".join(words[:-1]) + " and " + words[-1] if len(words) > 1 else words[0])
 
 
 def _first_run_text(counts):
@@ -340,8 +343,9 @@ def state(conn, now=None, reading=()):
     counts = _inbox_counts(conn, now)
     cards = _cards(conn, now)
     banners = [_banner(e, now) for _, e in sorted(entries.items()) if not e.ok]
+    source_age = "PRs %s" % ago(prs_at, now) if prs_at else ""
     return HomeState(cards=cards, caption=CAPTION, inbox_count=sum(counts.values()),
-                     source_age="PRs %s" % ago(prs_at, now) if prs_at else "",
+                     source_age=source_age, status_text=reading_text(reading) or source_age,
                      loading=False, first_run=not cards, first_run_text=_first_run_text(counts),
                      banners=banners, reading=list(reading), reading_text=reading_text(reading),
                      generated_at=store.now_iso(), archived=archived(conn),

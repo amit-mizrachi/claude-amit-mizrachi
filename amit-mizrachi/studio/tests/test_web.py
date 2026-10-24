@@ -140,6 +140,22 @@ class Web(TempHome):
         self.assertIn('button("Re-sort", "ghost", function () { pin(lastState); render(lastState); })', script)
         self.assertIn('<span id="resort"></span>', self.request("GET", "/")[1].decode())
 
+    def test_a_read_shows_only_in_the_header_and_a_poll_keeps_what_did_not_change(self):
+        """Ticket 03: "Still reading PRs..." was a line above the rows that pushed them down and up on
+        every read. The read is now the header's fixed-width status line, and a poll redraws through
+        keep(), which leaves a row, a banner or a list whose data did not change in the page."""
+        script = self.request("GET", "/static/app.js")[1].decode()
+        render = re.search(r"  function render\(s\) \{(.*?)\n  \}\n", script, re.S).group(1)
+        self.assertIn('text($("age"), s.status_text);', render)
+        self.assertIn('keep($("banners"), s.banners.map(banner));', render)
+        self.assertIn('keep($("body"), nodes);', render)
+        for gone in ("reading", "clear(", "appendChild"):
+            self.assertNotIn(gone, render)
+        self.assertIn('return keyed(node, b.source + " " + b.key, JSON.stringify(b));', script)
+        self.assertIn("c.project.id, JSON.stringify(c));", script)
+        css = self.request("GET", "/static/app.css")[1].decode()
+        self.assertIn("flex:none;width:18em", re.search(r"#age\{([^}]*)\}", css).group(1))
+
     def test_the_first_event_is_a_full_snapshot(self):
         api.create_project("Alpha")
         sock = socket.create_connection(("127.0.0.1", self.port), timeout=10)
