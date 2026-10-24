@@ -21,6 +21,7 @@ TTL = {
     "agents": 10,
     "jobs": 10,
     "transcripts": 60,
+    "conductors": 60,
     "worktrees": 60,
     "prs": 300,
 }

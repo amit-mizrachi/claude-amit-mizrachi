@@ -78,6 +78,29 @@ class DeleteRequest:
 
 
 @dataclass
+class ProjectRemoval:
+    """What `remove_project` would do or did. `removed` False with `needs_confirm`: nothing changed, and
+    `message` lists what is inside and where it goes. Its `sub_projects` ({id, name}) go to `parent_id`
+    (None: they become top-level); its `runs` and other `items` (counts; `run_titles` names up to 5)
+    go to `to_project_id` (the parent, or the Inbox). `move_id` (once removed) is what `undo_move`
+    takes to bring the project back, same id, with everything that was in it."""
+
+    id: str
+    name: str
+    parent_id: Optional[str]
+    to_project_id: str
+    to_name: str
+    sub_projects: List[Dict[str, str]]
+    runs: int
+    run_titles: List[str]
+    items: int
+    removed: bool
+    needs_confirm: bool
+    move_id: Optional[int]
+    message: str
+
+
+@dataclass
 class ThrowWorktree:
     """One worktree a throw removes with `git worktree remove` (never forced): its folder, its repo, its
     branch, and the gitignored entries in it (`ignored`, relative paths), which git deletes for good."""
@@ -258,7 +281,7 @@ class MoveResult:
     rule_preview: Optional[RulePreview] = None
     created: bool = False
     message: str = ""
-    kind: str = "move"              # what the ledger row records: move, dismiss, restore, mark-done, unmark-done
+    kind: str = "move"              # what the ledger row records: move, dismiss, restore, mark-done, unmark-done, remove-project
 
 
 @dataclass
@@ -302,6 +325,7 @@ class Run:
     progress_text: str = ""         # "T03 of 5", "5 of 5" once done, "at CI - 5 of 5 done", as home and show say it
     pr_text: str = ""               # "PR #12 draft - checks green", or ""
     marked_done: bool = False       # Done because a person marked it, not its files ("marked done by you")
+    conductor_item_id: Optional[str] = None   # the session that conducts the run ("Open conductor"), None unknown
 
 
 @dataclass
@@ -387,6 +411,7 @@ class HomeRun:
     gone: bool
     sub_project_id: str = ""        # the card's sub-project the run lives in (or under), '' for the card's own
     sub_project: str = ""           # its tag: "in Machina decision units", '' for the card's own
+    conductor_item_id: Optional[str] = None   # the run's conductor session, None when unknown
 
 
 @dataclass
@@ -479,7 +504,8 @@ class ViewTile:
 @dataclass
 class ViewRun:
     """One run panel. `detail` sits before the stage bar ("REDRAW - T03 of 5"), `started` and `pr`
-    after it. `terminal_item_id` is the run's live session (None: no "Open in Terminal")."""
+    after it. `terminal_item_id` is the run's live ticket session (None: no "Open in Terminal");
+    `conductor_item_id` the session that conducts it (None: no "Open conductor")."""
 
     item_id: str
     title: str
@@ -495,6 +521,7 @@ class ViewRun:
     terminal_item_id: Optional[str]
     gone: bool
     can_mark_done: bool = False     # a Blocked or Waiting-on-you run shows "Mark done"
+    conductor_item_id: Optional[str] = None
 
 
 @dataclass

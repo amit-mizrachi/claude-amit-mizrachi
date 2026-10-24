@@ -46,6 +46,7 @@ every command, its options and an example.
 | `archive` | `project-studio archive 'Old work'` | archive a project and everything under it |
 | `unarchive` | `project-studio unarchive p_1a2b3c` | bring an archived project back (by id or id prefix; `list --all` shows them), with the sub-projects archived with it; refused inside a still-archived project or when an active sibling now has its name |
 | `delete` | `project-studio delete Scratch --yes` | delete an EMPTY project; without `--yes` it says what it would delete |
+| `remove-project` | `project-studio remove-project Scratch --yes` | remove a project that holds things: its runs and items go to its parent (a top-level one's to the Inbox), its sub-projects move up; nothing on disk changes. Without `--yes` it lists what moves where (y/N on a tty); prints the move id whose `undo` brings it all back |
 | `nest` | `project-studio nest Docs --under Beta` | a new parent (`--under`), or the top level (`--top`) |
 | `link` | `project-studio link Alpha Beta` | link two projects |
 | `unlink` | `project-studio unlink Alpha Beta` | remove the link between two projects; not linked changes nothing |
@@ -63,9 +64,9 @@ every command, its options and an example.
 | `rule-delete` | `project-studio rule-delete r_1a2b3c4d5e6f` | delete one rule; what it filed stays |
 | `export` | `project-studio export ~/studio.json` | the whole store as JSON, printed or written to a file |
 | `purge` | `project-studio purge` | delete gone items for good (one, or all) |
-| `terminal` | `project-studio terminal i_1a2b3c4d` | Open in Terminal (in your terminal app, see `settings`); asks y/N when the session may be open elsewhere |
+| `terminal` | `project-studio terminal i_1a2b3c4d` | Open in Terminal (in your terminal app, see `settings`); asks y/N when the session may be open elsewhere. `--conductor` on a night run: its conductor session (`status` lists them under "Conductors") |
 | `settings` | `project-studio settings terminal iTerm` | print the settings, or set one: `terminal` is `Terminal`, `iTerm` or `default` |
-| `command` | `eval "$(project-studio command i_1a2b3c4d)"` | print only the command that opens a session again |
+| `command` | `eval "$(project-studio command i_1a2b3c4d)"` | print only the command that opens a session again (`--conductor`: a night run's conductor) |
 | `open-item` | `project-studio open-item i_1a2b3c4d --target plan` | open a URL, folder or file with `open` |
 
 References: a project is its id, a unique id prefix (4+ characters, the `p_` optional) or its
@@ -96,7 +97,14 @@ On an error stdout is `{"error": {"code", "message", ...}}` (an ambiguous name a
 
 Exit codes: 0 ok; 1 a studio error (`not_found`, `ambiguous`, `invalid_input`, `refused`, ...);
 2 a usage error (argparse prints the usage), or `confirm_needed`: `delete` without `--yes`, and
-`terminal` and `throw` without `--yes` when no tty can answer the y/N question.
+`terminal`, `throw` and `remove-project` without `--yes` when no tty can answer the y/N question.
+
+**Leaving, renaming and removing a project.** Every project view has a way back at its top left:
+"< Projects", or "< <parent>" in a sub-project; Esc and the browser's Back go the same way. Its
+"..." menu has **Rename** (the name turns into a field: Enter saves, Esc cancels), **Archive** and
+**Remove project...**: the dialog lists what is inside (sub-projects, night runs, other items) and
+where each goes, OK removes it (one `remove_project` call), the page goes to the parent (or home)
+and the toast's **Undo** brings the project back with the same id and everything in it.
 
 The studio is a local web server on `127.0.0.1` only. The home page is a grid of project cards
 that show only each project's night-run status; a click on a card opens the project view
@@ -107,7 +115,10 @@ interactive one), or copies that command. A sub-project section's header names i
 word and its runs in words ("2 blocked, 1 running, 4 done"), with **Open** to go to it; it shows
 at most 5 run panels, needs-you first, and **+ n more** shows the rest in place. A section starts
 open when a run in it (or under it) waits on you, is blocked or is running, else folded; deeper
-levels nest one indent per level. The **Inbox** drawer files items by drag, by **Move
+levels nest one indent per level. A run panel's **Open conductor** opens the same way the
+session that set the run up and watches its runner (from the run's `state/CONDUCTOR.session`,
+which night-sprint writes, else the session whose transcript ran its `runner.sh start`); its
+**Open in Terminal** stays the live ticket session. The **Inbox** drawer files items by drag, by **Move
 to...** or by **Accept** on a suggestion, with **Undo** on every move. **Dismiss** on a run panel
 or an item row hides it (a run with its attached items) from the cards, the project view's lists,
 the Inbox and the counts, and deletes nothing; it waits in the **Dismissed** fold at the bottom of
@@ -163,6 +174,7 @@ Each tool is one SDK call:
 | `studio_unarchive` | `api.unarchive_project(project_id)` | writes; with the sub-projects archived with it |
 | `studio_rename` | `api.rename_project(project_id, name)` | writes |
 | `studio_delete` | `api.delete_project_guarded(project_id, confirmed)` | destructive; an empty project only. Without `confirmed` true it changes nothing and says what it would delete (`needs_confirm`) |
+| `studio_remove_project` | `api.remove_project(project_id, confirmed=confirm)` | destructive; a project that holds things: contents up to the parent (or the Inbox), sub-projects up, then the project goes; nothing on disk. `confirm` is required; false changes nothing and lists what moves where (`needs_confirm`). `move_id` is one `studio_undo` handle that brings it all back |
 | `studio_undo` | `api.undo_move(move_id)` | writes; puts back what a move, add, accept, remove, dismiss, restore or mark-done did |
 | `studio_rules` | `api.list_rules(project_id)` | reads |
 | `studio_rule_save` | `api.save_rule_from_move(move_id)` | writes; "Always file items like this here" |
@@ -172,6 +184,7 @@ Each tool is one SDK call:
 | `studio_accept` | `api.accept_suggestion(item_id)` | writes; files an Inbox item where its suggestion says |
 | `studio_purge` | `api.purge_gone(item_id, all_gone)` | destructive; one gone item, or every gone item only with `all_gone` true |
 | `studio_throw_away` | `api.throw_away(item_id, confirmed=confirm)` | destructive; the one tool that removes things (a night run's folder to the Trash, its worktrees, its store records). `confirm` is required; false changes nothing and says what would go (`needs_confirm`) |
+| `studio_terminal` | `api.open_in_terminal(item_id, confirmed=confirm, target=target)` | opens a session (or a night run's live ticket session; `target` `conductor`: its conductor, `conductor_item_id` in `studio_status`) in the terminal app; `confirm` when it may be open elsewhere. Never stops a session |
 | `studio_open` | `api.open_studio()` | starts the web page, returns its URL |
 
 Nesting a project is `studio_move` with a `p_...` id.

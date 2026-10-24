@@ -10,6 +10,12 @@ for every process. Output:
   item whose scope is in `ok_scopes` and whose key is not in `present` may be marked gone. A
   failed or partial read leaves its scope out, so nothing is retired on a bad read.
 - `agents_ok` - False when `claude agents` failed: bg sessions are UNKNOWN, not idle or gone.
+
+A run with no `CONDUCTOR.session` file gets its conductor from the conductor scan
+(`sessions.conductor_scan`): the newest session that ran `runner.sh start <WS>`,
+`bash <WS>/launch.sh` or `schedule.sh <WS>` and is not one of its ticket sessions (listed in a
+`state/<TAG>.session`, or named `ns-<slug>-<TAG>`). It joins the run's `sessions`, so it attaches
+by title like them.
 """
 
 import os
@@ -120,7 +126,34 @@ class Inventory(object):
             if source == "workspace" and entry.data and (base is None or entry.fetched_at >= base.fetched_at):
                 merged[key] = entry.data[0]
         self._mark("workspaces", self._ok("workspaces", "discover"), merged)
+        scan = (self._data("conductors", "all", {}) or {}).get("files") or {}
+        for path, ws in merged.items():
+            if not ws.get("conductor_session_id"):
+                merged[path] = self._with_conductor(ws, scan)
         return sorted(merged.values(), key=lambda ws: ws["path"])
+
+    def _names(self):
+        names = {r["session_id"]: r.get("name", "") for r in self._data("jobs", "all", []) + self._data("agents", "all", [])
+                 if r.get("name")}
+        meta = (self._data("transcripts", "all", {}) or {}).get("meta") or {}
+        return dict({sid: m.get("title", "") for sid, m in meta.items() if m.get("title")}, **names)
+
+    def _with_conductor(self, ws, scan):
+        """`ws` with the newest non-ticket session that ran its conductor commands, if any."""
+        if not hasattr(self, "_name_of"):
+            self._name_of = self._names()
+        tickets = set(ws.get("sessions") or [])
+        prefixes = tuple(p + slug + "-" for slug in ws.get("slugs") or [] for p in TITLE_PREFIXES)
+        best = ("", "")
+        for sid, entry in scan.items():
+            stamp = (entry[2] if isinstance(entry, list) and len(entry) == 3 else {}).get(ws["path"])
+            if not stamp or sid in tickets or (prefixes and self._name_of.get(sid, "").startswith(prefixes)):
+                continue
+            best = max(best, (stamp, sid))
+        if not best[1]:
+            return ws
+        return dict(ws, conductor_session_id=best[1], conductor_session_ids=[best[1]],
+                    sessions=list(ws.get("sessions") or []) + [best[1]])
 
     def repo(self, path):
         if path not in self._repo_cache:

@@ -38,6 +38,7 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `archive_project(project_id)` | `Project` | Hides it and everything under it from lists. Idempotent. |
 | `unarchive_project(project_id)` | `Project` | Clears only its own `archived_at`, so the sub-projects archived with it come back and one archived on its own before stays archived. Refused inside a still-archived project ("Unarchive <it> first.") and when an active sibling now has its name, any case ("Rename one of them first."). Idempotent. |
 | `delete_project(project_id)` | `DeleteResult` | Empty projects only (no sub-projects, no items); otherwise archive. |
+| `remove_project(project_id, confirmed=False)` | `ProjectRemoval` | A project that still holds things. Unless `confirmed`, changes nothing: `needs_confirm`, `sub_projects` ({id, name}), `runs` / `run_titles` (up to 5), `items` (the other items, dismissed and gone ones too) and a `message` listing what moves where. Confirmed, ONE transaction: its items move to the parent (`to_project_id`; a top-level project's to the Inbox, placed `inbox` there so a rule may file them again; a run's title/cwd-attached items keep that placement), its sub-projects to the parent or the top level (`parent_id`), each recorded as a move; its links and rules go; the project row is deleted. `move_id` is one `remove-project` ledger row: `undo_move` recreates the project (same id, name, parent, created_at) and puts back its items (with the placement each had), sub-projects, links and rules; refused when it is back already, its parent is gone or archived, its name is taken there, or an item or sub-project changed since (a purged item is skipped). Refused for the Inbox, an archived project, and a sub-project that would land next to an active project of its name (any case). Never touches a session, folder or PR. |
 | `delete_project_guarded(project_id, confirmed=False)` | `DeleteRequest` | The agent's delete: unless `confirmed`, changes nothing and returns `needs_confirm` with a `message` naming the project and its `links` / `rules` counts. Refused as `delete_project` is, before the ask. |
 | `export_json(dest=None)` | `Export` | The whole store minus the cache; written to `dest` (0600, atomic) when given. |
 
@@ -47,7 +48,7 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `add_item(kind, key, project_id, title=None)` | `MoveResult` | By hand (`placed_by = manual`). A known item is moved instead (`created` False). |
 | `move_item(item_id, project_id, expected_revision=None)` | `MoveResult` | By hand; a stale revision is refused; a run's auto-attached items follow (`followed`). |
 | `move(target_id, to_project_id, expected_revision=None)` | `MoveResult` | An item (`i_...`) or a project (`p_...`): the one call behind drop = move. A project's move gets a `move_id` too; `message` is the toast ("Moved to Project Studio"). |
-| `undo_move(move_id)` | `MoveResult` | An item's or a project's move, a dismissal (restores it and what went with it), a restore (dismisses them again) or a mark-done (takes the mark back). Refused ("Can't undo: <name> was moved again since." / "... was changed again since.") when it changed since. |
+| `undo_move(move_id)` | `MoveResult` | An item's or a project's move, a dismissal (restores it and what went with it), a restore (dismisses them again), a mark-done (takes the mark back) or a project's removal (brings it back, `kind` "remove-project", `move_id` None). Refused ("Can't undo: <name> was moved again since." / "... was changed again since.") when it changed since. |
 | `remove_item(item_id)` | `MoveResult` | Back to the Inbox, by hand. Never deletes the thing itself. |
 | `dismiss_item(item_id)` | `MoveResult` | Hides it from home, the project view's lists (into its "Dismissed" fold), the Inbox, `list` / `status` and their counts, and `find` unless asked. Deletes nothing; it keeps its project; no refresh clears it (a gone item stays dismissed). A run's auto-attached items go with it (`followed`). `kind` "dismiss", toast "Dismissed <title>"; `move_id` None when already dismissed. |
 | `restore_item(item_id)` | `MoveResult` | Shows it again, with what its newest dismissal took along. `kind` "restore"; `move_id` None when not dismissed. |
@@ -64,9 +65,9 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `open_studio()` | `StudioServer` | Starts `studio/web.py` on 127.0.0.1 unless one of this code version runs (`started` False); asks an older one to stop first. Never opens a browser. `StartFailed` after 5 s (see `studio.log`). |
 | `studio_status()` | `StudioServer` | The running studio, or `running` False. |
 | `stop_studio()` | `StudioServer` | POST /shutdown with the token, waits up to 5 s. Never kills. |
-| `project_view(project_id, refresh=False)` | `ProjectView` | The studio's `#/p/<id>`: breadcrumb, "Linked: ..." text and `links` ({id, name} each, what the page's unlink x takes), link choices, sub-project tiles, the project's OWN run panels (Open plan / Open PR / Open in Terminal when they apply), `sub_runs` (a `RunGroup` per active sub-project, below), session rows (bg live, bg done, interactive, gone), "Everything else" folds (sessions too when none is active), and the project's `rules` (each deletable). |
-| `terminal_command(item_id)` | `TerminalCommand` | A session (or a run's listed session): `claude attach <short>` when `claude agents` lists it, else `cd <cwd> && claude --resume <id>`; pattern-checked, shlex-quoted; `confirm` set when its transcript changed in the last 5 min. Runs nothing ("Copy command"). |
-| `open_in_terminal(item_id, confirmed=False)` | `TerminalOpen` | Writes `<data dir>/open/<item id>.command` (0700) and opens it in the `terminal` setting's app (`app`): no setting `open <file>`, `Terminal` `open -a Terminal <file>`, `iTerm` `osascript` (a fixed script: new window, default profile, `write text` the quoted path, which is the script's argument). An unknown stored name falls back to Terminal and the message says so. On failure `pbcopy` (`copied`). `needs_confirm` until `confirmed` when the guard asks. Never stops, kills or removes a session. |
+| `project_view(project_id, refresh=False)` | `ProjectView` | The studio's `#/p/<id>`: breadcrumb, "Linked: ..." text and `links` ({id, name} each, what the page's unlink x takes), link choices, sub-project tiles, the project's OWN run panels (Open plan / Open PR / Open in Terminal / Open conductor when they apply), `sub_runs` (a `RunGroup` per active sub-project, below), session rows (bg live, bg done, interactive, gone), "Everything else" folds (sessions too when none is active), and the project's `rules` (each deletable). |
+| `terminal_command(item_id, target="session")` | `TerminalCommand` | A session (or a run's listed ticket session; `target="conductor"`: the run's conductor session, `Refused` when none is known): `claude attach <short>` when `claude agents` lists it, else `cd <cwd> && claude --resume <id>`; pattern-checked, shlex-quoted; `confirm` set when its transcript changed in the last 5 min. Runs nothing ("Copy command"). |
+| `open_in_terminal(item_id, confirmed=False, target="session")` | `TerminalOpen` | `target` as `terminal_command`. Writes `<data dir>/open/<item id>.command` (0700) and opens it in the `terminal` setting's app (`app`): no setting `open <file>`, `Terminal` `open -a Terminal <file>`, `iTerm` `osascript` (a fixed script: new window, default profile, `write text` the quoted path, which is the script's argument). An unknown stored name falls back to Terminal and the message says so. On failure `pbcopy` (`copied`). `needs_confirm` until `confirmed` when the guard asks. Never stops, kills or removes a session. |
 | `settings()` / `set_terminal(app)` | `Settings` | `<data dir>/settings.json` (0600). `terminal`: `Terminal`, `iTerm` or "" (the default). `set_terminal` takes any case and `iTerm2` / `Terminal.app`; `default` clears it; any other name is `InvalidInput`. |
 | `open_target(item_id, target="default")` | `OpenResult` | `open` on the item's own URL or path (`plan` / `pr` for a run): http(s) URLs, or paths under the known roots; folders in Finder, pages in their app, other files only revealed (`open -R`). |
 | `inbox_view(limit=200)` | `InboxView` | The studio's Inbox drawer: rows with name, kind and one fact ("interactive", "2 h"), the suggestion chip and its reason, whether Accept applies; the full count and the hint. Store only. |
@@ -77,12 +78,15 @@ The Inbox can't be moved, archived, deleted, linked, or hold sub-projects.
 ## The move ledger
 
 Every undoable change is one `moves` row: `kind` (`store.MOVE_KINDS`: `move`, `dismiss`,
-`restore`, `mark-done`, `unmark-done`), the item or project, from / to, the `revision` it produced (a newer revision makes its
+`restore`, `mark-done`, `unmark-done`, `remove-project`), the item or project, from / to, the `revision` it produced (a newer revision makes its
 Undo stale), and `data_json`, what its Undo needs (a dismissal's `followed` items, a mark's `before` stamp). `items.undo`
 checks the revision and hands the row to `items.UNDO[kind]`. A new kind is: its name in
 `MOVE_KINDS`, a function that changes the item, bumps its revision and calls
 `items._record(conn, row, to_project, revision, kind, data)`, and one `UNDO` entry that puts it
-back (returning a `MoveResult` with that `kind`). No migration: `kind` has no CHECK and
+back (returning a `MoveResult` with that `kind`). A project's removal is the one kind with no
+item and no surviving project: its row's `project_id` is where the items went, `from_project` the
+removed id, `data_json` the project row, its items and sub-projects with the revision the removal
+gave each, and its links and rules; `items.PROJECT_UNDO` dispatches it before the item kinds. No migration: `kind` has no CHECK and
 `data_json` is free-form. `save_rule_from_move` learns only from a `move`.
 
 ## Items, placement and the unknown-vs-gone rule
@@ -112,10 +116,22 @@ makes every bg session `status = "unknown"`. Headless `claude -p` runs never bec
 | `claude agents --json --all` | `readers/sessions.py` | 10 s | `claude` on PATH |
 | `jobs/*/state.json` | `readers/sessions.py` | 10 s | `PROJECT_STUDIO_CLAUDE_HOME` |
 | transcripts `projects/*/*.jsonl` | `readers/sessions.py` | 60 s | `PROJECT_STUDIO_CLAUDE_HOME` |
+| conductor scan (`conductors`) | `readers/sessions.py` | 60 s | `PROJECT_STUDIO_CLAUDE_HOME` |
 | `git worktree list` per repo | `readers/git.py` | 60 s | `git` on PATH |
 | `gh pr list` per repo (open and closed) | `readers/git.py` | 5 min | `gh` on PATH |
 
 Results live in the store's `cache` table (`sdk/cache.py`), shared by every process.
+
+A run's conductor is the session that set it up and watches its runner. The reader takes the last
+id of the newest `CONDUCTOR.session` file (`state/`, a marathon's `phases/state/` and `build*/state/`;
+one id per line, newest last; night-sprint's `conductor.sh` appends at kickoff and on every
+conductor relay) as `conductor_session_id`. With no such file, the conductor scan reads each recent
+transcript once, from where it stopped, at most 32 MB a scan, newest first, for a Bash call of
+`runner.sh start <WS>`, `bash <WS>/launch.sh` or `schedule.sh <WS>`; the newest such session that is
+not a ticket session (in a `state/<TAG>.session`, or named `ns-<slug>-<TAG>`) wins. Either way it is
+one of the run's `sessions`, so it attaches by title and follows the run; a read that names none
+keeps the stored one. `Run.conductor_item_id` (also on `HomeRun` and `ViewRun`) is its session
+item, None when unknown or gone; a run's "Open in Terminal" never picks it.
 
 A night sprint is `needs-you` / "CI red" when `state/ACCEPTANCE.verdict` is FAIL, unless its CI
 ticket later wrote `PASS at <same head>` to `state/CI.summary` (accept.sh writes FAIL when

@@ -22,8 +22,9 @@ Each route is one SDK call:
     POST /api/link       {"project_id", "other_id"} -> api.link_projects
     POST /api/unlink     {"project_id", "other_id"} -> api.unlink_projects (the x on a "Linked: ..." name)
     POST /api/open       {"item_id", "target"} -> api.open_target (the URL or path comes from the store)
-    POST /api/terminal   {"item_id", "confirmed"} -> api.open_in_terminal
-    POST /api/command    {"item_id"} -> api.terminal_command ("Copy command")
+    POST /api/terminal   {"item_id", "confirmed", "target"} -> api.open_in_terminal (target "conductor":
+                         a run's conductor session, "Open conductor")
+    POST /api/command    {"item_id", "target"} -> api.terminal_command ("Copy command")
     POST /api/move       {"target_id", "to_project_id", "revision"} -> api.move (a drop, Move to..., Set parent)
     POST /api/undo       {"move_id"} -> api.undo_move
     POST /api/accept     {"item_id"} -> api.accept_suggestion
@@ -66,12 +67,14 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'se
 ACTIONS = {
     "/api/rename": lambda b: api.rename_project(b.get("project_id"), b.get("name")),
     "/api/archive": lambda b: api.archive_project(b.get("project_id")),
+    "/api/remove-project": lambda b: api.remove_project(b.get("project_id"), b.get("confirmed") is True),
     "/api/unarchive": lambda b: api.unarchive_project(b.get("project_id")),
     "/api/link": lambda b: api.link_projects(b.get("project_id"), b.get("other_id")),
     "/api/unlink": lambda b: api.unlink_projects(b.get("project_id"), b.get("other_id")),
     "/api/open": lambda b: api.open_target(b.get("item_id"), b.get("target") or "default"),
-    "/api/terminal": lambda b: api.open_in_terminal(b.get("item_id"), b.get("confirmed") is True),
-    "/api/command": lambda b: api.terminal_command(b.get("item_id")),
+    "/api/terminal": lambda b: api.open_in_terminal(b.get("item_id"), b.get("confirmed") is True,
+                                                    b.get("target", "session")),
+    "/api/command": lambda b: api.terminal_command(b.get("item_id"), b.get("target", "session")),
     "/api/move": lambda b: api.move(b.get("target_id"), b.get("to_project_id"), b.get("revision")),
     "/api/undo": lambda b: api.undo_move(b.get("move_id")),
     "/api/accept": lambda b: api.accept_suggestion(b.get("item_id")),

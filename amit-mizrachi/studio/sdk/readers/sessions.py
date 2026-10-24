@@ -8,6 +8,10 @@ Three sources, merged later by the full session id (`sessionId`, the id that sur
   Its first rows carry `cwd`, `gitBranch`, `sessionKind` and `entrypoint`. Headless `claude -p`
   runs (`entrypoint: sdk-*`) are never items. A bg job pruned from `jobs/` is still resolved
   from its transcript, so it keeps its cwd and name.
+- `conductor_scan()` - which sessions ran a run's conductor commands (`runner.sh start <WS>`,
+  `bash <WS>/launch.sh`, `schedule.sh <WS>`): the conductor of a run that has no
+  `state/CONDUCTOR.session`. It reads each recent transcript once, from where the last scan
+  stopped (transcripts only grow), at most SCAN_BUDGET bytes a scan, newest transcripts first.
 
 These only READ. They never attach, stop or remove a session.
 """
@@ -15,6 +19,7 @@ These only READ. They never attach, stop or remove a session.
 import glob
 import json
 import os
+import re
 import time
 
 from . import commands
@@ -23,6 +28,11 @@ from .git import Read
 RECENT_DAYS = 14            # a transcript older than this is not read for discovery
 HEAD_LINES = 80
 HEAD_BYTES = 512 * 1024
+SCAN_BUDGET = 32 * 1024 * 1024      # transcript bytes one conductor scan reads at most
+SCAN_CHUNK = 4 * 1024 * 1024
+CONDUCTOR_MARKS = (b"runner.sh", b"launch.sh", b"schedule.sh")
+CONDUCTOR_COMMANDS = (re.compile(r"runner\.sh\s+start\s+(\S+)"), re.compile(r"(\S+)/launch\.sh\b"),
+                      re.compile(r"schedule\.sh\s+(\S+)"))
 
 
 def iso(seconds):
@@ -174,3 +184,98 @@ def transcripts(previous=None, now=None):
             if head is not None:
                 meta[sid] = head
     return Read(True, {"index": index, "meta": meta})
+
+
+def _workspaces_run(command):
+    """The absolute workspace folders a conductor command names (quotes and a trailing / dropped)."""
+    out = []
+    for pattern in CONDUCTOR_COMMANDS:
+        for found in pattern.findall(command):
+            path = os.path.expanduser(found.strip("\"';&|()")).rstrip("/")
+            if os.path.isabs(path) and path not in out:
+                out.append(path)
+    return out
+
+
+def _bash_commands(line):
+    """(timestamp, [command]) of one transcript row's Bash tool calls; [] for any other row."""
+    try:
+        row = json.loads(line)
+    except ValueError:
+        return "", []
+    message = row.get("message") if isinstance(row, dict) and row.get("type") == "assistant" else None
+    content = message.get("content") if isinstance(message, dict) else None
+    calls = [c.get("input") or {} for c in content or [] if isinstance(c, dict) and c.get("type") == "tool_use"
+             and c.get("name") == "Bash"]
+    return str(row.get("timestamp") or ""), [str(c.get("command") or "") for c in calls if isinstance(c, dict)]
+
+
+def _scan_hits(block, hits):
+    """Add {workspace: newest timestamp} for every conductor command in a block of whole lines."""
+    if not any(mark in block for mark in CONDUCTOR_MARKS):
+        return
+    for line in block.split(b"\n"):
+        if not any(mark in line for mark in CONDUCTOR_MARKS):
+            continue
+        stamp, commands_run = _bash_commands(line.decode("utf-8", "replace"))
+        for command in commands_run:
+            for ws in _workspaces_run(command):
+                hits[ws] = max(hits.get(ws, ""), stamp)
+
+
+def _scan_file(path, offset, hits, budget):
+    """Read whole lines of `path` from `offset`, at most `budget` bytes. Returns the new offset."""
+    with open(path, "rb") as fh:
+        fh.seek(offset)
+        while budget > 0:
+            block = fh.read(min(SCAN_CHUNK, budget))
+            cut = block.rfind(b"\n") + 1
+            if not cut and len(block) == SCAN_CHUNK:
+                block += fh.readline()               # one line longer than a chunk
+                cut = len(block) if block.endswith(b"\n") else 0
+            if not cut:
+                break                                # the end, or a line still being written
+            _scan_hits(block[:cut], hits)
+            offset, budget = offset + cut, budget - cut
+            fh.seek(offset)
+    return offset
+
+
+def conductor_scan(previous=None, now=None, budget=SCAN_BUDGET):
+    """{"files": {sid: [path, offset, {workspace: timestamp}]}}: where each recent transcript ran a
+    conductor command. `previous` is the last scan's data; each transcript is read on from its
+    offset (from 0 when it shrank). A transcript with hits is kept however old it is. `partial`
+    is True while unread bytes are left over the budget."""
+    now = now or time.time()
+    base = os.path.join(commands.claude_home(), "projects")
+    old = ((previous or {}).get("files") or {}) if isinstance(previous, dict) else {}
+    if not os.path.isdir(base):
+        return Read(True, {"files": {}})
+    try:
+        paths = glob.glob(os.path.join(base, "*", "*.jsonl"))
+    except OSError as exc:
+        return Read(False, {"files": old}, "could not list %s: %s" % (base, exc))
+    found = []
+    for path in paths:
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        sid = os.path.basename(path)[:-len(".jsonl")]
+        before = old.get(sid)
+        if now - st.st_mtime <= RECENT_DAYS * 86400 or (before and before[2]):
+            found.append((st.st_mtime, st.st_size, sid, path))
+    files, left = {}, False
+    for _, size, sid, path in sorted(found, reverse=True):
+        before = old.get(sid)
+        offset, hits = (before[1], dict(before[2])) if before and before[0] == path and before[1] <= size else (0, {})
+        if offset < size and budget > 0:
+            try:
+                new = _scan_file(path, offset, hits, budget)
+            except OSError:
+                new = offset
+            budget -= new - offset
+            offset = new
+        left = left or size - offset > SCAN_CHUNK
+        files[sid] = [path, offset, hits]
+    return Read(True, {"files": files}, partial=left)

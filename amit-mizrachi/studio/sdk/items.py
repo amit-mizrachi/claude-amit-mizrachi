@@ -29,8 +29,8 @@ from collections import Counter
 from . import cache, model, rules, store
 from .errors import InvalidInput, NotFound, Refused
 from .reconcile import AUTO_LINK, WORKSPACE_KINDS, item_data, new_item_id
-from .results import (InboxEntry, Item, MoveResult, Rule, RuleAdd, RuleFiling, RulePreview, RuleSample, Run,
-                      SourceState, SubProject, Suggestion)
+from .results import (InboxEntry, Item, MoveResult, ProjectRemoval, Rule, RuleAdd, RuleFiling, RulePreview,
+                      RuleSample, Run, SourceState, SubProject, Suggestion)
 
 ITEM_ID = re.compile(r"^i_[0-9a-f]{12}$")
 SESSION_KEY = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -138,8 +138,25 @@ def marked_done(item):
     return bool(stamp) and item.kind in WORKSPACE_KINDS and str(item.data.get("changed_at") or "") <= stamp
 
 
-def to_run(item, prs, artifacts):
-    """A run item as a `Run`, with its newest PR and its plan artifact."""
+def session_ids(conn):
+    """{session id: item id} of every session item not gone: what a run's conductor id points at."""
+    return {r["key"]: r["id"] for r in conn.execute("SELECT id, key FROM items WHERE gone_at IS NULL AND kind IN "
+                                                    "('session-bg', 'session-interactive')")}
+
+
+def conductor_row(conn, run_row):
+    """The session item that conducts run row `run_row` (its newest `conductor_session_id`), or None."""
+    sid = item_data(run_row).get("conductor_session_id")
+    if not sid:
+        return None
+    found = conn.execute("SELECT * FROM items WHERE gone_at IS NULL AND key = ? AND kind IN "
+                         "('session-bg', 'session-interactive')", (sid,)).fetchone()
+    return dict(found) if found else None
+
+
+def to_run(item, prs, artifacts, sessions=None):
+    """A run item as a `Run`, with its newest PR, its plan artifact and (from `sessions`, the
+    `session_ids` map) its conductor's item id."""
     from .home import _progress_text, pr_text   # home imports this module
     d = item.data
     arts = sorted((a for a in artifacts if a.workspace_item_id == item.id), key=lambda a: not a.data.get("plan"))
@@ -157,7 +174,8 @@ def to_run(item, prs, artifacts):
               status=status, reason=reason, progress=d.get("progress"),
               stage=str(d.get("stage") or ""), stages=d.get("stages") or [], pr=pr,
               artifact_url=arts[0].data.get("url", "") if arts else "", started_at=str(d.get("started_at") or ""),
-              updated_at=str(d.get("updated_at") or ""), gone=item.gone, marked_done=marked)
+              updated_at=str(d.get("updated_at") or ""), gone=item.gone, marked_done=marked,
+              conductor_item_id=(sessions or {}).get(d.get("conductor_session_id") or "") or None)
     run.progress_text, run.pr_text = _progress_text(run), pr_text(pr)
     return run
 
@@ -185,7 +203,8 @@ def status(conn, project_id):
     prs, arts = by_kind.get("pr", []), by_kind.get("artifact", [])
     every_pr = [to_item(dict(r), tree) for r in conn.execute("SELECT * FROM items WHERE kind = 'pr' AND "
                                                              "dismissed_at IS NULL")]
-    runs = rank_runs([to_run(i, every_pr, arts) for k in WORKSPACE_KINDS for i in by_kind.get(k, [])])
+    known = session_ids(conn)
+    runs = rank_runs([to_run(i, every_pr, arts, known) for k in WORKSPACE_KINDS for i in by_kind.get(k, [])])
     subs = []
     for child in sorted(tree.children.get(project_id, []), key=lambda c: tree.rows[c]["name"].lower()):
         if tree.rows[child]["archived_at"]:
@@ -311,6 +330,8 @@ def undo(conn, move_id):
     """Put back what one ledger row did: a project's move, or an item's change by its kind (`UNDO`).
     Refused when the item or project changed since (its revision is not the one the row produced)."""
     m = _move_by_id(conn, move_id)
+    if m["kind"] in PROJECT_UNDO:
+        return PROJECT_UNDO[m["kind"]](conn, m)
     if m["project_id"]:
         return _undo_project(conn, m)
     r = row(conn, m["item_id"])
@@ -452,6 +473,163 @@ def _undo_mark(conn, m, r):
 # A ledger row's kind -> the function that puts back what it did: (conn, move row, item row) -> MoveResult.
 UNDO = {"move": _undo_move, "dismiss": _undo_dismissal, "restore": _undo_dismissal, "mark-done": _undo_mark,
         "unmark-done": _undo_mark}
+
+
+# ---------------------------------------------------------------- removing a project with what it holds
+
+RUN_NAMES = 5           # how many run titles the remove dialog names
+
+
+def _count(n, word, plural=None):
+    return "%d %s" % (n, word if n == 1 else plural or word + "s")
+
+
+def _names(names, limit):
+    return ", ".join(names[:limit]) + (", +%d more" % (len(names) - limit) if len(names) > limit else "")
+
+
+def _inside(plan):
+    """(sub-project names, run titles, other item count) of a Removal, the way the dialog lists them."""
+    subs = [c["name"] for c in plan.children]
+    runs = sorted((r["title"] for r in plan.items if r["kind"] in WORKSPACE_KINDS), key=str.lower)
+    return subs, runs, len(plan.items) - len(runs)
+
+
+def _remove_words(plan):
+    """The dialog's text: what is inside, then where each part goes."""
+    subs, runs, others = _inside(plan)
+    name = plan.row["name"]
+    if not (subs or plan.items):
+        return "Remove %s? Nothing inside. It goes; nothing on disk changes, and Undo brings it back." % name
+    held = []
+    if subs:
+        held.append("%s (%s)" % (_count(len(subs), "sub-project"), _names(subs, len(subs))))
+    if runs:
+        held.append("%s (%s)" % (_count(len(runs), "night run"), _names(runs, RUN_NAMES)))
+    if others:
+        held.append(_count(others, "other item"))
+    where = []
+    if subs:
+        where.append("the sub-projects become top-level" if plan.parent_id is None
+                     else "the sub-projects move to %s" % plan.to_name)
+    if plan.items:
+        where.append("the runs and items go to %s" % ("the Inbox" if plan.parent_id is None else plan.to_name))
+    return ("Remove %s?\n\nInside: %s.\nThen %s.\n\nNo session, folder or PR is touched; only the project goes. "
+            "Undo brings it back with everything in it." % (name, ", ".join(held), " and ".join(where)))
+
+
+def _done_words(plan):
+    """The toast: "Removed Alpha. 2 sub-projects and 5 items moved to Beta"."""
+    subs, items = len(plan.children), len(plan.items)
+    if plan.parent_id is not None and (subs or items):
+        moved = [_count(subs, "sub-project")] if subs else []
+        moved += [_count(items, "item")] if items else []
+        return "Removed %s. %s moved to %s" % (plan.row["name"], " and ".join(moved), plan.to_name)
+    parts = ["%s now top-level" % _count(subs, "sub-project is", "sub-projects are")] if subs else []
+    parts += ["%s moved to the Inbox" % _count(items, "item")] if items else []
+    return "Removed %s" % plan.row["name"] + (". " + "; ".join(parts) if parts else "")
+
+
+def remove_project(conn, project_id, confirmed):
+    """Remove a project that may hold things: unless `confirmed`, change nothing and say what would move
+    where. Confirmed: its items move to the parent (the Inbox for a top-level project), each recorded as
+    a move; its sub-projects move up the same way; its links and rules go; then the project row goes.
+    One `remove-project` ledger row, whose Undo (`_undo_remove`) brings all of it back."""
+    plan = model.remove_plan(conn, project_id)
+    _, runs, others = _inside(plan)
+    moved, revisions, move_id = [], [], None
+    if confirmed:
+        for r in plan.items:
+            placed_by = r["placed_by"] if r["placed_by"] in AUTO_LINK else (
+                "inbox" if plan.to_project == store.INBOX_ID else "manual")
+            revision = r["revision"] + 1
+            conn.execute("UPDATE items SET project_id = ?, placed_by = ?, revision = ? WHERE id = ?",
+                         (plan.to_project, placed_by, revision, r["id"]))
+            _record(conn, r, plan.to_project, revision)
+            moved.append([r["id"], revision, r["placed_by"]])
+        for child in plan.children:
+            model.reparent(conn, child, plan.parent_id)
+            revisions.append([child["id"], child["revision"] + 1])
+        model.drop_project(conn, project_id)
+        data = {"project": plan.row, "items": moved, "projects": revisions, "links": plan.links, "rules": plan.rules}
+        move_id = conn.execute("INSERT INTO moves (project_id, from_project, to_project, revision, at, kind, data_json) "
+                               "VALUES (?, ?, ?, ?, ?, 'remove-project', ?)",
+                               (plan.to_project, project_id, plan.to_project, plan.row["revision"], store.now_iso(),
+                                json.dumps(data, sort_keys=True))).lastrowid
+    return ProjectRemoval(id=project_id, name=plan.row["name"], parent_id=plan.parent_id,
+                          to_project_id=plan.to_project, to_name=plan.to_name,
+                          sub_projects=[{"id": c["id"], "name": c["name"]} for c in plan.children],
+                          runs=len(runs), run_titles=runs[:RUN_NAMES], items=others, removed=confirmed,
+                          needs_confirm=not confirmed, move_id=move_id,
+                          message=_done_words(plan) if confirmed else _remove_words(plan))
+
+
+def _undo_check(conn, tree, data):
+    """Refuse an Undo of a removal when the project can't come back as it was: its id or its name is
+    taken where it was, its parent is gone or archived, or an item or sub-project changed since."""
+    p = data.get("project") or {}
+    name, parent = p.get("name", "the project"), p.get("parent_id")
+    if not p.get("id") or p["id"] in tree.rows:
+        raise Refused("Can't undo: %s is back already." % name)
+    if parent is not None and parent not in tree.rows:
+        raise Refused("Can't undo: the project %s was in no longer exists." % name)
+    if parent is not None and tree.hidden(parent):
+        raise Refused("Can't undo: %s, where %s was, is archived now." % (tree.rows[parent]["name"], name))
+    if tree.sibling_named(parent, name):
+        raise Refused("Can't undo: a project named %s is there now. Rename one of them first." % name)
+    for iid, revision, _ in data.get("items") or []:
+        r = conn.execute("SELECT title, revision FROM items WHERE id = ?", (iid,)).fetchone()
+        if r is not None and r["revision"] != revision:      # a purged item has nothing to bring back
+            raise Refused("Can't undo: %s was moved or changed again since." % r["title"])
+    for pid, revision in data.get("projects") or []:
+        if pid not in tree.rows:
+            raise Refused("Can't undo: a sub-project of %s was removed since." % name)
+        if tree.rows[pid]["revision"] != revision:
+            raise Refused("Can't undo: %s was moved again since." % tree.rows[pid]["name"])
+    return p
+
+
+def _undo_remove(conn, m):
+    """Bring a removed project back with the same id, name and parent, then its items (each with the
+    placement it had), its sub-projects, links and rules."""
+    data = _ledger_data(m)
+    tree = model.Tree(conn)
+    p = _undo_check(conn, tree, data)
+    conn.execute("INSERT INTO projects (id, name, parent_id, archived_at, revision, created_at, updated_at) "
+                 "VALUES (?, ?, ?, NULL, ?, ?, ?)", (p["id"], p["name"], p.get("parent_id"), p.get("revision", 1) + 1,
+                                                     p.get("created_at") or store.now_iso(), store.now_iso()))
+    back = 0
+    for iid, _, placed_by in data.get("items") or []:
+        r = conn.execute("SELECT * FROM items WHERE id = ?", (iid,)).fetchone()
+        if r is None:
+            continue
+        revision = r["revision"] + 1
+        conn.execute("UPDATE items SET project_id = ?, placed_by = ?, revision = ? WHERE id = ?",
+                     (p["id"], placed_by, revision, iid))
+        _record(conn, dict(r), p["id"], revision)
+        back += 1
+    subs = data.get("projects") or []
+    for pid, _ in subs:
+        model.reparent(conn, tree.rows[pid], p["id"])
+    alive = set(tree.rows) | {p["id"]}
+    for link in data.get("links") or []:
+        if link["a_id"] in alive and link["b_id"] in alive:
+            conn.execute("INSERT OR IGNORE INTO links (a_id, b_id, created_at) VALUES (?, ?, ?)",
+                         (link["a_id"], link["b_id"], link["created_at"]))
+    for rule in data.get("rules") or []:
+        conn.execute("INSERT OR IGNORE INTO rules (id, project_id, signal, pattern, created_at, move_id) "
+                     "VALUES (?, ?, ?, ?, ?, ?)", (rule["id"], p["id"], rule["signal"], rule["pattern"],
+                                                   rule["created_at"], rule.get("move_id")))
+    parts = [_count(len(subs), "sub-project")] if subs else []
+    if back:
+        parts.append(_count(back, "item"))
+    message = "%s is back%s" % (p["name"], ", with " + " and ".join(parts) if parts else "")
+    return MoveResult(item=None, project=model.Tree(conn).project(p["id"]), move_id=None,
+                      from_project_id=m["to_project"], to_project_id=p["id"], message=message, kind="remove-project")
+
+
+# A project ledger row's kind -> the function that puts it back: (conn, move row) -> MoveResult.
+PROJECT_UNDO = {"remove-project": _undo_remove}
 
 
 # ---------------------------------------------------------------- adding by hand

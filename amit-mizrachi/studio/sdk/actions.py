@@ -28,7 +28,7 @@ from urllib.parse import urlparse
 
 from . import settings, store
 from .errors import InvalidInput, Refused
-from .items import SESSION_KEY, row as item_row
+from .items import SESSION_KEY, conductor_row, row as item_row
 from .readers import commands, sessions as session_reader
 from .reconcile import WORKSPACE_KINDS, item_data
 from .results import OpenResult, TerminalCommand, TerminalOpen
@@ -38,6 +38,7 @@ SESSION_KINDS = ("session-bg", "session-interactive")
 RECENT_SECONDS = 300
 OPEN_TIMEOUT = 10
 TARGETS = ("default", "plan", "pr")
+TERMINAL_TARGETS = ("session", "conductor")
 BUNDLE_EXTENSIONS = (".app", ".bundle", ".framework", ".prefpane", ".saver", ".workflow", ".action")   # `open` runs these
 VIEW_EXTENSIONS = (".html", ".htm", ".md", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".txt", ".json", ".log")
 ITERM_SCRIPT = ('on run argv', 'tell application "iTerm"', 'activate',
@@ -48,18 +49,31 @@ ITERM_SCRIPT = ('on run argv', 'tell application "iTerm"', 'activate',
 # ---------------------------------------------------------------- Open in Terminal
 
 def run_session(conn, run_id):
-    """The run's newest session `claude agents` still lists (bg first), or None."""
+    """The run's newest ticket session `claude agents` still lists (bg first), or None. Its
+    conductor is never it: that one is "Open conductor" (`session_of` with target "conductor")."""
+    run = conn.execute("SELECT data_json FROM items WHERE id = ?", (run_id,)).fetchone()
+    conductors = set(item_data(run).get("conductor_session_ids") or []) if run else set()
     found = [dict(r) for r in conn.execute("SELECT * FROM items WHERE workspace_item_id = ? AND gone_at IS NULL "
                                            "AND kind IN ('session-bg', 'session-interactive')", (run_id,))]
-    found = [r for r in found if item_data(r).get("listed")]
+    found = [r for r in found if item_data(r).get("listed") and r["key"] not in conductors]
     found.sort(key=lambda r: item_data(r).get("last_active") or item_data(r).get("started_at") or "", reverse=True)
     found.sort(key=lambda r: r["kind"] != "session-bg")
     return found[0] if found else None
 
 
-def session_of(conn, item_id):
-    """The session item behind `item_id`: a session itself, or a run's live session."""
+def session_of(conn, item_id, target="session"):
+    """The session item behind `item_id`: a session itself, or a run's live ticket session; with
+    `target` "conductor", a run's conductor session."""
+    if target not in TERMINAL_TARGETS:
+        raise InvalidInput("target must be one of: %s." % ", ".join(TERMINAL_TARGETS))
     r = item_row(conn, item_id)
+    if target == "conductor":
+        if r["kind"] not in WORKSPACE_KINDS:
+            raise InvalidInput("Only a night run has a conductor.")
+        found = conductor_row(conn, r)
+        if found is None:
+            raise Refused("%s has no known conductor session." % r["title"])
+        return found
     if r["kind"] in SESSION_KINDS:
         return r
     if r["kind"] in WORKSPACE_KINDS:

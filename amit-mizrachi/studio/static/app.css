@@ -70,6 +70,7 @@ body{margin:0;font:var(--font-size-2)/var(--line-height-2) var(--font);color:var
 /* the project view (mockup 02) */
 [hidden]{display:none!important}
 .crumb{color:var(--text-2);font-size:var(--font-size-1);margin-bottom:var(--space-1)}
+.crumb .back{margin-right:var(--space-2)}.h input.rename{font:inherit;font-size:var(--font-size-6);line-height:30px;font-weight:600;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-2);padding:0 6px;min-width:16em}
 .crumb a{color:inherit;text-decoration:none}.crumb a:hover{color:var(--text);text-decoration:underline}
 .h .grow{flex:1}.h .menu{position:relative}
 .h .linked a{color:inherit}.h .linked a:hover{color:var(--text)}

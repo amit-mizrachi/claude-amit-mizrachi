@@ -119,6 +119,8 @@ def run_reads(entries, folders, repo_paths, now, force, slow=True):
     plan.add("agents", "all", sessions.agents)
     plan.add("jobs", "all", sessions.jobs)
     plan.add("transcripts", "all", lambda: sessions.transcripts(previous.data if previous else None, now))
+    scanned = entries.get(("conductors", "all"))
+    plan.add("conductors", "all", lambda: sessions.conductor_scan(scanned.data if scanned else None, now))
     paths, slugs = _repos(workspaces, repo_paths)
     for path in paths:
         plan.add("worktrees", path, lambda p=path: git.worktrees(p))

@@ -23,7 +23,7 @@ from . import (actions, attach, home as homepage, inboxview, items, model, proje
 from .errors import InvalidInput, Refused
 from .results import (AttachResult, DeleteRequest, DeleteResult, Export, HomeState, InboxList, InboxView, Item, ItemList,
                       LinkResult, MoveChoices, MoveResult, OpenResult, Project, ProjectList, ProjectStatus, ProjectView,
-                      PurgeResult, RefreshResult, Rule, RuleAdd, RuleList, Settings, StudioServer, TerminalCommand,
+                      ProjectRemoval, PurgeResult, RefreshResult, Rule, RuleAdd, RuleList, Settings, StudioServer, TerminalCommand,
                       TerminalOpen, ThrowAway, UnlinkResult)
 
 MAX_LIST_LIMIT = 1000
@@ -205,6 +205,22 @@ def delete_project_guarded(project_id: str, confirmed: bool = False) -> DeleteRe
                    % (name, project_id, _count(links, "link"), _count(rules, "rule")))
     return DeleteRequest(id=project_id, name=name, deleted=confirmed, needs_confirm=not confirmed, links=links,
                          rules=rules, message=message)
+
+
+def remove_project(project_id: str, confirmed: bool = False) -> ProjectRemoval:
+    """Remove a project that may still hold things. Unless `confirmed`, change nothing: `needs_confirm`
+    True and `message` lists what is inside (sub-projects, night runs, other items) and where each
+    goes. Confirmed, in one transaction: its items move to the parent (a top-level project's to the
+    Inbox) and its sub-projects move up to the parent (or the top level), each recorded as a move;
+    its links and rules go; the empty project is deleted. `move_id` is ONE ledger row: `undo_move`
+    on it brings the project back with the same id, name and parent and puts everything back,
+    refused as other moves are when something moved since. Refused for the Inbox, an archived
+    project, and a sub-project that would land next to an active project of its name. It never
+    touches a session, folder or PR. `delete_project` stays for empty projects only.
+    """
+    confirmed = _flag(confirmed, "confirmed")
+    with (store.write() if confirmed else store.read()) as conn:
+        return items.remove_project(conn, project_id, confirmed)
 
 
 def export_json(dest: Optional[str] = None) -> Export:
@@ -579,29 +595,31 @@ def project_view(project_id: str, refresh: bool = False) -> ProjectView:
         return projectview.state(conn, project_id)
 
 
-def terminal_command(item_id: str) -> TerminalCommand:
+def terminal_command(item_id: str, target: str = "session") -> TerminalCommand:
     """The command that opens a session again, built from the store: `claude attach <short id>` when
     `claude agents` lists the session, else `cd <recorded cwd> && claude --resume <session id>`
-    (every value pattern-checked and shlex-quoted). `item_id` is a session, or a night run (its
-    newest listed session). `confirm` is set when the transcript changed in the last 5 minutes.
-    It runs nothing: this is what "Copy command" copies.
+    (every value pattern-checked and shlex-quoted). `item_id` is a session, or a night run: with
+    `target` "session" its newest listed ticket session, with "conductor" its conductor session
+    (`Run.conductor_item_id`; `Refused` when none is known). `confirm` is set when the transcript
+    changed in the last 5 minutes. It runs nothing: this is what "Copy command" copies.
     """
     with store.read() as conn:
-        found = actions.session_of(conn, item_id)
+        found = actions.session_of(conn, item_id, target)
     return actions.terminal_command(found)
 
 
-def open_in_terminal(item_id: str, confirmed: bool = False) -> TerminalOpen:
+def open_in_terminal(item_id: str, confirmed: bool = False, target: str = "session") -> TerminalOpen:
     """Open a session (or a night run's live session) in a terminal: write the `terminal_command` to
     `<data dir>/open/<item id>.command` (mode 0700) and open it in the `terminal` setting's app
     (`settings()`): by default `open <file>` (Terminal), or Terminal or iTerm by name. A setting
     it does not know falls back to Terminal and the message says so. When the open fails, the
     command goes to the clipboard (`copied`). A resume whose transcript changed in the last
     5 minutes runs nothing and returns `needs_confirm` until called with `confirmed` True.
+    `target` "conductor" opens a night run's conductor session instead (as `terminal_command`).
     It never stops, kills or removes a session.
     """
     confirmed = _flag(confirmed, "confirmed")
-    return actions.open_in_terminal(terminal_command(item_id), confirmed)
+    return actions.open_in_terminal(terminal_command(item_id, target), confirmed)
 
 
 def settings() -> Settings:

@@ -19,8 +19,9 @@ Rules this module keeps:
 - The `moves` table is the ledger of every undoable change, one row per change, each of a
   `MOVE_KINDS` kind (since v4): `move` (a re-home), `dismiss` and `restore` (an item hidden or shown
   again, `items.dismissed_at`), `mark-done` and `unmark-done` (a night run marked done by hand
-  or that mark taken back, `items.done_marked_at`, since v5). A row's `data_json` keeps what its
-  Undo needs beyond the columns.
+  or that mark taken back, `items.done_marked_at`, since v5), `remove-project` (a project removed
+  with its contents moved up; `project_id` is where its items went, `from_project` its id). A row's
+  `data_json` keeps what its Undo needs beyond the columns.
 
 Only the SDK touches SQL. Adapters call `sdk.api`.
 """
@@ -41,7 +42,7 @@ BUSY_TIMEOUT = 30                   # seconds a connection waits for another wri
 ITEM_KINDS = ("session-bg", "session-interactive", "night-sprint", "night-marathon", "artifact", "pr", "worktree")
 SESSION_KINDS = ("session-bg", "session-interactive")   # derived, so one session id is ONE item across both
 PLACED_BY = ("manual", "title", "cwd", "rule", "inbox")
-MOVE_KINDS = ("move", "dismiss", "restore", "mark-done", "unmark-done")   # what a `moves` row records (v4)
+MOVE_KINDS = ("move", "dismiss", "restore", "mark-done", "unmark-done", "remove-project")   # a `moves` row's kind (v4)
 
 
 def home():

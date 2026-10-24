@@ -95,7 +95,8 @@ MOVE_SCHEMA = {
         "created": {"type": "boolean"},
         "message": {"type": "string", "description": "What moved where: \"Moved to Project Studio\"."},
         "kind": {"type": "string", "enum": list(store.MOVE_KINDS),
-                 "description": "What the change was: move, dismiss, restore, mark-done or unmark-done."},
+                 "description": "What the change was: move, dismiss, restore, mark-done, unmark-done or "
+                                "remove-project (an undone removal)."},
     },
 }
 RUN_SCHEMA = {
@@ -121,6 +122,8 @@ RUN_SCHEMA = {
         "pr_text": {"type": "string", "description": "\"PR #12 draft - checks green\", or \"\""},
         "marked_done": {"type": "boolean", "description": "Done because studio_mark_done marked it, not its files "
                         "(reason \"marked done by you\")."},
+        "conductor_item_id": dict(NULLABLE_TEXT, description="The session item that conducts the run (set it up, "
+                                  "watches its runner); studio_terminal with target conductor opens it. null: unknown."),
     },
 }
 GROUP_SCHEMA = {
@@ -510,13 +513,57 @@ TOOLS = [
                         "idempotentHint": False, "openWorldHint": False},
     },
     {
+        "name": "studio_remove_project",
+        "title": "Remove a project and move what it holds up",
+        "description": (
+            "Remove a project that may still hold things (studio_delete is for empty ones). Its night "
+            "runs and other items move to its parent project (a top-level project's go to the Inbox) "
+            "and its sub-projects move up to the parent (or the top level), each recorded as a move; "
+            "its links and rules go; then the project is deleted. No session, folder or PR is touched. "
+            "confirm is required: with confirm false it changes nothing and returns needs_confirm and "
+            "a message listing what is inside and where each part goes - show that to the user, and "
+            "call again with confirm true only once they agree. The result's move_id is one "
+            "studio_undo handle that brings the project back (same id, name and parent) with "
+            "everything in it. Refused for the Inbox, an archived project, and a sub-project that "
+            "would land next to an active project of its name."
+        ),
+        "inputSchema": {"type": "object", "required": ["project_id", "confirm"], "additionalProperties": False,
+                        "properties": {"project_id": PROJECT_ID,
+                                       "confirm": {"type": "boolean",
+                                                   "description": "Really remove it. false: only say what would move where."}}},
+        "outputSchema": {
+            "type": "object",
+            "required": ["id", "name", "parent_id", "to_project_id", "to_name", "sub_projects", "runs", "run_titles",
+                         "items", "removed", "needs_confirm", "move_id", "message"],
+            "properties": {
+                "id": {"type": "string"}, "name": {"type": "string"},
+                "parent_id": dict(NULLABLE_TEXT, description="Where the sub-projects go; null: the top level."),
+                "to_project_id": {"type": "string", "description": "Where the runs and items go: the parent, or inbox."},
+                "to_name": {"type": "string"},
+                "sub_projects": {"type": "array", "items": {"type": "object", "required": ["id", "name"],
+                                                            "properties": {"id": {"type": "string"},
+                                                                           "name": {"type": "string"}}}},
+                "runs": {"type": "integer", "description": "Night runs that move."},
+                "run_titles": {"type": "array", "items": {"type": "string"}, "description": "Up to 5 of them."},
+                "items": {"type": "integer", "description": "Other items that move (sessions, PRs, worktrees, artifacts)."},
+                "removed": {"type": "boolean"},
+                "needs_confirm": {"type": "boolean", "description": "True when nothing changed: ask, then call again with confirm true."},
+                "move_id": {"type": ["integer", "null"], "description": "studio_undo's handle once removed; null before."},
+                "message": {"type": "string"},
+            },
+        },
+        "annotations": {"title": "Remove a project", "readOnlyHint": False, "destructiveHint": True,
+                        "idempotentHint": False, "openWorldHint": False},
+    },
+    {
         "name": "studio_undo",
         "title": "Undo a move",
         "description": (
             "Put back what a move did (studio_move, studio_add, studio_accept, studio_remove, an item's or "
             "a project's): the item or project goes back where move_id took it from. A studio_dismiss "
             "move is undone by restoring the item, a studio_restore move by dismissing it again, a "
-            "studio_mark_done move by taking the mark back. Refused "
+            "studio_mark_done move by taking the mark back, a studio_remove_project move by bringing "
+            "the project back (same id, name and parent) with everything that was in it. Refused "
             "when it changed again since."
         ),
         "inputSchema": {"type": "object", "required": ["move_id"], "additionalProperties": False,
@@ -690,6 +737,45 @@ TOOLS = [
                         "idempotentHint": False, "openWorldHint": True},
     },
     {
+        "name": "studio_terminal",
+        "title": "Open a session in the terminal",
+        "description": (
+            "Open a session again in the user's terminal app (the studio's terminal setting): claude attach "
+            "<short id> when claude agents lists it, else cd <its folder> && claude --resume <id>. item_id is "
+            "a session, or a night run: target session (the default) opens its live ticket session, target "
+            "conductor its conductor session (conductor_item_id in studio_status), e.g. the one waiting for "
+            "the user's picks at a plan gate. A session whose transcript changed in the last 5 minutes may be "
+            "open elsewhere: with confirm false nothing runs and needs_confirm comes back; ask, then call "
+            "again with confirm true. When the app does not open, the command is copied. Never stops, kills "
+            "or removes a session."
+        ),
+        "inputSchema": {"type": "object", "required": ["item_id"], "additionalProperties": False,
+                        "properties": {"item_id": ITEM_ID,
+                                       "target": {"type": "string", "enum": ["session", "conductor"],
+                                                  "description": "For a night run: its live ticket session "
+                                                                 "(default) or its conductor."},
+                                       "confirm": {"type": "boolean",
+                                                   "description": "Open it even when it may be open elsewhere."}}},
+        "outputSchema": {
+            "type": "object",
+            "required": ["command", "opened", "copied", "needs_confirm", "path", "message", "app"],
+            "properties": {
+                "command": {"type": "object", "required": ["item_id", "mode", "command", "session_id", "short", "cwd",
+                                                           "confirm"],
+                            "properties": {"item_id": {"type": "string"}, "mode": {"type": "string",
+                                                                                   "enum": ["attach", "resume"]},
+                                           "command": {"type": "string"}, "session_id": {"type": "string"},
+                                           "short": {"type": "string"}, "cwd": {"type": "string"},
+                                           "confirm": {"type": "string"}}},
+                "opened": {"type": "boolean"}, "copied": {"type": "boolean"},
+                "needs_confirm": {"type": "boolean", "description": "True when nothing ran: ask, then call again with confirm true."},
+                "path": NULLABLE_TEXT, "message": {"type": "string"}, "app": {"type": "string"},
+            },
+        },
+        "annotations": {"title": "Open a session in the terminal", "readOnlyHint": False, "destructiveHint": False,
+                        "idempotentHint": False, "openWorldHint": True},
+    },
+    {
         "name": "studio_open",
         "title": "Open the studio",
         "description": (
@@ -778,6 +864,10 @@ def tool_delete(args):
     return api.delete_project_guarded(args["project_id"], confirmed=args.get("confirmed", False))
 
 
+def tool_remove_project(args):
+    return api.remove_project(args["project_id"], confirmed=args["confirm"])
+
+
 def tool_undo(args):
     return api.undo_move(args["move_id"])
 
@@ -815,6 +905,11 @@ def tool_throw_away(args):
     return api.throw_away(args["item_id"], confirmed=args["confirm"])
 
 
+def tool_terminal(args):
+    return api.open_in_terminal(args["item_id"], confirmed=args.get("confirm", False),
+                                target=args.get("target", "session"))
+
+
 def tool_open(args):
     return api.open_studio()
 
@@ -836,6 +931,7 @@ HANDLERS = {
     "studio_unarchive": tool_unarchive,
     "studio_rename": tool_rename,
     "studio_delete": tool_delete,
+    "studio_remove_project": tool_remove_project,
     "studio_undo": tool_undo,
     "studio_rules": tool_rules,
     "studio_rule_save": tool_rule_save,
@@ -845,6 +941,7 @@ HANDLERS = {
     "studio_accept": tool_accept,
     "studio_purge": tool_purge,
     "studio_throw_away": tool_throw_away,
+    "studio_terminal": tool_terminal,
     "studio_open": tool_open,
 }
 SCHEMAS = {t["name"]: t["inputSchema"] for t in TOOLS}
