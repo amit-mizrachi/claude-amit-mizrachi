@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# A stand-in for macOS `open` in the studio's tests: nothing opens.
+#
+# Reads under $STUDIO_STUB:
+#   open-fail   if present, exits 1 (no app could open it).
+# Appends every call to $STUDIO_STUB/calls.
+
+set -uo pipefail
+S="${STUDIO_STUB:?the open stub needs STUDIO_STUB}"
+printf 'open %s\n' "$*" >> "$S/calls"
+[ -e "$S/open-fail" ] && exit 1
+exit 0

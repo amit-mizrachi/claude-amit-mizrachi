@@ -10,6 +10,11 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/link-night-watch.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/attach-session.sh",
+            "timeout": 5
           }
         ]
       }

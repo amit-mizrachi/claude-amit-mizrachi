@@ -1,0 +1,118 @@
+=== recent ===
+▀█▀ █ █ █▀▀    █▄ █ ▀█▀ ▄▀▀▀ █ █ ▀█▀    ▀█▀ ▄▀▀    █▀▄ ▄▀▄ █▀▄ █ █
+ █  █▀█ █▀     █ ▀█  █  █ ▀█ █▀█  █      █   ▀▄    █ █ █▀█ █▀▄ █▀▄
+ ▀  ▀ ▀ ▀▀▀    ▀  ▀ ▀▀▀  ▀▀▀ ▀ ▀  ▀     ▀▀▀ ▀▀     ▀▀  ▀ ▀ ▀ ▀ ▀ ▀
+▄▀▄ █▄ █ █▀▄    █▀▀ █ █ █   █      ▄▀▄ █▀▀    ▀█▀ █▀▀ █▀▄ █▀▄ ▄▀▄ █▀▄ ▄▀▀
+█▀█ █ ▀█ █ █    █▀  █ █ █   █      █ █ █▀      █  █▀  █▀▄ █▀▄ █ █ █▀▄  ▀▄
+▀ ▀ ▀  ▀ ▀▀     ▀   ▀▀▀ ▀▀▀ ▀▀▀     ▀  ▀       ▀  ▀▀▀ ▀ ▀ ▀ ▀  ▀  ▀ ▀ ▀▀
+
+NIGHT WATCH · 19:16:20 · 1 running · 1 need you · 0 finished
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+▲ claude-project-studio-20261023                                                    marathon · review · 8h07m
+  ✓ Research   ████████████████████████████████████████  8/8
+  ✓ Plan       done
+  ✓ Your picks picked
+  ● Build      ▓▓▓▓░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  0/12
+      T01 running 12m · ctx 36% · active 14m ago · attach: claude attach be5b3fa4
+      next: T02 T03 T04 T05 T06 T07 REVIEW-C1 REVIEW-C2 REVIEW-FINAL FIX-FINAL CI
+  stage 4 of 4 (Build) · phase runner off · last event 10m ago
+  ▲ phase runner is not running, nothing launches the next phase - `bash
+    roots/claude-research/claude-project-studio-20261023/phases/phase-chain.sh runner
+    roots/claude-research/claude-project-studio-20261023/phases`
+
+=== all ===
+▀█▀ █ █ █▀▀    █▄ █ ▀█▀ ▄▀▀▀ █ █ ▀█▀    ▀█▀ ▄▀▀    █▀▄ ▄▀▄ █▀▄ █ █
+ █  █▀█ █▀     █ ▀█  █  █ ▀█ █▀█  █      █   ▀▄    █ █ █▀█ █▀▄ █▀▄
+ ▀  ▀ ▀ ▀▀▀    ▀  ▀ ▀▀▀  ▀▀▀ ▀ ▀  ▀     ▀▀▀ ▀▀     ▀▀  ▀ ▀ ▀ ▀ ▀ ▀
+▄▀▄ █▄ █ █▀▄    █▀▀ █ █ █   █      ▄▀▄ █▀▀    ▀█▀ █▀▀ █▀▄ █▀▄ ▄▀▄ █▀▄ ▄▀▀
+█▀█ █ ▀█ █ █    █▀  █ █ █   █      █ █ █▀      █  █▀  █▀▄ █▀▄ █ █ █▀▄  ▀▄
+▀ ▀ ▀  ▀ ▀▀     ▀   ▀▀▀ ▀▀▀ ▀▀▀     ▀  ▀       ▀  ▀▀▀ ▀ ▀ ▀ ▀  ▀  ▀ ▀ ▀▀
+
+NIGHT WATCH · 19:16:20 · 1 running · 1 need you · 2 finished · 2 stale
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+▲ claude-project-studio-20261023                                                    marathon · review · 8h07m
+  ✓ Research   ████████████████████████████████████████  8/8
+  ✓ Plan       done
+  ✓ Your picks picked
+  ● Build      ▓▓▓▓░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  0/12
+      T01 running 12m · ctx 36% · active 14m ago · attach: claude attach be5b3fa4
+      next: T02 T03 T04 T05 T06 T07 REVIEW-C1 REVIEW-C2 REVIEW-FINAL FIX-FINAL CI
+  stage 4 of 4 (Build) · phase runner off · last event 10m ago
+  ▲ phase runner is not running, nothing launches the next phase - `bash
+    roots/claude-research/claude-project-studio-20261023/phases/phase-chain.sh runner
+    roots/claude-research/claude-project-studio-20261023/phases`
+
+✓ activity-mocks-xeg                                                                    sprint · code · 4h10m
+  ████████████████████████████████████████████████████████████  11/11  100%
+  finished · CI FAIL · golden path PASS
+  runner off · last event 8d00h ago
+  ▲ CI is red at the pushed sha (ACCEPTANCE.verdict FAIL)
+
+✓ deel-time-away                                                                        sprint · code · 2h48m
+  ████████████████████████████████████████████████████████████  8/8  100%
+  finished · CI FAIL
+  runner off · last event 10d20h ago
+  ▲ CI is red at the pushed sha (ACCEPTANCE.verdict FAIL)
+
+◌ all-telemetry-through-the-collector-20261022  stale, nothing moved for 1d02h · marathon · autonomous · 1d07h
+  ✓ Research   ████████████████████████████████████████  10/10
+  ✓ Plan       done
+  ✓ Build A    ████████████████████████████████████████  15/15 finished · CI PASS
+  ✗ Build B    not started
+  · Build C    not started
+  stage 4 of 5 (Build B) · phase runner off · last event 1d02h ago
+  ▲ phase runner is not running, nothing launches the next phase - `bash
+    roots/claude-research/all-telemetry-through-the-collector-20261022/phases/phase-chain.sh runner
+    roots/claude-research/all-telemetry-through-the-collector-20261022/phases`
+
+◌ agents-in-shapes-v2                                stale, nothing moved for 25d00h · sprint · code · 28d06h
+  █████████████████████████████████████████████████████▓▓░░░░░  21/24  88%
+  TEST running 27d22h · revived 1x · attach: claude attach 8aa41228
+  next: FIX-TEST WIZARD · ~52m left
+  runner off · last event 27d22h ago
+  △ FIX-FINAL BLOCKED: CI red - no required checks ran on #1423 at 53b2529e00 because the PR is CONFLICTING
+    with main (merge is Amit's); #268 reports no required checks
+  ▲ runner is not running, nothing advances or revives - `bash
+    roots/night-sprint/agents-in-shapes-v2/runner.sh start roots/night-sprint/agents-in-shapes-v2`
+  ▲ CI is red at the pushed sha (ACCEPTANCE.verdict FAIL)
+
+=== filtered ===
+▀█▀ █ █ █▀▀    █▄ █ ▀█▀ ▄▀▀▀ █ █ ▀█▀    ▀█▀ ▄▀▀    █▀▄ ▄▀▄ █▀▄ █ █
+ █  █▀█ █▀     █ ▀█  █  █ ▀█ █▀█  █      █   ▀▄    █ █ █▀█ █▀▄ █▀▄
+ ▀  ▀ ▀ ▀▀▀    ▀  ▀ ▀▀▀  ▀▀▀ ▀ ▀  ▀     ▀▀▀ ▀▀     ▀▀  ▀ ▀ ▀ ▀ ▀ ▀
+▄▀▄ █▄ █ █▀▄    █▀▀ █ █ █   █      ▄▀▄ █▀▀    ▀█▀ █▀▀ █▀▄ █▀▄ ▄▀▄ █▀▄ ▄▀▀
+█▀█ █ ▀█ █ █    █▀  █ █ █   █      █ █ █▀      █  █▀  █▀▄ █▀▄ █ █ █▀▄  ▀▄
+▀ ▀ ▀  ▀ ▀▀     ▀   ▀▀▀ ▀▀▀ ▀▀▀     ▀  ▀       ▀  ▀▀▀ ▀ ▀ ▀ ▀  ▀  ▀ ▀ ▀▀
+
+NIGHT WATCH · 19:16:20 · 1 running · 1 need you · 1 finished
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+▲ claude-project-studio-20261023                                                    marathon · review · 8h07m
+  ✓ Research   ████████████████████████████████████████  8/8
+  ✓ Plan       done
+  ✓ Your picks picked
+  ● Build      ▓▓▓▓░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  0/12
+      T01 running 12m · ctx 36% · active 14m ago · attach: claude attach be5b3fa4
+      next: T02 T03 T04 T05 T06 T07 REVIEW-C1 REVIEW-C2 REVIEW-FINAL FIX-FINAL CI
+  stage 4 of 4 (Build) · phase runner off · last event 10m ago
+  ▲ phase runner is not running, nothing launches the next phase - `bash
+    roots/claude-research/claude-project-studio-20261023/phases/phase-chain.sh runner
+    roots/claude-research/claude-project-studio-20261023/phases`
+
+✓ deel-time-away                                                                        sprint · code · 2h48m
+  ████████████████████████████████████████████████████████████  8/8  100%
+  finished · CI FAIL
+  runner off · last event 10d20h ago
+  ▲ CI is red at the pushed sha (ACCEPTANCE.verdict FAIL)
+
+=== empty ===
+▀█▀ █ █ █▀▀    █▄ █ ▀█▀ ▄▀▀▀ █ █ ▀█▀    ▀█▀ ▄▀▀    █▀▄ ▄▀▄ █▀▄ █ █
+ █  █▀█ █▀     █ ▀█  █  █ ▀█ █▀█  █      █   ▀▄    █ █ █▀█ █▀▄ █▀▄
+ ▀  ▀ ▀ ▀▀▀    ▀  ▀ ▀▀▀  ▀▀▀ ▀ ▀  ▀     ▀▀▀ ▀▀     ▀▀  ▀ ▀ ▀ ▀ ▀ ▀
+▄▀▄ █▄ █ █▀▄    █▀▀ █ █ █   █      ▄▀▄ █▀▀    ▀█▀ █▀▀ █▀▄ █▀▄ ▄▀▄ █▀▄ ▄▀▀
+█▀█ █ ▀█ █ █    █▀  █ █ █   █      █ █ █▀      █  █▀  █▀▄ █▀▄ █ █ █▀▄  ▀▄
+▀ ▀ ▀  ▀ ▀▀     ▀   ▀▀▀ ▀▀▀ ▀▀▀     ▀  ▀       ▀  ▀▀▀ ▀ ▀ ▀ ▀  ▀  ▀ ▀ ▀▀
+
+NIGHT WATCH · 19:16:20 · 0 running · 0 finished
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+No night-sprint or night-marathon runs in the last 12 hours (try --all).
+Looked in: roots/empty-root

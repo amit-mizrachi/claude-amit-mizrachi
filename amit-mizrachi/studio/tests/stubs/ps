@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# A stand-in for `ps` in the studio's tests: the real process list, then every line of
+# $STUDIO_STUB/ps-extra ("<pid> <command>"), so a test workspace can have a live runner.
+set -uo pipefail
+/bin/ps "$@"
+S="${STUDIO_STUB:-}"
+[ -n "$S" ] && [ -f "$S/ps-extra" ] && cat "$S/ps-extra"
+exit 0

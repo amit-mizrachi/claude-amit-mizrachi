@@ -1,0 +1,246 @@
+# Project Studio SDK
+
+The one layer that holds ALL Project Studio logic. The MCP server (`studio/mcp_server.py`), the
+studio web server and the hooks are thin adapters: they parse input, call ONE function of
+`sdk.api`, and serialise its result. No SQL, ranking or state rule lives outside `studio/sdk/`
+(`studio/tests/test_plugin.py` checks the SQL part).
+
+Stdlib Python 3.9+, no packages. An adapter puts `studio/` on `sys.path` and imports `sdk`.
+
+## Data
+
+- One SQLite file in WAL mode: `$PROJECT_STUDIO_HOME/studio.db`, default `~/.project-studio/`.
+- Every write is one `BEGIN IMMEDIATE` transaction, so several processes can share the store.
+- `schema_version` holds the schema version. An older store is copied to `backups/` and then
+  migrated in one transaction. A store from a newer SDK opens read-only: reads work, writes
+  raise `ReadOnlyStore`.
+- Schema v5: `projects`, `links`, `items`, `rules`, `moves`, `cache`, `schema_version` (v2: projects carry a `revision`, and a `moves` row is an item's or a project's move; v3: a move keeps the placement it replaced; v4: `items.dismissed_at`, and a `moves` row has a `kind` and `data_json`; v5: `items.done_marked_at`)
+  (see `store.py`). A new version is one `_schema_v<n>(conn)` step in `store.MIGRATIONS` and
+  `SCHEMA_VERSION` + 1: the backup and the one transaction come with it. The Inbox is a seeded project with the fixed id `inbox`.
+
+## The contract: `sdk.api`
+
+Every function opens the store for one call and returns a dataclass from `sdk.results`
+(`sdk.results.to_dict(value)` makes it JSON-ready). Errors are `sdk.errors.StudioError`
+subclasses with a stable `code` and a message fit to show a person as it is.
+
+| Function | Returns | Notes |
+|---|---|---|
+| `create_project(name, parent_id=None)` | `Project` | Refused under the Inbox or an archived parent, or for an active sibling's name (any case). |
+| `list_projects(parent_id=None, top_level=False, include_archived=False, limit=None, with_runs=False, by="tree")` | `ProjectList` | Inbox first, then by path. `total` counts every match; `truncated` says the limit cut some. `with_runs` fills `run_lines` (id -> "2 blocked, 1 running, 4 done" / "no runs", `runstatus.counts_text` over it and its sub-projects; none for the Inbox), the CLI's `list` line. `by="activity"` orders it as `home` orders its rows (`home.by_activity`: latest activity first, quiet ones last, ties by name; the Inbox stays first and a listed project's sub-projects stay under it in tree order) and fills `last_activity` (id -> "12 min ago" / "no activity yet"). Any other `by` is `InvalidInput`. |
+| `get_project(project_id)` | `Project` | Archived or not. |
+| `resolve_project(ref)` | `Project` | What a person types: the exact id, then a unique id prefix (4+ characters, the `p_` optional), then a name (any case) among active projects. A unique name beats a prefix that matches several ids. `NotFound`, or `Ambiguous` with `candidates` ({id, name, parent_path}, at most 20). |
+| `resolve_item(ref)` | `Item` | The exact id or a unique id prefix (4+ characters, the `i_` optional); no title matching. `NotFound`, or `Ambiguous` with `candidates` ({id, title, kind, project_path}, at most 20). |
+| `move_project(project_id, new_parent_id=None)` | `Project` | `None` = top level. A cycle is refused as `Can't move <A> into <B>: it is inside <A>.` |
+| `rename_project(project_id, name)` | `Project` | Same name rules as create; refused for the Inbox and an active sibling's name (any case). |
+| `link_projects(a_id, b_id)` | `LinkResult` | Symmetric; `created` is False when it already existed. |
+| `unlink_projects(a_id, b_id)` | `UnlinkResult` | Either order; `removed` is False, and nothing changes, when they were not linked. |
+| `archive_project(project_id)` | `Project` | Hides it and everything under it from lists. Idempotent. |
+| `unarchive_project(project_id)` | `Project` | Clears only its own `archived_at`, so the sub-projects archived with it come back and one archived on its own before stays archived. Refused inside a still-archived project ("Unarchive <it> first.") and when an active sibling now has its name, any case ("Rename one of them first."). Idempotent. |
+| `delete_project(project_id)` | `DeleteResult` | Empty projects only (no sub-projects, no items); otherwise archive. |
+| `remove_project(project_id, confirmed=False)` | `ProjectRemoval` | A project that still holds things. Unless `confirmed`, changes nothing: `needs_confirm`, `sub_projects` ({id, name}), `runs` / `run_titles` (up to 5), `items` (the other items, dismissed and gone ones too) and a `message` listing what moves where. Confirmed, ONE transaction: its items move to the parent (`to_project_id`; a top-level project's to the Inbox, placed `inbox` there so a rule may file them again; a run's title/cwd-attached items keep that placement), its sub-projects to the parent or the top level (`parent_id`), each recorded as a move; its links and rules go; the project row is deleted. `move_id` is one `remove-project` ledger row: `undo_move` recreates the project (same id, name, parent, created_at) and puts back its items (with the placement each had), sub-projects, links and rules; refused when it is back already, its parent is gone or archived, its name is taken there, or an item or sub-project changed since (a purged item is skipped). Refused for the Inbox, an archived project, and a sub-project that would land next to an active project of its name (any case). Never touches a session, folder or PR. |
+| `delete_project_guarded(project_id, confirmed=False)` | `DeleteRequest` | The agent's delete: unless `confirmed`, changes nothing and returns `needs_confirm` with a `message` naming the project and its `links` / `rules` counts. Refused as `delete_project` is, before the ask. |
+| `export_json(dest=None)` | `Export` | The whole store minus the cache; written to `dest` (0600, atomic) when given. |
+
+| `refresh(force=False)` | `RefreshResult` | Runs the due readers, stores what they said, reconciles. `sources` shows each reader's state. |
+| `find_items(query=None, kind=None, project_id=None, include_gone=False, limit=None, refresh=True, include_dismissed=False, status=None)` | `ItemList` | Text match on title, key, name, cwd, branch; `project_id` includes its sub-projects. Dismissed items only with `include_dismissed` (last, `dismissed` True). A night run's `status` is its one status (`runstatus`); `status` (a key of `RUN_STATUSES` or its word, "In review") keeps only night runs with it, anything else is `InvalidInput`. |
+| `project_status(project_id, refresh=True, limit=None)` | `ProjectStatus` | Runs (status, reason, "T03 of 5", stage, PR, artifact; `progress_text` and `pr_text` are the words home and show use) ranked needs-you > blocked > running > paused > latest; sessions, PRs, worktrees, artifacts; rolled up over sub-projects (each `SubProject.text` is its tile's line: "no runs", "1 blocked, 2 done"). `groups`: the same runs by active sub-project, `RunGroup`s as the project view's `sub_runs` (below) but each with every one of its `Run`s. `limit` caps each list (a group's runs too); `totals` and `truncated` say what was cut. |
+| `add_item(kind, key, project_id, title=None)` | `MoveResult` | By hand (`placed_by = manual`). A known item is moved instead (`created` False). |
+| `move_item(item_id, project_id, expected_revision=None)` | `MoveResult` | By hand; a stale revision is refused; a run's auto-attached items follow (`followed`). |
+| `move(target_id, to_project_id, expected_revision=None)` | `MoveResult` | An item (`i_...`) or a project (`p_...`): the one call behind drop = move. A project's move gets a `move_id` too; `message` is the toast ("Moved to Project Studio"). |
+| `undo_move(move_id)` | `MoveResult` | An item's or a project's move, a dismissal (restores it and what went with it), a restore (dismisses them again), a mark-done (takes the mark back) or a project's removal (brings it back, `kind` "remove-project", `move_id` None). Refused ("Can't undo: <name> was moved again since." / "... was changed again since.") when it changed since. |
+| `remove_item(item_id)` | `MoveResult` | Back to the Inbox, by hand. Never deletes the thing itself. |
+| `dismiss_item(item_id)` | `MoveResult` | Hides it from home, the project view's lists (into its "Dismissed" fold), the Inbox, `list` / `status` and their counts, and `find` unless asked. Deletes nothing; it keeps its project; no refresh clears it (a gone item stays dismissed). A run's auto-attached items go with it (`followed`). `kind` "dismiss", toast "Dismissed <title>"; `move_id` None when already dismissed. |
+| `restore_item(item_id)` | `MoveResult` | Shows it again, with what its newest dismissal took along. `kind` "restore"; `move_id` None when not dismissed. |
+| `mark_done(item_id)` | `MoveResult` | A night run whose state files froze on a stale word is Done, reason "marked done by you" (`Run.marked_done`), on home, the project view, `status` and `list`, ranked as done; its stage bar stays as the files say. A later change in its files (reader's `changed_at` newer than the mark) drops it. Other kinds raise `Refused`. `kind` "mark-done", toast "Marked <title> done"; `move_id` None when already marked or not Blocked / Waiting on you ("already merged"). |
+| `throw_away(item_id, confirmed=False)` | `ThrowAway` | The ONE function that removes things (`sdk/throw.py`). Unless `confirmed` it changes nothing: `needs_confirm`, `folder`, `worktrees` ({path, repo_path, branch, ignored}), `items` (attached) and a `message` listing them; `ignored` names the gitignored entries in a worktree, which `git worktree remove` deletes for good (not to the Trash). Confirmed: each worktree `git worktree remove` (never forced), then the folder to the Trash through Finder (`osascript`, path as its argument; it must leave its place), then one transaction that marks the run and its attached items gone, purges them and drops the cache rows that listed the folder and worktrees. A failing step stops the rest (`Refused`: "Stopped: ... Done: ... Not done: ..."). Refused before anything: not a night run, a folder not inside a run root (symlinks resolved, `..`, the root itself, a symlink, no `state/`), a worktree holding the folder, git unable to list a worktree's ignored files, a live runner, a live session, or `claude agents` failing. Never stops, kills or removes a session. |
+| `inbox(limit=None, refresh=True)` | `InboxList` | Each entry has a `suggestion` with its `reason`, or None. |
+| `accept_suggestion(item_id)` | `MoveResult` | Files an Inbox item where its suggestion says. |
+| `save_rule_from_move(move_id)` | `Rule` | From the item's strongest signal: workspace slug > repo + branch prefix > cwd prefix. Refused for a project's move. |
+| `add_rule(project_id, signal, pattern, apply=False, dry_run=False)` | `RuleAdd` | A rule written by pattern (`rules.check`), stored like a learned one so it ranks and matches the same: `workspace` glob (`sis-*`), `repo-branch` ("<repo> [<branch prefix>]", a prefix gets a `*`, no branch = every branch) or `cwd` (absolute folder, `~` allowed). An empty pattern is `InvalidInput`; `*` / `?*`, `/` and the home folder are `Refused`, as are the Inbox and an archived project. `matching` counts the Inbox items it files now (placed by `inbox`, not gone or dismissed, and this rule wins `rules.match` for them), `sample` names up to 5. `dry_run` saves nothing (`rule` None); `apply` files each through `move`, one `move_id` each in `filed`. The same rule twice: `created` False. |
+| `list_rules(project_id=None)` / `delete_rule(rule_id)` | `RuleList` / `Rule` | Strongest signal first, then newest (same second: save order). |
+| `purge_gone(item_id=None, all_gone=None)` | `PurgeResult` | Deletes gone items for good, only when asked. `all_gone` False with no `item_id` is refused, True with one is `InvalidInput`; None (the CLI) reads no `item_id` as every gone item. |
+| `attach_session(session_id, cwd, job_dir=None, entrypoint=None)` | `AttachResult` | The SessionStart hook: files a starting session by title > cwd > rule > Inbox over what the store holds, no reader run. Headless (`sdk*`) runs are skipped; a known session stays put. |
+| `home(refresh=False)` | `HomeState` | The studio's home page: one row per active top-level project, latest activity first (the newest `changed_at` / `last_active` / `updated_at` / `started_at` of a not-dismissed item in it or under it; ties by name, any case, then id), quiet rows (no runs, nothing new and nothing made in 14 days) last; `order` (the row ids in that order) and `quiet_text` ("2 quiet projects"). A row has its status, `counts` in words, `last_activity` ("12 min ago"), at most 6 of its own runs with "+ n more", a block per active sub-project (`HomeCard.sub_projects`, below) with at most 3 runs, a PR line, a banner per failed source (kept while its last read failed, last-good states kept), `first_run` with no project, `reading` / `reading_text` ("Reading PRs...") for sources still being read, `status_text` (the header's status line: `reading_text` while a read runs, else "PRs 5 min ago"; nothing else changes for a read), `archived` ({id, name as a path, archived_at} per archived project, tree order: the page's "Show archived" list). Answers from the store and never waits for a slow source. |
+| `open_studio()` | `StudioServer` | Starts `studio/web.py` on 127.0.0.1 unless one of this code version runs (`started` False); asks an older one to stop first. Never opens a browser. `StartFailed` after 5 s (see `studio.log`). |
+| `studio_status()` | `StudioServer` | The running studio, or `running` False. |
+| `stop_studio()` | `StudioServer` | POST /shutdown with the token, waits up to 5 s. Never kills. |
+| `project_view(project_id, refresh=False)` | `ProjectView` | The studio's `#/p/<id>`: breadcrumb, "Linked: ..." text and `links` ({id, name} each, what the page's unlink x takes), link choices, sub-project tiles, the project's OWN run panels (Open plan / Open PR / Open in Terminal / Open conductor when they apply), `sub_runs` (a `RunGroup` per active sub-project, below), session rows (bg live, bg done, interactive, gone), "Everything else" folds (sessions too when none is active), and the project's `rules` (each deletable). |
+| `terminal_command(item_id, target="session")` | `TerminalCommand` | A session (or a run's listed ticket session; `target="conductor"`: the run's conductor session, `Refused` when none is known): `claude attach <short>` when `claude agents` lists it, else `cd <cwd> && claude --resume <id>`; pattern-checked, shlex-quoted; `confirm` set when its transcript changed in the last 5 min. Runs nothing ("Copy command"). |
+| `open_in_terminal(item_id, confirmed=False, target="session")` | `TerminalOpen` | `target` as `terminal_command`. Writes `<data dir>/open/<item id>.command` (0700) and opens it in the `terminal` setting's app (`app`): no setting `open <file>`, `Terminal` `open -a Terminal <file>`, `iTerm` `osascript` (a fixed script: new window, default profile, `write text` the quoted path, which is the script's argument). An unknown stored name falls back to Terminal and the message says so. On failure `pbcopy` (`copied`). `needs_confirm` until `confirmed` when the guard asks. Never stops, kills or removes a session. |
+| `settings()` / `set_terminal(app)` | `Settings` | `<data dir>/settings.json` (0600). `terminal`: `Terminal`, `iTerm` or "" (the default). `set_terminal` takes any case and `iTerm2` / `Terminal.app`; `default` clears it; any other name is `InvalidInput`. |
+| `open_target(item_id, target="default")` | `OpenResult` | `open` on the item's own URL or path (`plan` / `pr` for a run): http(s) URLs, or paths under the known roots; folders in Finder, pages in their app, other files only revealed (`open -R`). |
+| `inbox_view(limit=200)` | `InboxView` | The studio's Inbox drawer: rows with name, kind and one fact ("interactive", "2 h"), the suggestion chip and its reason, whether Accept applies; the full count and the hint. Store only. |
+| `run_actions(item_id)` | `RunActions` | A night run's actions menu (`sdk/runmenu.py`), the ONE list home's run lines (`HomeRun.actions`), the project view's panels (`ViewRun.actions`), the CLI's `actions` and `studio_run_actions` give: `RunAction`s {`id`, `label`, `destructive`, `needs_confirm`, `target_id`, `hint`} in menu order: `open-plan` (it has a plan page), `open-pr` (a PR with a URL), `open-terminal` (a listed ticket session; `target_id` is it), `open-conductor` (its conductor is known; `target_id` is that session), `move`, `mark-done` (Blocked or Waiting on you, not gone), `dismiss` (`restore` once dismissed), `throw-away` (last; the only one `destructive` and `needs_confirm`). No open action for a gone run. `links` on a `Run` / `HomeRun` / `ViewRun` (`runmenu.links`) are the buttons after its name, drawn from this list: `RunLink`s {`id`, `label`, `target_id`, `hint`, `primary`, `url`} for `open-pr` ("#733", `hint` "PR #733 open - checks green", `url` the PR's), `open-plan` (`primary` on a run waiting on you) and `open-conductor`, in that order, each when its action applies. `quick` names the other ids drawn as buttons too: none on a home line, every one but `move` and the links on a panel. Reads only; `Refused` for any other kind. |
+| `move_choices(target_id)` | `MoveChoices` | "Move to..." for an item (every active project but its own, the Inbox included) or "Set parent" for a project (the top level and every other active project), in tree order. |
+
+The Inbox can't be moved, archived, deleted, linked, or hold sub-projects.
+
+## The move ledger
+
+Every undoable change is one `moves` row: `kind` (`store.MOVE_KINDS`: `move`, `dismiss`,
+`restore`, `mark-done`, `unmark-done`, `remove-project`), the item or project, from / to, the `revision` it produced (a newer revision makes its
+Undo stale), and `data_json`, what its Undo needs (a dismissal's `followed` items, a mark's `before` stamp). `items.undo`
+checks the revision and hands the row to `items.UNDO[kind]`. A new kind is: its name in
+`MOVE_KINDS`, a function that changes the item, bumps its revision and calls
+`items._record(conn, row, to_project, revision, kind, data)`, and one `UNDO` entry that puts it
+back (returning a `MoveResult` with that `kind`). A project's removal is the one kind with no
+item and no surviving project: its row's `project_id` is where the items went, `from_project` the
+removed id, `data_json` the project row, its items and sub-projects with the revision the removal
+gave each, and its links and rules; `items.PROJECT_UNDO` dispatches it before the item kinds. No migration: `kind` has no CHECK and
+`data_json` is free-form. `save_rule_from_move` learns only from a `move`.
+
+## Items, placement and the unknown-vs-gone rule
+
+Item kinds: `session-bg`, `session-interactive`, `night-sprint`, `night-marathon`, `artifact`,
+`pr`, `worktree`. Each has one home project and a stable `key` (session UUID, folder path, URL,
+`owner/repo#n`). Placement, strongest first (`sdk/reconcile.py`):
+manual > title (`ns-<slug>-<TAG>`, `state/<TAG>.session`) > cwd/worktree (cwd, `<WORKTREE>`,
+`<WORKTREE>-<TAG>`, `state/<TAG>.cwd`, `<BRANCH>` / `<BRANCH>--<TAG>` for PRs) > rule > Inbox.
+Archived projects get nothing new. A run's title/cwd-attached items follow it when it moves.
+
+New sessions do not wait for a scan: the plugin's SessionStart hook (`hooks/attach-session.sh` ->
+`studio/session_hook.py` -> `api.attach_session`, `sdk/attach.py`) files each one as it starts,
+silently, in a few seconds at most, exiting 0 on any failure. Until a read finds it, its row has
+no scope, so it can't be marked gone; after 10 minutes unseen it joins the "sessions" scope.
+
+A failed or partial read keeps the last-good data and records the error in the cache; only a
+complete read sets `gone_at`, and a gone item keeps its project. A failed `claude agents` read
+makes every bg session `status = "unknown"`. Headless `claude -p` runs never become items.
+
+## Readers and the cache
+
+| Source | Reader | TTL | Env override |
+|---|---|---|---|
+| workspaces (discover) | `readers/runs.py` | 60 s | `PROJECT_STUDIO_ROOTS`, else `NIGHT_WATCH_ROOTS` |
+| one live workspace's state files | `readers/runs.py` | 2 s | - |
+| `claude agents --json --all` | `readers/sessions.py` | 10 s | `claude` on PATH |
+| `jobs/*/state.json` | `readers/sessions.py` | 10 s | `PROJECT_STUDIO_CLAUDE_HOME` |
+| transcripts `projects/*/*.jsonl` | `readers/sessions.py` | 60 s | `PROJECT_STUDIO_CLAUDE_HOME` |
+| conductor scan (`conductors`) | `readers/sessions.py` | 60 s | `PROJECT_STUDIO_CLAUDE_HOME` |
+| `git worktree list` per repo | `readers/git.py` | 60 s | `git` on PATH |
+| `gh pr list` per repo (open and closed) | `readers/git.py` | 5 min | `gh` on PATH |
+
+Results live in the store's `cache` table (`sdk/cache.py`), shared by every process.
+
+A run's conductor is the session that set it up and watches its runner. The reader takes the last
+id of the newest `CONDUCTOR.session` file (`state/`, a marathon's `phases/state/` and `build*/state/`;
+one id per line, newest last; night-sprint's `conductor.sh` appends at kickoff and on every
+conductor relay) as `conductor_session_id`. With no such file, the conductor scan reads each recent
+transcript once, from where it stopped, at most 32 MB a scan, newest first, for a Bash call of
+`runner.sh start <WS>`, `bash <WS>/launch.sh` or `schedule.sh <WS>`; the newest such session that is
+not a ticket session (in a `state/<TAG>.session`, or named `ns-<slug>-<TAG>`) wins. Either way it is
+one of the run's `sessions`, so it attaches by title and follows the run; a read that names none
+keeps the stored one. A conductor whose transcript is older than the transcripts read's 14 days
+still gets its session item (its head is read from the transcript index), so Open conductor works
+for an old run; one with no transcript on disk gets none, and `terminal_command(target="conductor")`
+says so. `Run.conductor_item_id` (also on `HomeRun` and `ViewRun`) is its session item, None when
+unknown or gone; a run's "Open in Terminal" never picks it.
+
+## One status per night run (`sdk/runstatus.py`)
+
+A night run has ONE status, decided by `runstatus.decide(data, pr, marked)` and nowhere else:
+home's lines and rows, the project view's panels, tiles and sections, `status`, `show`, `list`,
+`find`, the Inbox drawer, `run_actions` and every MCP tool show its answer (`RunStatus`: `key`,
+`word`, `reason`, `glyph`; on a `Run` as `status`, `word`, `reason`, `glyph`). The reader
+(`readers/runs.py`) decides no word: it records `run_state`, what the state files say (a
+`*.waiting-on-user` gate or a marathon's plan gate, the PAUSED line, every BLOCKED or ABANDONED
+stage with its detail, the acceptance verdict, the CI summary, finished, started, whether the
+runner is alive), and stores `runstatus.files_status` (no PR, no mark) as `status` / `reason`,
+which only the refresh's "re-read live runs" check uses. The PR is the run's newest PR item
+(open first), the one `items` already reads. Checked in this order:
+
+| Status (`key`) | When | Example reason |
+|---|---|---|
+| Merged (`merged`) | its PR is merged, whatever its files froze on (a merged PR beats a frozen BLOCKED) | "PR #738 merged" |
+| Done (`done`) | marked done by hand (`mark_done`), until its files change | "marked done by you" |
+| Waiting on you (`needs-you`) | a gate a person answers; a login stop (PAUSED auth...); a stage BLOCKED on what only a person can do: its detail names a human, asks a person to act ("a person must ..."), a manual step, a login needed or a merge conflict (a bare "person-sync" or "login form" in a failure stays Blocked) | "plan gate", "login needed", "merge conflict with main: merge origin/main" |
+| Waiting on you (`needs-you`) | it started and its runner is dead (nothing advances it), or it never started and no runner runs | "runner stopped", "not started" |
+| Blocked (`blocked`) | a stage BLOCKED or ABANDONED on any other failure; or every stage settled and CI is red (PR checks red, or a FAIL verdict the CI ticket did not overrule with `PASS at <same head>`) | "T11 of 13 blocked: tests red", "PR #12 open, 2 checks red", "CI red" |
+| Paused (`paused`) | a budget wait (PAUSED) its live runner resumes by itself | "waiting for capacity" |
+| Running (`running`) | its runner is alive and a stage runs (or is about to) | "T03 of 5", "starting" |
+| In review (`in-review`) | every stage settled, its PR is open and not red: green, checks running, or no checks at all (accept.sh's FAIL on "no checks reported" is no CI, not red) | "PR #733 open, checks green", "PR #24 open, no CI" |
+| Done (`done`) | every stage settled and it has no PR, or its PR was closed unmerged | "finished, no PR", "research finished", "PR #9 closed" |
+| Unknown (`unknown`) | its state files cannot be read (old format, a read error) and no PR says more | "old format: no .next files" |
+
+`roll_up(runs)` is a project's, a sub-project's and a section's status: the worst of its runs not
+gone (Waiting on you > Blocked > Running > Paused > In review > Unknown > Merged > Done), "pending"
+(a middle dot, no word) with no runs. `counts_text(runs)` says them in the same order, "1 waiting
+on you, 1 in review, 1 merged", a gone run as "gone", none as "no runs". `parse(word)` takes a key
+or a word ("In review", "waiting-on-you") for `find_items(status=)`. A line on home shows the
+reason, except while it runs or is paused, when it shows where it is ("T03 of 5"); a run panel's
+`detail` is the same. `progress_text` still says "at CI - 17 of 17 done" for a run blocked after
+its tickets and how many tickets settled once done, "12 of 13".
+
+| Error | `code` | When |
+|---|---|---|
+| `NotFound` | `not_found` | No project with that id (a malformed id included). |
+| `Ambiguous` | `ambiguous` | A reference (`resolve_project` / `resolve_item`) matches more than one; `candidates` lists them. |
+| `InvalidInput` | `invalid_input` | Wrong type, empty or over-long name, a limit out of range. |
+| `Refused` | `refused` | A rule says no: a cycle, a non-empty delete, the Inbox. |
+| `ReadOnlyStore` | `read_only` | The store was written by a newer SDK. |
+| `StartFailed` | `start_failed` | The studio web server did not come up (its log, `studio.log`, says why). |
+
+`HomeCard` fields: `project`, `sub_projects`, `runs` (the project's OWN runs, at most 6), `more`
+("+ 2 more", "+ 2 more, all done"), `pr`, `attention` (`needs-you`, `blocked` or ''), `empty` ("No
+night runs yet", with no run in it or under it), `changed_at`, `status` / `glyph` / `word` (its top
+run's over it and its sub-projects; `pending`, a middle dot and '' with none), `counts` ("1 blocked,
+2 done"), `last_activity_at` (ISO, '' for none), `last_activity` ("12 min ago", "no activity yet"),
+`quiet`, `prs` (its PR line as `RunLink`s, one per PR by URL of the runs it shows, `label` "PR #738
+open - checks running", `open-pr` on the run that has it; `pr` stays the first one's text). A
+`Run`, `HomeRun` and `ViewRun` carry `pr_url` ('' with no PR), `pr_number` (None unknown),
+`pr_state` (open, draft, merged, closed, '') and `links` (above). Each of `sub_projects` is a `HomeSubProject`, the row's active (not archived) sub-projects in tree order
+(by name, any case): `project_id` (what a click opens), `name`, `status` (`pending` with no runs,
+else the top run's, as the project view's tile says it), `glyph`, `word` ("Running"; '' with no
+runs), `text` ("1 blocked, 2 done", "no runs"; over its own active sub-projects too,
+runs not gone) and `inside` ("2 inside" for its active sub-projects, '' with none; deeper levels
+stay a count), `runs` (at most 3 of it and everything under it, ranked) and `more` ("+ 2 more").
+A block's run (`HomeRun`) that lives deeper, in one of the block's own sub-projects or under one,
+carries that sub-project's `sub_project_id` and its tag `sub_project` ("in Inner"); both are '' for
+the block's own runs and always for the row's own `runs`.
+
+`Project` fields: `id`, `name`, `parent_id`, `path` (names from the top level down),
+`is_inbox`, `archived_at`, `created_at`, `updated_at` (ISO 8601 UTC), `child_count`,
+`item_count`, `linked_ids`. Fields may be added; none is renamed or removed. The Inbox's
+`item_count` is what the Inbox shows: items not gone, active in the last 14 days
+(`model.INBOX_DAYS`), the same number as `home().inbox_count`.
+
+## night-watch's readers
+
+`sdk.readers.workspace` reads night-sprint and night-marathon workspaces (`Sprint`,
+`walk_chain`, `tag_state`, `World`, ...). They moved here from `bin/night-watch`, which imports
+them back; its drawing and display filter stay in night-watch.
+`studio/tests/test_night_watch_parity.py` holds night-watch's output byte-identical.
+
+## Adding an agent tool
+
+1. Add one documented function to `sdk/api.py` with a dataclass return type in `sdk/results.py`.
+2. In `studio/mcp_server.py`, add one `TOOLS` entry (strict `inputSchema`, `outputSchema`,
+   `annotations`) and one `HANDLERS` line that calls that function.
+3. Test the function through `sdk.api` and the tool over stdin/stdout.
+
+## The studio web server (ticket 04)
+
+`studio/web.py` is a thin adapter: one SDK call per route. `sdk/server.py` holds its lifecycle and
+guard. `server.json` in the data dir ({pid, port, version, token}, 0600) names the running server;
+the version hashes every studio source file's name, size and mtime, so a code change restarts it
+on the next open. It listens on 127.0.0.1 only (`$PROJECT_STUDIO_PORT`, else a free port), refuses
+any `Host` but `127.0.0.1:<port>` (403), refuses a POST without the token (`X-Studio-Token`) or
+with a foreign `Origin` (403), and stops after `$PROJECT_STUDIO_IDLE` seconds (default 1800) with
+no open page and no request. `bin/project-studio [open|status|stop]` and the `studio_open` MCP tool
+call `open_studio()`.
+
+## Run counts in words and sub-project run sections
+
+`runstatus.counts_text(runs)` is the one wording for a set of runs, used by home's rows and
+sub-project lines, the project view's tiles and sections, `list`, `show` and `status`: one count per
+status, worst first, done last ("1 waiting on you, 2 blocked, 1 running, 4 done"); a gone run
+counts as "gone"; none is "no runs".
+
+`RunGroup` (`projectview.run_groups`): one per active (not archived) sub-project, at every depth,
+in tree order (a sub-project, then its own sub-projects at `depth` + 1; by name, any case):
+`project_id` ("Open" goes there), `name`, `parent_id`, `depth`, `status` / `glyph` / `word` of its
+top run ("pending", "\u00b7", '' with none), `text` (counts in words over it and everything under it),
+`open` (it starts open when a needs-you, blocked or running run, not gone, is in it or under it),
+`runs` (its OWN runs, ranked: `ViewRun` panels in `project_view`, `Run`s in `project_status`),
+`shown` (the page shows 5 before "+ n more"; `status` shows all) and `more` ("+ 3 more", '').
