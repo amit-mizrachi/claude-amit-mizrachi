@@ -6,6 +6,8 @@ import json
 import os
 import unittest
 
+import mcp_server
+
 from . import PLUGIN, STUDIO
 
 
@@ -51,7 +53,7 @@ class OneLayer(unittest.TestCase):
             tree = ast.parse(fh.read())
         handlers = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name.startswith("tool_")
                     and n.name != "tool_error"]       # the shared error shape, not a handler
-        self.assertGreaterEqual(len(handlers), 9)
+        self.assertEqual(sorted(fn.name for fn in handlers), sorted(f.__name__ for f in mcp_server.HANDLERS.values()))
         for fn in handlers:
             self.assertEqual(len(fn.body), 1, fn.name)
             ret = fn.body[0]
@@ -61,3 +63,9 @@ class OneLayer(unittest.TestCase):
             calls = [n for n in ast.walk(ret) if isinstance(n, ast.Call) and ast.unparse(n.func).startswith("api.")]
             self.assertEqual(len(calls), 1, fn.name)
             self.assertFalse([n for n in ast.walk(fn) if isinstance(n, (ast.If, ast.For, ast.While, ast.IfExp))], fn.name)
+
+    def test_every_listed_tool_has_one_handler(self):
+        """TOOLS (what tools/list serves) and HANDLERS (what tools/call runs) name the same tools."""
+        names = [t["name"] for t in mcp_server.TOOLS]
+        self.assertEqual(len(names), len(set(names)))
+        self.assertEqual(set(names), set(mcp_server.HANDLERS))

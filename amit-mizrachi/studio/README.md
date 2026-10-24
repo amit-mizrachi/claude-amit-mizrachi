@@ -119,7 +119,18 @@ Each tool is one SDK call:
 | `studio_link` | `api.link_projects(a_id, b_id)` | writes |
 | `studio_remove` | `api.remove_item(item_id)` | writes; back to the Inbox, never deletes the thing |
 | `studio_archive` | `api.archive_project(project_id)` | writes |
+| `studio_rename` | `api.rename_project(project_id, name)` | writes |
+| `studio_delete` | `api.delete_project_guarded(project_id, confirmed)` | destructive; an empty project only. Without `confirmed` true it changes nothing and says what it would delete (`needs_confirm`) |
+| `studio_undo` | `api.undo_move(move_id)` | writes; puts back what a move, add, accept or remove did |
+| `studio_rules` | `api.list_rules(project_id)` | reads |
+| `studio_rule_save` | `api.save_rule_from_move(move_id)` | writes; "Always file items like this here" |
+| `studio_rule_delete` | `api.delete_rule(rule_id)` | destructive; items it filed stay put |
+| `studio_inbox` | `api.inbox(limit)` | reads (refreshes due sources) |
+| `studio_accept` | `api.accept_suggestion(item_id)` | writes; files an Inbox item where its suggestion says |
+| `studio_purge` | `api.purge_gone(item_id, all_gone)` | destructive; one gone item, or every gone item only with `all_gone` true |
 | `studio_open` | `api.open_studio()` | starts the web page, returns its URL |
+
+Nesting a project is `studio_move` with a `p_...` id.
 
 Every tool has a strict `inputSchema` (no unknown keys), an `outputSchema`, and annotations. A
 result comes back as `structuredContent` and as the same JSON in a text block. An SDK refusal
@@ -148,7 +159,7 @@ that item's source failed to read: never report such an item as gone.
 ## Adding an agent tool
 
 New tools (`list_project`, `project_status`, ...) are a few lines each, because the logic they
-need is an SDK function first. Say you want an agent to read the Inbox:
+need is an SDK function first. This is how `studio_inbox` was added:
 
 1. **The SDK function.** If `sdk/api.py` has none that answers the question, add one: a
    docstring, typed arguments, and a dataclass return type in `sdk/results.py`. All logic, SQL
@@ -179,9 +190,9 @@ need is an SDK function first. Say you want an agent to read the Inbox:
    schema, `to_dict`, errors as tool errors) is shared; do not repeat it.
 3. **The tests.** The function through `sdk.api` (as in `tests/test_api_items.py`), and the tool
    over stdin/stdout with its output checked against its `outputSchema`
-   (`tests/test_mcp_server.py`, `support.validate`). Add the name to the tool set in
-   `test_initialize_and_tools_list_show_schemas_and_annotations`. `tests/test_plugin.py` fails if
-   a handler does more than call one SDK function, or if SQL appears outside `sdk/`.
+   (`tests/test_mcp_server.py`, `support.validate`). The tool-set test reads the server's own
+   `TOOLS`, so it needs no edit. `tests/test_plugin.py` fails if a handler does more than call one
+   SDK function, if `TOOLS` and `HANDLERS` name different tools, or if SQL appears outside `sdk/`.
 
 The same function then serves the web page too: a route in `studio/web.py` is one line in
 `ACTIONS` (POST) or one branch in `do_GET`.

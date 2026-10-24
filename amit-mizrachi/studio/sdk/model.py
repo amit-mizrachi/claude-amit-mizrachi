@@ -236,8 +236,8 @@ def archive_project(conn, project_id):
     conn.execute("UPDATE projects SET archived_at = ?, updated_at = ? WHERE id = ?", (stamp, stamp, project_id))
 
 
-def delete_project(conn, project_id):
-    """Delete an empty project with its links and rules. Returns its name."""
+def delete_plan(conn, project_id):
+    """What deleting an empty project would remove: (name, links, rules). Refused as delete_project is."""
     tree = Tree(conn)
     row = tree.row(project_id)
     if project_id == store.INBOX_ID:
@@ -251,11 +251,19 @@ def delete_project(conn, project_id):
             held.append("%d item%s" % (items, "" if items == 1 else "s"))
         raise Refused("Can't delete %s: it still holds %s. Move them out first, or archive it instead."
                       % (row["name"], " and ".join(held)))
+    links = conn.execute("SELECT COUNT(*) FROM links WHERE a_id = ? OR b_id = ?", (project_id, project_id)).fetchone()[0]
+    rules = conn.execute("SELECT COUNT(*) FROM rules WHERE project_id = ?", (project_id,)).fetchone()[0]
+    return row["name"], links, rules
+
+
+def delete_project(conn, project_id):
+    """Delete an empty project with its links and rules. Returns its name."""
+    name = delete_plan(conn, project_id)[0]
     conn.execute("DELETE FROM links WHERE a_id = ? OR b_id = ?", (project_id, project_id))
     conn.execute("DELETE FROM rules WHERE project_id = ?", (project_id,))
     conn.execute("DELETE FROM moves WHERE project_id = ?", (project_id,))
     conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
-    return row["name"]
+    return name
 
 
 # ---------------------------------------------------------------- export

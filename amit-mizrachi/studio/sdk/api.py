@@ -20,8 +20,8 @@ from typing import Optional
 
 from . import (actions, attach, home as homepage, inboxview, items, model, projectview, refresh as scan, refs, server,
                settings as user_settings, store)
-from .errors import InvalidInput
-from .results import (AttachResult, DeleteResult, Export, HomeState, InboxList, InboxView, Item, ItemList,
+from .errors import InvalidInput, Refused
+from .results import (AttachResult, DeleteRequest, DeleteResult, Export, HomeState, InboxList, InboxView, Item, ItemList,
                       LinkResult, MoveChoices, MoveResult, OpenResult, Project, ProjectList, ProjectStatus, ProjectView,
                       PurgeResult, RefreshResult, Rule, RuleList, Settings, StudioServer, TerminalCommand,
                       TerminalOpen)
@@ -159,6 +159,30 @@ def delete_project(project_id: str) -> DeleteResult:
     with store.write() as conn:
         name = model.delete_project(conn, project_id)
     return DeleteResult(id=project_id, name=name)
+
+
+def _count(n, word):
+    return "%d %s%s" % (n, word, "" if n == 1 else "s")
+
+
+def delete_project_guarded(project_id: str, confirmed: bool = False) -> DeleteRequest:
+    """`delete_project` for an agent: unless `confirmed`, change nothing and say what it would delete
+    (`needs_confirm` True, `message` "This deletes the project Scratch (p_...) for good, with its
+    1 link and 0 rules. Call again confirmed."). Confirmed, it deletes the project. Either way it is
+    refused for the Inbox and for a project that holds anything, so a refusal comes before the ask.
+    """
+    confirmed = _flag(confirmed, "confirmed")
+    with store.write() as conn:
+        name, links, rules = model.delete_plan(conn, project_id)
+        if confirmed:
+            model.delete_project(conn, project_id)
+    if confirmed:
+        message = "Deleted %s." % name
+    else:
+        message = ("This deletes the project %s (%s) for good, with its %s and %s. Call again confirmed."
+                   % (name, project_id, _count(links, "link"), _count(rules, "rule")))
+    return DeleteRequest(id=project_id, name=name, deleted=confirmed, needs_confirm=not confirmed, links=links,
+                         rules=rules, message=message)
 
 
 def export_json(dest: Optional[str] = None) -> Export:
@@ -340,8 +364,19 @@ def delete_rule(rule_id: str) -> Rule:
         return items.delete_rule(conn, rule_id)
 
 
-def purge_gone(item_id: Optional[str] = None) -> PurgeResult:
-    """Delete gone items for good: one (refused if it is not gone), or every gone item."""
+def purge_gone(item_id: Optional[str] = None, all_gone: Optional[bool] = None) -> PurgeResult:
+    """Delete gone items for good: one (refused if it is not gone), or every gone item.
+
+    `all_gone` makes "every gone item" explicit, for an agent that must not purge them all by
+    leaving `item_id` out: False with no `item_id` is refused, True with an `item_id` is
+    InvalidInput. None (the CLI) keeps the old reading: no `item_id` means every gone item.
+    """
+    if all_gone is not None:
+        all_gone = _flag(all_gone, "all_gone")
+        if item_id is None and not all_gone:
+            raise Refused("Say which gone item to purge (item_id), or set all_gone to purge every gone item.")
+        if item_id is not None and all_gone:
+            raise InvalidInput("Give item_id or all_gone, not both.")
     with store.write() as conn:
         ids = items.purge(conn, item_id)
     return PurgeResult(ids=ids, count=len(ids))

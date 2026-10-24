@@ -116,6 +116,29 @@ RUN_SCHEMA = {
     },
 }
 ITEMS = {"type": "array", "items": ITEM_SCHEMA}
+MOVE_ID = {"type": "integer", "minimum": 1, "description": "The move_id a move, add, accept or remove returned."}
+RULE_SCHEMA = {
+    "type": "object",
+    "required": ["id", "project_id", "project_name", "signal", "pattern", "description", "created_at", "created",
+                 "parts"],
+    "properties": {
+        "id": {"type": "string"},
+        "project_id": {"type": "string"},
+        "project_name": {"type": "string"},
+        "signal": {"type": "string", "description": "workspace, repo-branch or cwd: what the rule matches on."},
+        "pattern": {"type": "string"},
+        "description": {"type": "string", "description": "The rule in words: \"repo shapes-platform, branch eval/*\"."},
+        "created_at": {"type": "string"},
+        "created": {"type": "boolean", "description": "False when the same rule already existed."},
+        "parts": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
+    },
+}
+SUGGESTION_SCHEMA = {
+    "type": ["object", "null"],
+    "required": ["project_id", "project_name", "reason"],
+    "properties": {"project_id": {"type": "string"}, "project_name": {"type": "string"},
+                   "reason": {"type": "string", "description": "\"same run as ...\", \"rule: ...\", \"repo x: 4 items there\""}},
+}
 
 TOOLS = [
     {
@@ -258,8 +281,8 @@ TOOLS = [
         "title": "Move an item or a project",
         "description": (
             "Move an item (id i_...) into a project, or a project (id p_...) under another (null = top "
-            "level). Either returns move_id, the handle the studio page's Undo uses (to undo a move "
-            "here, move it back with studio_move); an item move is by hand and also returns the rule "
+            "level). Either returns move_id, the handle studio_undo and the studio page's Undo take; "
+            "an item move is by hand and also returns the rule "
             "\"Always file items like this here\" would save; a run's auto-attached items follow it. Pass revision "
             "to refuse the move if the item changed since you read it. Cycles are refused."
         ),
@@ -294,8 +317,7 @@ TOOLS = [
         "title": "Remove an item from its project",
         "description": (
             "Take an item out of its project, back to the Inbox. It never deletes the session, run, PR "
-            "or folder itself. Returns move_id, the handle the studio page's Undo uses; to undo it here, "
-            "move the item back with studio_move."
+            "or folder itself. Returns move_id, the handle studio_undo and the studio page's Undo take."
         ),
         "inputSchema": {"type": "object", "required": ["item_id"], "additionalProperties": False,
                         "properties": {"item_id": ITEM_ID}},
@@ -314,6 +336,155 @@ TOOLS = [
                         "properties": {"project_id": PROJECT_ID}},
         "outputSchema": PROJECT_SCHEMA,
         "annotations": {"title": "Archive a project", "readOnlyHint": False, "destructiveHint": False,
+                        "idempotentHint": True, "openWorldHint": False},
+    },
+    {
+        "name": "studio_rename",
+        "title": "Rename a project",
+        "description": (
+            "Give a project a new name and return it. Refused for the Inbox and when an active sibling "
+            "already has the name (any case)."
+        ),
+        "inputSchema": {"type": "object", "required": ["project_id", "name"], "additionalProperties": False,
+                        "properties": {"project_id": PROJECT_ID,
+                                       "name": {"type": "string", "minLength": 1, "maxLength": 120,
+                                                "description": "The new name."}}},
+        "outputSchema": PROJECT_SCHEMA,
+        "annotations": {"title": "Rename a project", "readOnlyHint": False, "destructiveHint": False,
+                        "idempotentHint": True, "openWorldHint": False},
+    },
+    {
+        "name": "studio_delete",
+        "title": "Delete an empty project",
+        "description": (
+            "Delete an EMPTY project (no sub-projects, no items) for good, with its links and rules. "
+            "Without confirmed true it changes nothing and returns needs_confirm and a message saying "
+            "what it would delete: show that to the user, and call again confirmed only once they agree. "
+            "Refused for the Inbox and for a project that holds anything (archive that instead)."
+        ),
+        "inputSchema": {"type": "object", "required": ["project_id"], "additionalProperties": False,
+                        "properties": {"project_id": PROJECT_ID,
+                                       "confirmed": {"type": "boolean",
+                                                     "description": "Really delete it. Default false: only say what it would delete."}}},
+        "outputSchema": {
+            "type": "object",
+            "required": ["id", "name", "deleted", "needs_confirm", "links", "rules", "message"],
+            "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "deleted": {"type": "boolean"},
+                           "needs_confirm": {"type": "boolean", "description": "True when nothing changed: ask, then call again confirmed."},
+                           "links": {"type": "integer"}, "rules": {"type": "integer"},
+                           "message": {"type": "string"}},
+        },
+        "annotations": {"title": "Delete an empty project", "readOnlyHint": False, "destructiveHint": True,
+                        "idempotentHint": False, "openWorldHint": False},
+    },
+    {
+        "name": "studio_undo",
+        "title": "Undo a move",
+        "description": (
+            "Put back what a move did (studio_move, studio_add, studio_accept, studio_remove, an item's or "
+            "a project's): the item or project goes back where move_id took it from. Refused when it "
+            "moved again since."
+        ),
+        "inputSchema": {"type": "object", "required": ["move_id"], "additionalProperties": False,
+                        "properties": {"move_id": MOVE_ID}},
+        "outputSchema": MOVE_SCHEMA,
+        "annotations": {"title": "Undo a move", "readOnlyHint": False, "destructiveHint": False,
+                        "idempotentHint": False, "openWorldHint": False},
+    },
+    {
+        "name": "studio_rules",
+        "title": "List filing rules",
+        "description": (
+            "The filing rules (\"Always file items like this here\"), strongest signal first: workspace "
+            "slug > repo + branch prefix > cwd prefix. project_id keeps one project's rules."
+        ),
+        "inputSchema": {"type": "object", "additionalProperties": False,
+                        "properties": {"project_id": dict(PROJECT_ID, description="Only this project's rules.")}},
+        "outputSchema": {"type": "object", "required": ["rules", "total"],
+                         "properties": {"rules": {"type": "array", "items": RULE_SCHEMA},
+                                        "total": {"type": "integer"}}},
+        "annotations": {"title": "List filing rules", "readOnlyHint": True, "destructiveHint": False,
+                        "idempotentHint": True, "openWorldHint": False},
+    },
+    {
+        "name": "studio_rule_save",
+        "title": "Save a filing rule from a move",
+        "description": (
+            "\"Always file items like this here\": save a rule from the moved item's strongest signal into "
+            "the project the move took it to. The next refresh files matching new and Inbox items there. "
+            "Saving the same rule twice returns the existing one (created false). Refused for a project's "
+            "move and a move into the Inbox."
+        ),
+        "inputSchema": {"type": "object", "required": ["move_id"], "additionalProperties": False,
+                        "properties": {"move_id": MOVE_ID}},
+        "outputSchema": RULE_SCHEMA,
+        "annotations": {"title": "Save a filing rule from a move", "readOnlyHint": False, "destructiveHint": False,
+                        "idempotentHint": True, "openWorldHint": False},
+    },
+    {
+        "name": "studio_rule_delete",
+        "title": "Delete a filing rule",
+        "description": "Delete one rule (ids from studio_rules) and return it. Items it filed stay where they are.",
+        "inputSchema": {"type": "object", "required": ["rule_id"], "additionalProperties": False,
+                        "properties": {"rule_id": {"type": "string", "pattern": "^r_[0-9a-f]{12}$"}}},
+        "outputSchema": RULE_SCHEMA,
+        "annotations": {"title": "Delete a filing rule", "readOnlyHint": False, "destructiveHint": True,
+                        "idempotentHint": True, "openWorldHint": False},
+    },
+    {
+        "name": "studio_inbox",
+        "title": "List the Inbox",
+        "description": (
+            "Every unfiled item active in the last 14 days, newest first, each with a suggested project "
+            "and its reason, or suggestion null. Refreshes due sources first. Bounded: total and truncated."
+        ),
+        "inputSchema": {"type": "object", "additionalProperties": False,
+                        "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": LIST_MAX,
+                                                 "description": "At most this many, default %d, max %d."
+                                                                % (LIST_DEFAULT, LIST_MAX)}}},
+        "outputSchema": {
+            "type": "object",
+            "required": ["entries", "total", "truncated"],
+            "properties": {
+                "entries": {"type": "array", "items": {"type": "object", "required": ["item", "suggestion"],
+                                                       "properties": {"item": ITEM_SCHEMA,
+                                                                      "suggestion": SUGGESTION_SCHEMA}}},
+                "total": {"type": "integer"},
+                "truncated": {"type": "boolean"},
+            },
+        },
+        "annotations": {"title": "List the Inbox", "readOnlyHint": True, "destructiveHint": False,
+                        "idempotentHint": True, "openWorldHint": False},
+    },
+    {
+        "name": "studio_accept",
+        "title": "Accept an Inbox suggestion",
+        "description": (
+            "File an Inbox item into the project studio_inbox suggests for it, as a move by hand. Returns "
+            "move_id for studio_undo and studio_rule_save. Refused when the item has no suggestion."
+        ),
+        "inputSchema": {"type": "object", "required": ["item_id"], "additionalProperties": False,
+                        "properties": {"item_id": ITEM_ID}},
+        "outputSchema": MOVE_SCHEMA,
+        "annotations": {"title": "Accept an Inbox suggestion", "readOnlyHint": False, "destructiveHint": False,
+                        "idempotentHint": True, "openWorldHint": False},
+    },
+    {
+        "name": "studio_purge",
+        "title": "Purge gone items",
+        "description": (
+            "Delete gone items from the store for good (a gone item's session, run or folder no longer "
+            "exists). Give item_id for one gone item (refused if it is not gone), or all_gone true for "
+            "every gone item; with neither it is refused. It never touches the thing itself."
+        ),
+        "inputSchema": {"type": "object", "additionalProperties": False,
+                        "properties": {"item_id": ITEM_ID,
+                                       "all_gone": {"type": "boolean",
+                                                    "description": "Purge every gone item. Needed when item_id is left out."}}},
+        "outputSchema": {"type": "object", "required": ["ids", "count"],
+                         "properties": {"ids": {"type": "array", "items": {"type": "string"}},
+                                        "count": {"type": "integer"}}},
+        "annotations": {"title": "Purge gone items", "readOnlyHint": False, "destructiveHint": True,
                         "idempotentHint": True, "openWorldHint": False},
     },
     {
@@ -376,6 +547,42 @@ def tool_archive(args):
     return api.archive_project(args["project_id"])
 
 
+def tool_rename(args):
+    return api.rename_project(args["project_id"], args["name"])
+
+
+def tool_delete(args):
+    return api.delete_project_guarded(args["project_id"], confirmed=args.get("confirmed", False))
+
+
+def tool_undo(args):
+    return api.undo_move(args["move_id"])
+
+
+def tool_rules(args):
+    return api.list_rules(args.get("project_id"))
+
+
+def tool_rule_save(args):
+    return api.save_rule_from_move(args["move_id"])
+
+
+def tool_rule_delete(args):
+    return api.delete_rule(args["rule_id"])
+
+
+def tool_inbox(args):
+    return api.inbox(limit=args.get("limit", LIST_DEFAULT))
+
+
+def tool_accept(args):
+    return api.accept_suggestion(args["item_id"])
+
+
+def tool_purge(args):
+    return api.purge_gone(args.get("item_id"), all_gone=args.get("all_gone", False))
+
+
 def tool_open(args):
     return api.open_studio()
 
@@ -390,6 +597,15 @@ HANDLERS = {
     "studio_link": tool_link,
     "studio_remove": tool_remove,
     "studio_archive": tool_archive,
+    "studio_rename": tool_rename,
+    "studio_delete": tool_delete,
+    "studio_undo": tool_undo,
+    "studio_rules": tool_rules,
+    "studio_rule_save": tool_rule_save,
+    "studio_rule_delete": tool_rule_delete,
+    "studio_inbox": tool_inbox,
+    "studio_accept": tool_accept,
+    "studio_purge": tool_purge,
     "studio_open": tool_open,
 }
 SCHEMAS = {t["name"]: t["inputSchema"] for t in TOOLS}
@@ -463,8 +679,13 @@ def handle(req):
                 "Project Studio keeps Amit's projects as a tree, with an Inbox for unfiled items. "
                 "Every Claude session, night sprint, night marathon, artifact, PR and worktree is an "
                 "item with one home project. studio_list lists projects, studio_status shows a "
-                "project's night runs and items, studio_find finds items, studio_create / studio_add / "
-                "studio_move / studio_link / studio_remove / studio_archive change the tree. studio_open "
+                "project's night runs and items, studio_find finds items, studio_inbox lists unfiled items "
+                "with a suggestion each. studio_create / studio_rename / studio_add / studio_move / "
+                "studio_accept / studio_link / studio_remove / studio_archive / studio_delete change the "
+                "tree; studio_undo takes a move_id back; studio_rules / studio_rule_save / "
+                "studio_rule_delete manage filing rules; studio_purge drops gone items. studio_delete and "
+                "studio_purge are destructive: studio_delete only says what it would delete until called "
+                "confirmed, so ask the user first. studio_open "
                 "starts the studio web page and returns its URL (give it to the user). Status "
                 "\"unknown\" means a source failed: never report such an item as gone. Messages in "
                 "tool errors are meant for the user as they are."
