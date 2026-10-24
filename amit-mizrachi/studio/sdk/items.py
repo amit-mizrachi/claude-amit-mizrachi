@@ -575,7 +575,8 @@ def _undo_check(conn, tree, data):
         raise Refused("Can't undo: the project %s was in no longer exists." % name)
     if parent is not None and tree.hidden(parent):
         raise Refused("Can't undo: %s, where %s was, is archived now." % (tree.rows[parent]["name"], name))
-    if tree.sibling_named(parent, name):
+    back = {pid for pid, _ in data.get("projects") or []}     # its sub-projects: the Undo moves them back under it
+    if tree.sibling_named(parent, name, skip_ids=back):
         raise Refused("Can't undo: a project named %s is there now. Rename one of them first." % name)
     for iid, revision, _ in data.get("items") or []:
         r = conn.execute("SELECT title, revision FROM items WHERE id = ?", (iid,)).fetchone()

@@ -132,10 +132,10 @@ class Tree(object):
                 (store.INBOX_ID,)) if recent(r, now))
         return self._inbox_count
 
-    def sibling_named(self, parent_id, name, skip=None):
+    def sibling_named(self, parent_id, name, skip=None, skip_ids=()):
         for pid in self.children.get(parent_id, []):
             row = self.rows[pid]
-            if pid != skip and not row["archived_at"] and row["name"].lower() == name.lower():
+            if pid != skip and pid not in skip_ids and not row["archived_at"] and row["name"].lower() == name.lower():
                 return row
         return None
 

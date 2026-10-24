@@ -140,6 +140,15 @@ class RemoveThroughTheSdk(Tree):
         self.assertEqual(str(caught.exception), "Can't undo: a project named Alpha is there now. "
                                                 "Rename one of them first.")
 
+    def test_a_sub_project_with_its_own_name_does_not_refuse_the_undo(self):
+        twin = api.create_project("Alpha", self.alpha.id)
+        before = self.store()
+        done = api.remove_project(self.alpha.id, confirmed=True)
+        self.assertEqual(api.get_project(twin.id).parent_id, self.shapes.id)
+        api.undo_move(done.move_id)
+        self.assertEqual(api.get_project(twin.id).parent_id, self.alpha.id)
+        self.assertEqual(self.store(), before)
+
     def test_an_empty_project_is_removed_the_same_way(self):
         plan = api.remove_project(self.beta.id)
         self.assertEqual(plan.message, "Remove Beta? Nothing inside. It goes; nothing on disk changes, "
