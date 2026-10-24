@@ -35,6 +35,7 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `link_projects(a_id, b_id)` | `LinkResult` | Symmetric; `created` is False when it already existed. |
 | `archive_project(project_id)` | `Project` | Hides it and everything under it from lists. Idempotent. |
 | `delete_project(project_id)` | `DeleteResult` | Empty projects only (no sub-projects, no items); otherwise archive. |
+| `delete_project_guarded(project_id, confirmed=False)` | `DeleteRequest` | The agent's delete: unless `confirmed`, changes nothing and returns `needs_confirm` with a `message` naming the project and its `links` / `rules` counts. Refused as `delete_project` is, before the ask. |
 | `export_json(dest=None)` | `Export` | The whole store minus the cache; written to `dest` (0600, atomic) when given. |
 
 | `refresh(force=False)` | `RefreshResult` | Runs the due readers, stores what they said, reconciles. `sources` shows each reader's state. |
@@ -49,7 +50,7 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `accept_suggestion(item_id)` | `MoveResult` | Files an Inbox item where its suggestion says. |
 | `save_rule_from_move(move_id)` | `Rule` | From the item's strongest signal: workspace slug > repo + branch prefix > cwd prefix. Refused for a project's move. |
 | `list_rules(project_id=None)` / `delete_rule(rule_id)` | `RuleList` / `Rule` | Strongest signal first. |
-| `purge_gone(item_id=None)` | `PurgeResult` | Deletes gone items for good, only when asked. |
+| `purge_gone(item_id=None, all_gone=None)` | `PurgeResult` | Deletes gone items for good, only when asked. `all_gone` False with no `item_id` is refused, True with one is `InvalidInput`; None (the CLI) reads no `item_id` as every gone item. |
 | `attach_session(session_id, cwd, job_dir=None, entrypoint=None)` | `AttachResult` | The SessionStart hook: files a starting session by title > cwd > rule > Inbox over what the store holds, no reader run. Headless (`sdk*`) runs are skipped; a known session stays put. |
 | `home(refresh=False)` | `HomeState` | The studio's home page: cards in final order (needs-you, blocked, running, latest change), a line per active sub-project (`HomeCard.sub_projects`, below), at most 3 runs per card with "+ n earlier runs" (a sub-project's run tagged "in <sub-project>"), PR line, a banner per failed source (last-good states kept), `first_run` with no project, `reading` / `reading_text` ("Still reading PRs...") for sources still being read. Answers from the store and never waits for a slow source. |
 | `open_studio()` | `StudioServer` | Starts `studio/web.py` on 127.0.0.1 unless one of this code version runs (`started` False); asks an older one to stop first. Never opens a browser. `StartFailed` after 5 s (see `studio.log`). |

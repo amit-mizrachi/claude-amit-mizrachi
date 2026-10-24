@@ -55,6 +55,20 @@ class DeleteResult:
 
 
 @dataclass
+class DeleteRequest:
+    """What `delete_project_guarded` did. `deleted` False with `needs_confirm`: nothing changed, and
+    `message` says what a confirmed call would delete (the project, `links` links, `rules` rules)."""
+
+    id: str
+    name: str
+    deleted: bool
+    needs_confirm: bool
+    links: int
+    rules: int
+    message: str
+
+
+@dataclass
 class Export:
     """The whole store as one JSON-ready document, and the file it was written to (if any)."""
 
