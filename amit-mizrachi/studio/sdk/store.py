@@ -18,7 +18,9 @@ Rules this module keeps:
   moved it since.
 - The `moves` table is the ledger of every undoable change, one row per change, each of a
   `MOVE_KINDS` kind (since v4): `move` (a re-home), `dismiss` and `restore` (an item hidden or shown
-  again, `items.dismissed_at`). A row's `data_json` keeps what its Undo needs beyond the columns.
+  again, `items.dismissed_at`), `mark-done` and `unmark-done` (a night run marked done by hand
+  or that mark taken back, `items.done_marked_at`, since v5). A row's `data_json` keeps what its
+  Undo needs beyond the columns.
 
 Only the SDK touches SQL. Adapters call `sdk.api`.
 """
@@ -31,7 +33,7 @@ from urllib.parse import quote
 
 from .errors import ReadOnlyStore
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 INBOX_ID = "inbox"
 INBOX_NAME = "Inbox"
 DB_NAME = "studio.db"
@@ -39,7 +41,7 @@ BUSY_TIMEOUT = 30                   # seconds a connection waits for another wri
 ITEM_KINDS = ("session-bg", "session-interactive", "night-sprint", "night-marathon", "artifact", "pr", "worktree")
 SESSION_KINDS = ("session-bg", "session-interactive")   # derived, so one session id is ONE item across both
 PLACED_BY = ("manual", "title", "cwd", "rule", "inbox")
-MOVE_KINDS = ("move", "dismiss", "restore")             # what a `moves` row records (v4)
+MOVE_KINDS = ("move", "dismiss", "restore", "mark-done", "unmark-done")   # what a `moves` row records (v4)
 
 
 def home():
@@ -157,10 +159,17 @@ def _schema_v4(conn):
     conn.execute("ALTER TABLE moves ADD COLUMN data_json TEXT NOT NULL DEFAULT '{}'")
 
 
+def _schema_v5(conn):
+    """Mark a run done by hand: `items.done_marked_at` is when a person or agent said a night run is
+    done although its state files froze on another word (NULL: no mark). The mark holds until the
+    run's files change after it (`items.marked_done`); its ledger rows are `mark-done` / `unmark-done`."""
+    conn.execute("ALTER TABLE items ADD COLUMN done_marked_at TEXT")
+
+
 # version -> the step that takes a store from version - 1 to version. Steps run in order, all
 # inside one BEGIN IMMEDIATE, after a file backup of the old store. A new version is one more
 # `_schema_v<n>` (ALTER TABLE / CREATE TABLE only, never a read of the data dir) and one entry here.
-MIGRATIONS = {1: _schema_v1, 2: _schema_v2, 3: _schema_v3, 4: _schema_v4}
+MIGRATIONS = {1: _schema_v1, 2: _schema_v2, 3: _schema_v3, 4: _schema_v4, 5: _schema_v5}
 
 
 class Store(object):

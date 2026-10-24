@@ -14,7 +14,7 @@ Stdlib Python 3.9+, no packages. An adapter puts `studio/` on `sys.path` and imp
 - `schema_version` holds the schema version. An older store is copied to `backups/` and then
   migrated in one transaction. A store from a newer SDK opens read-only: reads work, writes
   raise `ReadOnlyStore`.
-- Schema v4: `projects`, `links`, `items`, `rules`, `moves`, `cache`, `schema_version` (v2: projects carry a `revision`, and a `moves` row is an item's or a project's move; v3: a move keeps the placement it replaced; v4: `items.dismissed_at`, and a `moves` row has a `kind` and `data_json`)
+- Schema v5: `projects`, `links`, `items`, `rules`, `moves`, `cache`, `schema_version` (v2: projects carry a `revision`, and a `moves` row is an item's or a project's move; v3: a move keeps the placement it replaced; v4: `items.dismissed_at`, and a `moves` row has a `kind` and `data_json`; v5: `items.done_marked_at`)
   (see `store.py`). A new version is one `_schema_v<n>(conn)` step in `store.MIGRATIONS` and
   `SCHEMA_VERSION` + 1: the backup and the one transaction come with it. The Inbox is a seeded project with the fixed id `inbox`.
 
@@ -45,10 +45,11 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `add_item(kind, key, project_id, title=None)` | `MoveResult` | By hand (`placed_by = manual`). A known item is moved instead (`created` False). |
 | `move_item(item_id, project_id, expected_revision=None)` | `MoveResult` | By hand; a stale revision is refused; a run's auto-attached items follow (`followed`). |
 | `move(target_id, to_project_id, expected_revision=None)` | `MoveResult` | An item (`i_...`) or a project (`p_...`): the one call behind drop = move. A project's move gets a `move_id` too; `message` is the toast ("Moved to Project Studio"). |
-| `undo_move(move_id)` | `MoveResult` | An item's or a project's move, a dismissal (restores it and what went with it) or a restore (dismisses them again). Refused ("Can't undo: <name> was moved again since." / "... was changed again since.") when it changed since. |
+| `undo_move(move_id)` | `MoveResult` | An item's or a project's move, a dismissal (restores it and what went with it), a restore (dismisses them again) or a mark-done (takes the mark back). Refused ("Can't undo: <name> was moved again since." / "... was changed again since.") when it changed since. |
 | `remove_item(item_id)` | `MoveResult` | Back to the Inbox, by hand. Never deletes the thing itself. |
 | `dismiss_item(item_id)` | `MoveResult` | Hides it from home, the project view's lists (into its "Dismissed" fold), the Inbox, `list` / `status` and their counts, and `find` unless asked. Deletes nothing; it keeps its project; no refresh clears it (a gone item stays dismissed). A run's auto-attached items go with it (`followed`). `kind` "dismiss", toast "Dismissed <title>"; `move_id` None when already dismissed. |
 | `restore_item(item_id)` | `MoveResult` | Shows it again, with what its newest dismissal took along. `kind` "restore"; `move_id` None when not dismissed. |
+| `mark_done(item_id)` | `MoveResult` | A night run whose state files froze on a stale word is Done, reason "marked done by you" (`Run.marked_done`), on home, the project view, `status` and `list`, ranked as done; its stage bar stays as the files say. A later change in its files (reader's `changed_at` newer than the mark) drops it. Other kinds raise `Refused`. `kind` "mark-done", toast "Marked <title> done"; `move_id` None when already marked or already done. |
 | `inbox(limit=None, refresh=True)` | `InboxList` | Each entry has a `suggestion` with its `reason`, or None. |
 | `accept_suggestion(item_id)` | `MoveResult` | Files an Inbox item where its suggestion says. |
 | `save_rule_from_move(move_id)` | `Rule` | From the item's strongest signal: workspace slug > repo + branch prefix > cwd prefix. Refused for a project's move. |
@@ -72,8 +73,8 @@ The Inbox can't be moved, archived, deleted, linked, or hold sub-projects.
 ## The move ledger
 
 Every undoable change is one `moves` row: `kind` (`store.MOVE_KINDS`: `move`, `dismiss`,
-`restore`), the item or project, from / to, the `revision` it produced (a newer revision makes its
-Undo stale), and `data_json`, what its Undo needs (a dismissal's `followed` items). `items.undo`
+`restore`, `mark-done`, `unmark-done`), the item or project, from / to, the `revision` it produced (a newer revision makes its
+Undo stale), and `data_json`, what its Undo needs (a dismissal's `followed` items, a mark's `before` stamp). `items.undo`
 checks the revision and hands the row to `items.UNDO[kind]`. A new kind is: its name in
 `MOVE_KINDS`, a function that changes the item, bumps its revision and calls
 `items._record(conn, row, to_project, revision, kind, data)`, and one `UNDO` entry that puts it

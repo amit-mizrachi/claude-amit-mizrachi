@@ -198,7 +198,7 @@ class DismissalMigration(TempHome):
                              "VALUES ('i_aaaaaaaaaaaa', 'inbox', 'inbox', 1, 't')")
         opened = store.open_store()
         try:
-            self.assertEqual(opened.version, 4)
+            self.assertEqual(opened.version, store.SCHEMA_VERSION)
             self.assertTrue(opened.backup_path and os.path.isfile(opened.backup_path))
             move = dict(opened.conn.execute("SELECT * FROM moves").fetchone())
             item = dict(opened.conn.execute("SELECT * FROM items").fetchone())

@@ -97,6 +97,7 @@ class Item:
     data: Dict[str, Any] = field(default_factory=dict)
     dismissed: bool = False         # hidden from home, the project view's lists, the Inbox, list / status / find
     dismissed_at: Optional[str] = None
+    done_marked_at: Optional[str] = None   # when a night run was marked done by hand (it may be out of date)
 
 
 @dataclass
@@ -167,10 +168,10 @@ class RuleList:
 
 @dataclass
 class MoveResult:
-    """A move of an item (or, through `move`, a project), or a dismissal or restore of an item
-    (`kind`). `move_id` is what `undo_move` (and, for an item's move, `save_rule_from_move`) take;
+    """A move of an item (or, through `move`, a project), a dismissal or restore of an item,
+    or a night run's mark-done (`kind`). `move_id` is what `undo_move` (and, for an item's move, `save_rule_from_move`) take;
     it is None when nothing changed. `followed` lists the auto-attached items that went with a run.
-    `message` is the toast: "Moved to Project Studio", "Dismissed alpha"."""
+    `message` is the toast: "Moved to Project Studio", "Dismissed alpha", "Marked alpha done"."""
 
     item: Optional[Item]
     project: Optional[Project]
@@ -181,7 +182,7 @@ class MoveResult:
     rule_preview: Optional[RulePreview] = None
     created: bool = False
     message: str = ""
-    kind: str = "move"              # what the ledger row records: move, dismiss or restore
+    kind: str = "move"              # what the ledger row records: move, dismiss, restore, mark-done, unmark-done
 
 
 @dataclass
@@ -224,6 +225,7 @@ class Run:
     gone: bool
     progress_text: str = ""         # "T03 of 5", "5 of 5" once done, "at CI - 5 of 5 done", as home and show say it
     pr_text: str = ""               # "PR #12 draft - checks green", or ""
+    marked_done: bool = False       # Done because a person marked it, not its files ("marked done by you")
 
 
 @dataclass
@@ -392,6 +394,7 @@ class ViewRun:
     has_pr: bool
     terminal_item_id: Optional[str]
     gone: bool
+    can_mark_done: bool = False     # a Blocked or Waiting-on-you run shows "Mark done"
 
 
 @dataclass

@@ -23,8 +23,8 @@ Output and exit codes, the same for every command:
   2 on a usage error (argparse prints the usage on stderr), and when a command that needs `--yes`
   did not get it (`delete`; `terminal` without a tty): the message says what it would have done,
   code `confirm_needed`, on stderr or as `--json` error.
-- A move (`file`, `add`, `accept`, `nest`, `remove`, `dismiss`, `restore`, `undo`) prints its move
-  id and the `undo` command. `command <item>` prints only the command, so `$(project-studio command <item>)` works.
+- A move (`file`, `add`, `accept`, `nest`, `remove`, `dismiss`, `restore`, `mark-done`, `undo`) prints
+  its move id and the `undo` command. `command <item>` prints only the command, so `$(project-studio command <item>)` works.
 - `project-studio` alone is `open`, and `open | status | stop` print what they printed before.
 
 Zero dependencies. Python 3.9+. Data in `$PROJECT_STUDIO_HOME`, default `~/.project-studio`.
@@ -472,7 +472,7 @@ COMMANDS = [
     Command("file", "Move an item into a project by hand. Prints the move id for undo and rule-save.",
             "project-studio file i_1a2b3c4d Alpha", setup_file,
             lambda a: api.move_item(item_ref(a.item), project_ref(a.project), a.revision), text_move),
-    Command("undo", "Put back what a move (file, add, accept, nest, remove, dismiss, restore) did.",
+    Command("undo", "Put back what a move (file, add, accept, nest, remove, dismiss, restore, mark-done) did.",
             "project-studio undo 42",
             add_move_id, lambda a: api.undo_move(a.move_id), text_move),
     Command("remove", "Take an item out of its project, back to the Inbox. It deletes nothing.",
@@ -484,6 +484,9 @@ COMMANDS = [
     Command("restore", "Show a dismissed item again (find --dismissed lists them). Undoable.",
             "project-studio restore i_1a2b3c4d", lambda p: add_item_arg(p),
             lambda a: api.restore_item(item_ref(a.item)), text_move),
+    Command("mark-done", "Mark a night run done when its state files froze on a word no longer true. It shows Done, "
+            "\"marked done by you\", until its files change again. Undoable.", "project-studio mark-done i_1a2b3c4d",
+            lambda p: add_item_arg(p), lambda a: api.mark_done(item_ref(a.item)), text_move),
     Command("accept", "File an Inbox item into its suggested project. Undoable.", "project-studio accept i_1a2b3c4d",
             lambda p: add_item_arg(p), lambda a: api.accept_suggestion(item_ref(a.item)), text_move),
     Command("rule-save", "Always file items like this here: save a rule from a filing's move id.",

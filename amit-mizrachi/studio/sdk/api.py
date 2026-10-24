@@ -313,7 +313,7 @@ def move(target_id: str, to_project_id: Optional[str], expected_revision: Option
 def undo_move(move_id: int) -> MoveResult:
     """Put an item back where `move_id` took it from, or a project back under its old parent; for a
     dismissal, restore the item (and the attached items that went with it); for a restore, dismiss
-    them again. Refused ("Can't undo: <name> was moved again since.", "... was changed again since.")
+    them again; for a mark-done, take the mark back (the run's own word again). Refused ("Can't undo: <name> was moved again since.", "... was changed again since.")
     when it changed again since."""
     with store.write() as conn:
         return items.undo(conn, move_id)
@@ -344,6 +344,19 @@ def restore_item(item_id: str) -> MoveResult:
     """
     with store.write() as conn:
         return items.restore(conn, item_id)
+
+
+def mark_done(item_id: str) -> MoveResult:
+    """Mark a night run done by hand when its state files froze on a word that is no longer true (a
+    BLOCKED a person fixed later, an early "CI red"). The run then shows Done, reason "marked done
+    by you", on home, the project view, `status` and `list`, and ranks as done; its stage bar stays
+    as the files say. A later change in its files (an EVENTS.log line, a status file rewritten) drops
+    the mark: the reader's word wins again. Only night runs (`Refused` for any other kind). Returns
+    `move_id` for `undo_move` (kind "mark-done", message "Marked <title> done"); move_id None when
+    it is already marked or already done.
+    """
+    with store.write() as conn:
+        return items.mark_done(conn, item_id)
 
 
 def inbox(limit: Optional[int] = None, refresh: bool = True) -> InboxList:

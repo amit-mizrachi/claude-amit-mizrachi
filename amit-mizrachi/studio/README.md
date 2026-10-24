@@ -52,6 +52,7 @@ every command, its options and an example.
 | `remove` | `project-studio remove i_1a2b3c4d` | an item back to the Inbox; it deletes nothing |
 | `dismiss` | `project-studio dismiss i_1a2b3c4d` | hide an item (a night run with its attached sessions, PRs, worktrees) from every list; it deletes nothing |
 | `restore` | `project-studio restore i_1a2b3c4d` | show a dismissed item again (`find --dismissed` and `show` list them) |
+| `mark-done` | `project-studio mark-done i_1a2b3c4d` | a night run whose state files froze on a word no longer true shows Done, "marked done by you", until its files change again |
 | `accept` | `project-studio accept i_1a2b3c4d` | file an Inbox item into its suggested project |
 | `rule-save` | `project-studio rule-save 42` | "Always file items like this here", from a move id |
 | `rule-delete` | `project-studio rule-delete r_1a2b3c4d5e6f` | delete one rule; what it filed stays |
@@ -65,7 +66,7 @@ every command, its options and an example.
 References: a project is its id, a unique id prefix (4+ characters, the `p_` optional) or its
 name (any case, active projects only); an item is its id or a unique id prefix. An ambiguous
 name lists the candidates. A move (`file`, `add` of a known item, `accept`, `nest`, `remove`,
-`dismiss`, `restore`, `undo`) prints `Move <id>. Undo: project-studio undo <id>`. An `add` that creates a new item is
+`dismiss`, `restore`, `mark-done`, `undo`) prints `Move <id>. Undo: project-studio undo <id>`. An `add` that creates a new item is
 not a move; it prints the `remove` command instead.
 
 **Your terminal app.** Open in Terminal (the page's button and the `terminal` command alike)
@@ -100,7 +101,10 @@ interactive one), or copies that command. The **Inbox** drawer files items by dr
 to...** or by **Accept** on a suggestion, with **Undo** on every move. **Dismiss** on a run panel
 or an item row hides it (a run with its attached items) from the cards, the project view's lists,
 the Inbox and the counts, and deletes nothing; it waits in the **Dismissed** fold at the bottom of
-the project view, where **Restore** shows it again. Light and dark mode follow
+the project view, where **Restore** shows it again. **Mark done** on a Blocked or Waiting-on-you
+run panel says the run is done when its files froze on a stale word (a BLOCKED fixed by hand, an
+early "CI red"): it shows Done, "marked done by you", everywhere, until the run's files change
+again; Undo takes the mark back. Light and dark mode follow
 the OS, with a manual toggle. The studio never stops, kills or removes a session.
 
 It stops by itself after 30 minutes with no open page (`PROJECT_STUDIO_IDLE` seconds). It
@@ -125,10 +129,11 @@ Each tool is one SDK call:
 | `studio_remove` | `api.remove_item(item_id)` | writes; back to the Inbox, never deletes the thing |
 | `studio_dismiss` | `api.dismiss_item(item_id)` | writes; hides an item (a run with its attached items) from every list, never deletes anything |
 | `studio_restore` | `api.restore_item(item_id)` | writes; shows a dismissed item again |
+| `studio_mark_done` | `api.mark_done(item_id)` | writes; a night run shows Done, "marked done by you", until its files change; other kinds refused |
 | `studio_archive` | `api.archive_project(project_id)` | writes |
 | `studio_rename` | `api.rename_project(project_id, name)` | writes |
 | `studio_delete` | `api.delete_project_guarded(project_id, confirmed)` | destructive; an empty project only. Without `confirmed` true it changes nothing and says what it would delete (`needs_confirm`) |
-| `studio_undo` | `api.undo_move(move_id)` | writes; puts back what a move, add, accept, remove, dismiss or restore did |
+| `studio_undo` | `api.undo_move(move_id)` | writes; puts back what a move, add, accept, remove, dismiss, restore or mark-done did |
 | `studio_rules` | `api.list_rules(project_id)` | reads |
 | `studio_rule_save` | `api.save_rule_from_move(move_id)` | writes; "Always file items like this here" |
 | `studio_rule_delete` | `api.delete_rule(rule_id)` | destructive; items it filed stay put |

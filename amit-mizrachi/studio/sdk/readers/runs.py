@@ -8,6 +8,8 @@ per-ticket `<WORKTREE>-<TAG>`, `state/<TAG>.cwd`) and its artifacts (`state/ARTI
 
 Status words: needs-you, blocked, running, paused, pending, done, unknown. An old-format
 workspace (no `.next` files) and one that fails to read are `unknown`, never dropped.
+`changed_at` is the newest change to the run's state files (an EVENTS.log line, a `.status` file
+rewritten): a mark-done made before it is out of date (`items.marked_done`).
 
 Built on `readers.workspace` (night-watch's readers). Only READS files.
 """
@@ -87,6 +89,13 @@ def _stages(sp):
     return [{"name": s.name, "status": s.status} for s in sp.stages]
 
 
+def _changed_at(state_dirs):
+    """The newest mtime of any EVENTS.log or `<TAG>.status` file in `state_dirs`, as ISO, or ""."""
+    stamps = [mtime(os.path.join(d, "EVENTS.log")) for d in state_dirs]
+    stamps += [mtime(f) for d in state_dirs for f in glob.glob(os.path.join(d, "*.status"))]
+    return iso(max(stamps or [0]))
+
+
 def _sessions(state_dir):
     out = []
     for path in sorted(glob.glob(os.path.join(state_dir, "*.session"))):
@@ -164,7 +173,8 @@ def read_sprint(ws, world):
     rec["status"], rec["reason"] = _sprint_status(sp)
     rec.update(progress=_progress(sp, env), stage=_current_stage(sp), stages=_stages(sp),
                pr_url=sp.pr, acceptance=sp.acceptance,
-               started_at=iso(sp.started_at()), updated_at=iso(sp.last_event or mtime(sp.state)))
+               started_at=iso(sp.started_at()), updated_at=iso(sp.last_event or mtime(sp.state)),
+               changed_at=_changed_at([sp.state]))
     rec.update(_joins(ws, [ws]))
     rec["artifacts"] = _artifacts(ws, [ws], False)
     return rec
@@ -213,7 +223,8 @@ def read_marathon(ws, world):
     rec.update(status=status, reason=reason, stages=stages, stage=current,
                progress=_progress(build, facts(build.ws)) if build else None,
                pr_url=build.pr if build else "", acceptance=build.acceptance if build else "",
-               started_at=iso(min(starts) if starts else 0), updated_at=iso(max(acts)))
+               started_at=iso(min(starts) if starts else 0), updated_at=iso(max(acts)),
+               changed_at=_changed_at([pstate] + [sp.state for sp in every]))
     for b in builds:                     # the build sprint names the repo, branch and worktree
         build_rec = _base(b, "night-sprint", facts(b))
         for key in ("repo", "repo_slug", "repo_path", "branch", "worktree"):

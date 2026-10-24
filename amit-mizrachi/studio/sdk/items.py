@@ -11,6 +11,9 @@ Every function takes an open connection; `sdk.api` owns the transactions. Rules 
   home, the project view's lists, the Inbox, `status` and the counts (`find` shows it when asked).
   A dismissal and a restore are ledger rows like a move, so Undo works, and a run's auto-attached
   items go with it. A refresh never clears it: the reconcile does not touch `dismissed_at`.
+- A night run marked done by hand (`done_marked_at` set) is Done, "marked done by you", while its
+  files hold still: once its state files change after the mark (`data.changed_at` newer), the
+  reader's word wins again and the mark counts for nothing (`marked_done`). Only night runs.
 
 The move ledger: every undoable change records one `moves` row (`_record`) of a `store.MOVE_KINDS`
 kind, and `undo` hands the row to `UNDO[kind]`. A new kind is a function that changes the item and
@@ -55,7 +58,7 @@ def to_item(r, tree):
                 project_path=path, placed_by=r["placed_by"], workspace_item_id=r["workspace_item_id"],
                 revision=r["revision"], status=str(data.get("status") or ""), gone=bool(r["gone_at"]),
                 gone_at=r["gone_at"], seen_at=r["seen_at"], data=data, dismissed=bool(r.get("dismissed_at")),
-                dismissed_at=r.get("dismissed_at"))
+                dismissed_at=r.get("dismissed_at"), done_marked_at=r.get("done_marked_at"))
 
 
 def subtree(tree, project_id, include_archived=False):
@@ -124,6 +127,16 @@ def _pr_of(run_id, prs):
             "url": p.get("url"), "good_at": p.get("good_at"), "checks": p.get("checks")}
 
 
+MARKED_DONE = "marked done by you"     # the reason a run marked done by hand shows
+
+
+def marked_done(item):
+    """True while a night run's mark-done holds: it is marked and its state files have not changed
+    since (a newer `changed_at` means the run moved on, so the reader's word wins again)."""
+    stamp = item.done_marked_at
+    return bool(stamp) and item.kind in WORKSPACE_KINDS and str(item.data.get("changed_at") or "") <= stamp
+
+
 def to_run(item, prs, artifacts):
     """A run item as a `Run`, with its newest PR and its plan artifact."""
     from .home import _progress_text, pr_text   # home imports this module
@@ -136,11 +149,14 @@ def to_run(item, prs, artifacts):
     status, reason = item.status or "unknown", str(d.get("reason") or "")
     if status in ("blocked", "needs-you") and pr and pr.get("state") == "merged":
         status, reason = "done", "PR merged"     # its state files froze before the merge; the merge ended it
+    marked = marked_done(item) and status != "done"
+    if marked:
+        status, reason = "done", MARKED_DONE
     run = Run(item_id=item.id, kind=item.kind, title=item.title, project_id=item.project_id,
               status=status, reason=reason, progress=d.get("progress"),
               stage=str(d.get("stage") or ""), stages=d.get("stages") or [], pr=pr,
               artifact_url=arts[0].data.get("url", "") if arts else "", started_at=str(d.get("started_at") or ""),
-              updated_at=str(d.get("updated_at") or ""), gone=item.gone)
+              updated_at=str(d.get("updated_at") or ""), gone=item.gone, marked_done=marked)
     run.progress_text, run.pr_text = _progress_text(run), pr_text(pr)
     return run
 
@@ -394,8 +410,47 @@ def _undo_dismissal(conn, m, r):
     return _set_dismissed(conn, r, store.now_iso(), "dismiss", followers, "Dismissed %s again" % r["title"])
 
 
+# ---------------------------------------------------------------- marking a run done by hand
+
+NOT_A_RUN = {"session-bg": "a session", "session-interactive": "a session", "pr": "a PR", "worktree": "a worktree",
+             "artifact": "an artifact"}
+
+
+def _set_mark(conn, r, stamp, kind, message):
+    """Set (`stamp`) or clear (None) row `r`'s mark-done, bump its revision, and record it as one
+    `kind` ledger row that keeps the mark it replaced, so its Undo puts that back."""
+    revision = r["revision"] + 1
+    conn.execute("UPDATE items SET done_marked_at = ?, revision = ? WHERE id = ?", (stamp, revision, r["id"]))
+    move_id = _record(conn, r, r["project_id"], revision, kind, {"before": r["done_marked_at"]})
+    return MoveResult(item=to_item(row(conn, r["id"]), model.Tree(conn)), project=None, move_id=move_id,
+                      from_project_id=r["project_id"], to_project_id=r["project_id"], message=message, kind=kind)
+
+
+def mark_done(conn, item_id):
+    """Mark a night run done by hand, now; it holds until the run's files change after it."""
+    r = row(conn, item_id)
+    if r["kind"] not in WORKSPACE_KINDS:
+        raise Refused("Only a night run can be marked done; %s is %s." % (r["title"], NOT_A_RUN.get(r["kind"],
+                                                                                                    r["kind"])))
+    item = to_item(r, model.Tree(conn))
+    if marked_done(item):
+        return _unchanged(conn, r, "mark-done", "%s is already marked done" % r["title"])
+    if item.status == "done":
+        return _unchanged(conn, r, "mark-done", "%s is already done" % r["title"])
+    return _set_mark(conn, r, store.now_iso(), "mark-done", "Marked %s done" % r["title"])
+
+
+def _undo_mark(conn, m, r):
+    """Undo a mark-done (the reader's word again) or an unmark-done (the mark it took back)."""
+    before = _ledger_data(m).get("before")
+    if m["kind"] == "mark-done":
+        return _set_mark(conn, r, before, "unmark-done", "%s is no longer marked done" % r["title"])
+    return _set_mark(conn, r, before, "mark-done", "Marked %s done again" % r["title"])
+
+
 # A ledger row's kind -> the function that puts back what it did: (conn, move row, item row) -> MoveResult.
-UNDO = {"move": _undo_move, "dismiss": _undo_dismissal, "restore": _undo_dismissal}
+UNDO = {"move": _undo_move, "dismiss": _undo_dismissal, "restore": _undo_dismissal, "mark-done": _undo_mark,
+        "unmark-done": _undo_mark}
 
 
 # ---------------------------------------------------------------- adding by hand

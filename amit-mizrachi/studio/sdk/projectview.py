@@ -8,6 +8,8 @@ Every rule the project view shows lives here, not in the web server or the page 
 - Sessions fold into "Everything else" when none is active; PRs, worktrees and artifacts always do.
 - Gone PRs, worktrees and artifacts are left out; gone sessions show greyed, "(removed)".
 - The project's own attach rules are listed, strongest signal first, each one deletable.
+- A Blocked or Waiting-on-you run panel offers "Mark done" (`can_mark_done`); a run marked done
+  shows Done, "marked done by you", until its files change.
 - Dismissed items leave every list above and fold into "Dismissed" at the bottom, each row with
   Restore; a run's attached items went with it, so they show here too.
 """
@@ -93,7 +95,8 @@ def view_run(conn, run, arts):
                    bar=_stage_bar(run) if run.status != "needs-you" else [],
                    started="started %s" % started if started else "", pr=pr_text(run.pr),
                    has_plan=has_plan, has_pr=bool(run.pr and run.pr.get("url")),
-                   terminal_item_id=live["id"] if live else None, gone=run.gone)
+                   terminal_item_id=live["id"] if live else None, gone=run.gone,
+                   can_mark_done=run.status in ("needs-you", "blocked") and not run.gone)
 
 
 def _runs_text(n):

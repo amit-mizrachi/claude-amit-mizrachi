@@ -400,6 +400,7 @@
     if (r.terminal_item_id) {
       acts.appendChild(button(ARROW + "Open in Terminal", null, function (b) { openInTerminal(r.terminal_item_id, b); }));
     }
+    if (r.can_mark_done) { acts.appendChild(markDoneButton(r.item_id)); }
     acts.appendChild(dismissButton(r.item_id));
     var st = add(el("span", "st"), el("span", "w " + tone, r.word), r.detail ? el("span", null, r.detail) : null,
       r.bar.length ? bar(r.bar) : null);
@@ -423,17 +424,23 @@
     return node;
   }
 
-  // Dismiss hides an item (a run with its attached items) from every list; Restore shows it again.
-  // Both are moves: the toast offers Undo, as after a drag.
-  function setDismissed(path, itemId, btn) {
+  // Dismiss hides an item (a run with its attached items) from every list; Restore shows it again;
+  // Mark done says a stale run is done. Each is a move: the toast offers Undo, as after a drag.
+  function postItemMove(path, itemId, btn) {
     btn.disabled = true;
     post(path, { item_id: itemId }).then(function (r) { moved(r); afterMove(); })
       .catch(function (err) { btn.disabled = false; fail(err); });
   }
 
   function dismissButton(itemId) {
-    var node = button("Dismiss", "ghost", function (b) { setDismissed("/api/dismiss", itemId, b); });
+    var node = button("Dismiss", "ghost", function (b) { postItemMove("/api/dismiss", itemId, b); });
     node.title = "Hide it from every list. Deletes nothing; Restore it from Dismissed.";
+    return node;
+  }
+
+  function markDoneButton(itemId) {
+    var node = button("Mark done", null, function (b) { postItemMove("/api/mark-done", itemId, b); });
+    node.title = "Its files froze on a word no longer true. Shows Done until they change again.";
     return node;
   }
 
@@ -442,7 +449,7 @@
     title.title = r.title;
     if (dismissed) {
       return add(el("div", "row plain"), title, el("span", "age", r.text),
-        button(r.action, null, function (b) { setDismissed("/api/restore", r.item_id, b); }));
+        button(r.action, null, function (b) { postItemMove("/api/restore", r.item_id, b); }));
     }
     return add(el("div", "row plain"), title, el("span", "age", r.text),
       add(el("span", "acts"), button(r.action, null, function (b) { openItem(r.item_id, "default", b); }),

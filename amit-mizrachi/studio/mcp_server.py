@@ -66,6 +66,8 @@ ITEM_SCHEMA = {
         "data": {"type": "object"},
         "dismissed": {"type": "boolean", "description": "Hidden from every list by studio_dismiss; nothing deleted."},
         "dismissed_at": NULLABLE_TEXT,
+        "done_marked_at": dict(NULLABLE_TEXT, description="When a night run was marked done by studio_mark_done; "
+                               "it no longer counts once the run's files changed after it."),
     },
 }
 NULLABLE_ITEM = dict(ITEM_SCHEMA, type=["object", "null"])
@@ -93,7 +95,7 @@ MOVE_SCHEMA = {
         "created": {"type": "boolean"},
         "message": {"type": "string", "description": "What moved where: \"Moved to Project Studio\"."},
         "kind": {"type": "string", "enum": list(store.MOVE_KINDS),
-                 "description": "What the change was: move, dismiss or restore."},
+                 "description": "What the change was: move, dismiss, restore, mark-done or unmark-done."},
     },
 }
 RUN_SCHEMA = {
@@ -117,6 +119,8 @@ RUN_SCHEMA = {
         "gone": {"type": "boolean"},
         "progress_text": {"type": "string", "description": "\"T03 of 5\", \"5 of 5\" once done, or \"\""},
         "pr_text": {"type": "string", "description": "\"PR #12 draft - checks green\", or \"\""},
+        "marked_done": {"type": "boolean", "description": "Done because studio_mark_done marked it, not its files "
+                        "(reason \"marked done by you\")."},
     },
 }
 ITEMS = {"type": "array", "items": ITEM_SCHEMA}
@@ -362,6 +366,24 @@ TOOLS = [
                         "idempotentHint": True, "openWorldHint": False},
     },
     {
+        "name": "studio_mark_done",
+        "title": "Mark a night run done",
+        "description": (
+            "Mark a night run (night-sprint or night-marathon item) done when its state files froze on a "
+            "word that is no longer true: a BLOCKED a person fixed later, an early \"CI red\" while the PR "
+            "is now green. The run then shows status done, reason \"marked done by you\" (marked_done "
+            "true) everywhere a run shows, and its stages stay as the files say. It touches no file. If "
+            "the run's files change after the mark, the mark is dropped and the files' word wins again. "
+            "Any other item kind is refused. Returns move_id for studio_undo; move_id is null when the "
+            "run is already marked or already done."
+        ),
+        "inputSchema": {"type": "object", "required": ["item_id"], "additionalProperties": False,
+                        "properties": {"item_id": ITEM_ID}},
+        "outputSchema": MOVE_SCHEMA,
+        "annotations": {"title": "Mark a night run done", "readOnlyHint": False, "destructiveHint": False,
+                        "idempotentHint": True, "openWorldHint": False},
+    },
+    {
         "name": "studio_archive",
         "title": "Archive a project",
         "description": (
@@ -419,7 +441,8 @@ TOOLS = [
         "description": (
             "Put back what a move did (studio_move, studio_add, studio_accept, studio_remove, an item's or "
             "a project's): the item or project goes back where move_id took it from. A studio_dismiss "
-            "move is undone by restoring the item, a studio_restore move by dismissing it again. Refused "
+            "move is undone by restoring the item, a studio_restore move by dismissing it again, a "
+            "studio_mark_done move by taking the mark back. Refused "
             "when it changed again since."
         ),
         "inputSchema": {"type": "object", "required": ["move_id"], "additionalProperties": False,
@@ -589,6 +612,10 @@ def tool_restore(args):
     return api.restore_item(args["item_id"])
 
 
+def tool_mark_done(args):
+    return api.mark_done(args["item_id"])
+
+
 def tool_archive(args):
     return api.archive_project(args["project_id"])
 
@@ -644,6 +671,7 @@ HANDLERS = {
     "studio_remove": tool_remove,
     "studio_dismiss": tool_dismiss,
     "studio_restore": tool_restore,
+    "studio_mark_done": tool_mark_done,
     "studio_archive": tool_archive,
     "studio_rename": tool_rename,
     "studio_delete": tool_delete,
@@ -731,7 +759,9 @@ def handle(req):
                 "with a suggestion each. studio_create / studio_rename / studio_add / studio_move / "
                 "studio_accept / studio_link / studio_remove / studio_archive / studio_delete change the "
                 "tree; studio_dismiss hides an item (a night run with its attached items) from every list "
-                "without deleting anything, studio_restore shows it again; studio_undo takes a move_id back; studio_rules / studio_rule_save / "
+                "without deleting anything, studio_restore shows it again; studio_mark_done marks a night run "
+                "whose state files froze on a stale word done; studio_undo takes a move_id back; "
+                "studio_rules / studio_rule_save / "
                 "studio_rule_delete manage filing rules; studio_purge drops gone items. studio_delete and "
                 "studio_purge are destructive: studio_delete only says what it would delete until called "
                 "confirmed, so ask the user first. studio_open "
