@@ -541,13 +541,16 @@
       var rest = sec("Everything else", null);
       v.folds.forEach(function (f) { rest.appendChild(fold(v, f)); });
     }
-    if (v.rules.length) {
+    if (first && !v.dismissed) { page.appendChild(el("p", "none", "Nothing filed here yet. Move sessions and night runs here from the Inbox.")); }
+    var canRule = !v.project.is_inbox && !v.project.archived_at;
+    if (v.rules.length || canRule) {
       var list = el("div", "rows");
       v.rules.forEach(function (r) { list.appendChild(ruleRow(v, r)); });
-      sec("Rules", v.rules.length).appendChild(list);
+      var rules = sec("Rules", v.rules.length);
+      if (canRule) { rules.appendChild(add(el("div", "ruleadd"), ruleForm(v))); }
+      rules.appendChild(list);
     }
     if (v.dismissed) { sec("Dismissed", null).appendChild(fold(v, v.dismissed)); }
-    if (first) { page.appendChild(el("p", "none", "Nothing filed here yet. Move sessions and night runs here from the Inbox.")); }
     document.title = v.project.name + " - Project Studio";
   }
 
@@ -769,6 +772,95 @@
       }).catch(function (err) { del.disabled = false; fail(err); });
     });
     return add(el("div", "row plain rule"), ruleText("rule: ", r.parts), el("span", "age", ""), del);
+  }
+
+  // "Add rule...": a rule by pattern. Check asks for the dry-run count; Save stays off until the
+  // count on show is for what the form says now.
+  var RULE_SIGNALS = [["workspace", "Workspace", "sis-*"], ["repo-branch", "Repo + branch prefix", "shapes-platform"],
+    ["cwd", "Folder", "~/work/shapes"]];
+
+  function ruleForm(v) {
+    var wrap = add(el("span", "menu"), button("Add rule...", null, function () { togglePop("rule"); }));
+    if (popOpen !== "rule") { return wrap; }
+    var pop = el("div", "pop rulepop");
+    pop.addEventListener("click", function (e) { e.stopPropagation(); });
+    var signal = el("select");
+    signal.setAttribute("aria-label", "What the rule matches");
+    RULE_SIGNALS.forEach(function (s) {
+      var option = el("option", null, s[1]);
+      option.value = s[0];
+      signal.appendChild(option);
+    });
+    var pattern = el("input"), branch = el("input"), box = el("input");
+    pattern.type = branch.type = "text";
+    pattern.setAttribute("aria-label", "Pattern");
+    branch.setAttribute("aria-label", "Branch prefix");
+    branch.placeholder = "branch prefix, e.g. eval/ (optional)";
+    box.type = "checkbox";
+    var note = el("div", "note", "Check it first: it says how many Inbox items it would file.");
+    var checked = null;     // the {signal, pattern} the count on show is for
+    var check = button("Check", null, function () { send(true); });
+    var save = button("Save rule", "pri", function () { send(false); });
+    function body(dry) {
+      var text = pattern.value.trim();
+      if (signal.value === "repo-branch" && branch.value.trim()) { text += " " + branch.value.trim(); }
+      return { project_id: v.project.id, signal: signal.value, pattern: text, dry_run: dry, apply: !dry && box.checked };
+    }
+    function sync() {
+      var b = body(true);
+      pattern.placeholder = RULE_SIGNALS.filter(function (s) { return s[0] === b.signal; })[0][2];
+      branch.hidden = b.signal !== "repo-branch";
+      save.disabled = !checked || checked.signal !== b.signal || checked.pattern !== b.pattern;
+    }
+    function send(dry) {
+      var b = body(dry);
+      check.disabled = save.disabled = true;
+      post("/api/rule/add", b).then(function (r) {
+        if (dry) {
+          checked = b;
+          note.className = "note";
+          note.textContent = r.message;
+          return null;
+        }
+        popOpen = null;
+        ruleSaved(r);
+        afterMove();
+        return null;
+      }).catch(function (err) {
+        checked = null;
+        note.className = "note err";
+        note.textContent = err.message;
+      }).then(function () { check.disabled = false; sync(); });
+    }
+    [signal, pattern, branch].forEach(function (n) {
+      n.addEventListener("input", sync);
+      n.addEventListener("change", sync);
+    });
+    sync();
+    return add(wrap, add(pop, signal, pattern, branch, note,
+      add(el("label"), box, document.createTextNode("Also file the matching Inbox items now")),
+      add(el("div", "row2"), button("Cancel", "ghost", closePop), check, save)));
+  }
+
+  function ruleSaved(r) {
+    var box = $("toasts");
+    clear(box);
+    var node = add(el("div", "toast"), el("span", null, r.message), el("span", "sp"));
+    var ids = r.filed.map(function (f) { return f.move_id; }).filter(function (id) { return id !== null; });
+    if (ids.length) {
+      node.appendChild(button("Undo filing", null, function (undo) {
+        undo.disabled = true;
+        ids.reduce(function (done, id) {
+          return done.then(function () { return post("/api/undo", { move_id: id }); });
+        }, Promise.resolve()).then(function () {
+          toast("Moved back to the Inbox. The rule stays.", null, false, false);
+          afterMove();
+        }).catch(fail);
+      }));
+    }
+    box.appendChild(node);
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(dismiss, 15000);
   }
 
   // The picker: "Move to..." (Shift+Cmd+M) and "Set parent" (Cmd+Shift+P), the keyboard twins of drag.

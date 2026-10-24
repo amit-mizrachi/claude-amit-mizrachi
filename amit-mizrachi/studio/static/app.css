@@ -131,4 +131,9 @@ code{font-family:var(--mono);font-size:12px;background:rgba(127,127,127,.25);pad
 .dlg select{margin-top:var(--space-2);padding:2px}
 .dlg input:focus-visible,.dlg select:focus-visible{outline:2px solid var(--blue-9);outline-offset:1px}
 .rule .t code{font-size:11px}
+.ruleadd{display:flex;justify-content:flex-end;margin-bottom:var(--space-1)}.ruleadd .menu{position:relative}
+.rulepop{min-width:320px}
+.pop input[type=text]{font:inherit;font-size:var(--font-size-1);color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-2);padding:3px 6px;margin-bottom:var(--space-1)}
+.pop .note{font-size:var(--font-size-1);color:var(--text-2);max-width:320px;margin-bottom:var(--space-1);overflow-wrap:anywhere}.pop .note.err{color:var(--red-9)}
+.pop label{display:flex;gap:6px;align-items:center;font-size:var(--font-size-1);margin-bottom:var(--space-1);cursor:pointer}
 

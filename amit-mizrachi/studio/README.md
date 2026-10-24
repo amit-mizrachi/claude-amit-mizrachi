@@ -4,7 +4,8 @@ One place for everything Claude runs for you on this Mac: your projects as a tre
 project its night sprints, night marathons, Claude sessions (background and interactive),
 artifacts, PRs and worktrees. Every such thing is an **item** with exactly one **home project**;
 what the studio cannot place yet waits in the **Inbox**. Moving an item is how you file it, and
-"Always file items like this here" turns a move into a **rule** for the next one.
+"Always file items like this here" turns a move into a **rule** for the next one; `rule-add`
+(or "Add rule..." in a project's Rules section) writes one by pattern, like `sis-*`.
 
 Three ways in, all over the same data:
 
@@ -57,6 +58,7 @@ every command, its options and an example.
 | `mark-done` | `project-studio mark-done i_1a2b3c4d` | a night run whose state files froze on a word no longer true shows Done, "marked done by you", until its files change again |
 | `accept` | `project-studio accept i_1a2b3c4d` | file an Inbox item into its suggested project |
 | `rule-save` | `project-studio rule-save 42` | "Always file items like this here", from a move id |
+| `rule-add` | `project-studio rule-add Shapes --workspace 'sis-*' --dry-run` | write a rule by pattern: `--workspace GLOB`, `--repo NAME [--branch-prefix eval/]` or `--cwd-prefix FOLDER`. Says how many Inbox items it files now and names up to 5; `--dry-run` saves nothing; `--apply` files them now, one `undo` line each. `*`, `/` and `~` alone are refused |
 | `rule-delete` | `project-studio rule-delete r_1a2b3c4d5e6f` | delete one rule; what it filed stays |
 | `export` | `project-studio export ~/studio.json` | the whole store as JSON, printed or written to a file |
 | `purge` | `project-studio purge` | delete gone items for good (one, or all) |
@@ -142,6 +144,7 @@ Each tool is one SDK call:
 | `studio_undo` | `api.undo_move(move_id)` | writes; puts back what a move, add, accept, remove, dismiss, restore or mark-done did |
 | `studio_rules` | `api.list_rules(project_id)` | reads |
 | `studio_rule_save` | `api.save_rule_from_move(move_id)` | writes; "Always file items like this here" |
+| `studio_rule_add` | `api.add_rule(project_id, signal, pattern, apply, dry_run)` | writes; a rule by pattern, `dry_run` first for the count |
 | `studio_rule_delete` | `api.delete_rule(rule_id)` | destructive; items it filed stay put |
 | `studio_inbox` | `api.inbox(limit)` | reads (refreshes due sources) |
 | `studio_accept` | `api.accept_suggestion(item_id)` | writes; files an Inbox item where its suggestion says |
