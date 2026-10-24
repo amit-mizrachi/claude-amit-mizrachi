@@ -28,7 +28,7 @@ from .git import Read
 RECENT_DAYS = 14            # a transcript older than this is not read for discovery
 HEAD_LINES = 80
 HEAD_BYTES = 512 * 1024
-SCAN_BUDGET = 128 * 1024 * 1024     # transcript bytes one conductor scan reads at most
+SCAN_BUDGET = 32 * 1024 * 1024      # transcript bytes one conductor scan reads at most
 SCAN_CHUNK = 4 * 1024 * 1024
 CONDUCTOR_MARKS = (b"runner.sh", b"launch.sh", b"schedule.sh")
 CONDUCTOR_COMMANDS = (re.compile(r"runner\.sh\s+start\s+(\S+)"), re.compile(r"(\S+)/launch\.sh\b"),

@@ -64,9 +64,9 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `open_studio()` | `StudioServer` | Starts `studio/web.py` on 127.0.0.1 unless one of this code version runs (`started` False); asks an older one to stop first. Never opens a browser. `StartFailed` after 5 s (see `studio.log`). |
 | `studio_status()` | `StudioServer` | The running studio, or `running` False. |
 | `stop_studio()` | `StudioServer` | POST /shutdown with the token, waits up to 5 s. Never kills. |
-| `project_view(project_id, refresh=False)` | `ProjectView` | The studio's `#/p/<id>`: breadcrumb, "Linked: ..." text and `links` ({id, name} each, what the page's unlink x takes), link choices, sub-project tiles, run panels (Open plan / Open PR / Open in Terminal when they apply), session rows (bg live, bg done, interactive, gone), "Everything else" folds (sessions too when none is active), and the project's `rules` (each deletable). |
-| `terminal_command(item_id)` | `TerminalCommand` | A session (or a run's listed session): `claude attach <short>` when `claude agents` lists it, else `cd <cwd> && claude --resume <id>`; pattern-checked, shlex-quoted; `confirm` set when its transcript changed in the last 5 min. Runs nothing ("Copy command"). |
-| `open_in_terminal(item_id, confirmed=False)` | `TerminalOpen` | Writes `<data dir>/open/<item id>.command` (0700) and opens it in the `terminal` setting's app (`app`): no setting `open <file>`, `Terminal` `open -a Terminal <file>`, `iTerm` `osascript` (a fixed script: new window, default profile, `write text` the quoted path, which is the script's argument). An unknown stored name falls back to Terminal and the message says so. On failure `pbcopy` (`copied`). `needs_confirm` until `confirmed` when the guard asks. Never stops, kills or removes a session. |
+| `project_view(project_id, refresh=False)` | `ProjectView` | The studio's `#/p/<id>`: breadcrumb, "Linked: ..." text and `links` ({id, name} each, what the page's unlink x takes), link choices, sub-project tiles, run panels (Open plan / Open PR / Open in Terminal / Open conductor when they apply), session rows (bg live, bg done, interactive, gone), "Everything else" folds (sessions too when none is active), and the project's `rules` (each deletable). |
+| `terminal_command(item_id, target="session")` | `TerminalCommand` | A session (or a run's listed ticket session; `target="conductor"`: the run's conductor session, `Refused` when none is known): `claude attach <short>` when `claude agents` lists it, else `cd <cwd> && claude --resume <id>`; pattern-checked, shlex-quoted; `confirm` set when its transcript changed in the last 5 min. Runs nothing ("Copy command"). |
+| `open_in_terminal(item_id, confirmed=False, target="session")` | `TerminalOpen` | `target` as `terminal_command`. Writes `<data dir>/open/<item id>.command` (0700) and opens it in the `terminal` setting's app (`app`): no setting `open <file>`, `Terminal` `open -a Terminal <file>`, `iTerm` `osascript` (a fixed script: new window, default profile, `write text` the quoted path, which is the script's argument). An unknown stored name falls back to Terminal and the message says so. On failure `pbcopy` (`copied`). `needs_confirm` until `confirmed` when the guard asks. Never stops, kills or removes a session. |
 | `settings()` / `set_terminal(app)` | `Settings` | `<data dir>/settings.json` (0600). `terminal`: `Terminal`, `iTerm` or "" (the default). `set_terminal` takes any case and `iTerm2` / `Terminal.app`; `default` clears it; any other name is `InvalidInput`. |
 | `open_target(item_id, target="default")` | `OpenResult` | `open` on the item's own URL or path (`plan` / `pr` for a run): http(s) URLs, or paths under the known roots; folders in Finder, pages in their app, other files only revealed (`open -R`). |
 | `inbox_view(limit=200)` | `InboxView` | The studio's Inbox drawer: rows with name, kind and one fact ("interactive", "2 h"), the suggestion chip and its reason, whether Accept applies; the full count and the hint. Store only. |
@@ -112,10 +112,22 @@ makes every bg session `status = "unknown"`. Headless `claude -p` runs never bec
 | `claude agents --json --all` | `readers/sessions.py` | 10 s | `claude` on PATH |
 | `jobs/*/state.json` | `readers/sessions.py` | 10 s | `PROJECT_STUDIO_CLAUDE_HOME` |
 | transcripts `projects/*/*.jsonl` | `readers/sessions.py` | 60 s | `PROJECT_STUDIO_CLAUDE_HOME` |
+| conductor scan (`conductors`) | `readers/sessions.py` | 60 s | `PROJECT_STUDIO_CLAUDE_HOME` |
 | `git worktree list` per repo | `readers/git.py` | 60 s | `git` on PATH |
 | `gh pr list` per repo (open and closed) | `readers/git.py` | 5 min | `gh` on PATH |
 
 Results live in the store's `cache` table (`sdk/cache.py`), shared by every process.
+
+A run's conductor is the session that set it up and watches its runner. The reader takes the last
+id of the newest `CONDUCTOR.session` file (`state/`, a marathon's `phases/state/` and `build*/state/`;
+one id per line, newest last; night-sprint's `conductor.sh` appends at kickoff and on every
+conductor relay) as `conductor_session_id`. With no such file, the conductor scan reads each recent
+transcript once, from where it stopped, at most 32 MB a scan, newest first, for a Bash call of
+`runner.sh start <WS>`, `bash <WS>/launch.sh` or `schedule.sh <WS>`; the newest such session that is
+not a ticket session (in a `state/<TAG>.session`, or named `ns-<slug>-<TAG>`) wins. Either way it is
+one of the run's `sessions`, so it attaches by title and follows the run; a read that names none
+keeps the stored one. `Run.conductor_item_id` (also on `HomeRun` and `ViewRun`) is its session
+item, None when unknown or gone; a run's "Open in Terminal" never picks it.
 
 A night sprint is `needs-you` / "CI red" when `state/ACCEPTANCE.verdict` is FAIL, unless its CI
 ticket later wrote `PASS at <same head>` to `state/CI.summary` (accept.sh writes FAIL when
