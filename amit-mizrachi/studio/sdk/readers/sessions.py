@@ -143,6 +143,12 @@ def transcript_head(path):
     return meta
 
 
+def has_transcript(sid):
+    """True when a top-level transcript `<claude home>/projects/*/<sid>.jsonl` is on disk."""
+    base = os.path.join(commands.claude_home(), "projects")
+    return bool(sid) and bool(glob.glob(os.path.join(base, "*", glob.escape(sid) + ".jsonl")))
+
+
 def session_kind(meta):
     """'session-bg', 'session-interactive', or None for a headless run or an empty transcript."""
     if not meta or not meta.get("cwd") or meta.get("entrypoint", "").startswith("sdk"):

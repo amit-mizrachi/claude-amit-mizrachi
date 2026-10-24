@@ -282,6 +282,17 @@ class OldConductor(Conductor):
         self.assertTrue(result["isError"])
         self.assertIn("no transcript on disk", result["content"][0]["text"])
 
+    def test_a_transcript_not_read_yet_says_refresh_and_a_refresh_opens_it(self):
+        ws = self.workspace("late-20261023", files={"state/CONDUCTOR.session": SID_C + "\n"})
+        found = self.items()
+        self.aged(self.session(SID_C, ws))                       # written after the last read
+        with self.assertRaises(Refused) as caught:
+            api.terminal_command(found[ws].id, target="conductor")
+        self.assertIn("refresh and try again", str(caught.exception))
+        self.items()
+        self.assertEqual(api.terminal_command(found[ws].id, target="conductor").command,
+                         "cd %s && claude --resume %s" % (ws, SID_C))
+
 
 if __name__ == "__main__":
     import unittest

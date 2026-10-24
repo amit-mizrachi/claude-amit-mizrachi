@@ -71,12 +71,8 @@ def session_of(conn, item_id, target="session"):
         if r["kind"] not in WORKSPACE_KINDS:
             raise InvalidInput("Only a night run has a conductor.")
         found = conductor_row(conn, r)
-        sid = item_data(r).get("conductor_session_id")
-        if found is None and sid:
-            raise Refused("%s's conductor session %s has no transcript on disk any more, so it cannot be "
-                          "opened again." % (r["title"], sid))
         if found is None:
-            raise Refused("%s has no known conductor session." % r["title"])
+            raise Refused(_no_conductor(r))
         return found
     if r["kind"] in SESSION_KINDS:
         return r
@@ -86,6 +82,19 @@ def session_of(conn, item_id, target="session"):
             raise Refused("%s has no live session to open." % r["title"])
         return found
     raise InvalidInput("Only a session or a night run opens in Terminal.")
+
+
+def _no_conductor(r):
+    """Why run row `r` has no conductor to open: none known, its transcript is gone, or the studio
+    has not read it since (a refresh makes its item)."""
+    sid = str(item_data(r).get("conductor_session_id") or "")
+    if not SESSION_KEY.match(sid):
+        return "%s has no known conductor session." % r["title"]
+    if session_reader.has_transcript(sid):
+        return ("%s's conductor session %s has a transcript but no session item yet; refresh and try again."
+                % (r["title"], sid))
+    return "%s's conductor session %s has no transcript on disk any more, so it cannot be opened again." % (
+        r["title"], sid)
 
 
 def command_for(session_id, short, cwd, listed):
