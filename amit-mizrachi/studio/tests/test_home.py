@@ -1,5 +1,6 @@
 """The studio's home page through the public SDK: card order, at most 3 runs, "+ n earlier runs",
-"n inside", the empty text, first run, a failed source's banner, the "Still reading" note while a
+sub-project lines (tree order, their own run line, "in <sub-project>" on a card run, archived ones
+left out), the empty text, first run, a failed source's banner, the "Still reading" note while a
 slow source is read, and the 14-day Inbox window."""
 
 import os
@@ -97,13 +98,57 @@ class Home(Sources):
         self.assertEqual(card.runs[0].progress, "T02 of 3")
         self.assertEqual(card.more, "+ 2 earlier runs, all done")
 
-    def test_sub_projects_show_only_as_a_count(self):
+    def test_sub_projects_are_lines_of_their_own_in_tree_order(self):
         p = api.create_project("P")
-        api.create_project("Inner", parent_id=p.id)
-        api.create_project("Other", parent_id=p.id)
+        beta = api.create_project("beta", parent_id=p.id)
+        alpha = api.create_project("Alpha", parent_id=p.id)
+        api.create_project("Deep one", parent_id=alpha.id)
+        api.create_project("Deep two", parent_id=alpha.id)
         api.refresh(force=True)
         [card] = api.home().cards
-        self.assertEqual(card.inside, "2 inside")
+        lines = [(s.project_id, s.name, s.status, s.glyph, s.word, s.text, s.inside) for s in card.sub_projects]
+        self.assertEqual(lines, [(alpha.id, "Alpha", "pending", "\u00b7", "", "no runs", "2 inside"),
+                                 (beta.id, "beta", "pending", "\u00b7", "", "no runs", "")])
+        self.assertFalse(hasattr(card, "inside"))
+
+    def test_a_sub_project_line_opens_the_sub_project_and_carries_its_own_runs(self):
+        live = self.workspace("live-20261023", tags=(("T01", "DONE"), ("T02", ""), ("T03", None)))
+        deep = self.workspace("deep-20261022", tags=DONE3)
+        own = self.workspace("own-20261021", tags=DONE3)
+        p = api.create_project("Shapes-agent to Machina")
+        units = api.create_project("Machina decision units", parent_id=p.id)
+        evals = api.create_project("Per-domain MCP and evals", parent_id=p.id)
+        inner = api.create_project("Inner", parent_id=units.id)
+        self.file([live], units.id)
+        self.file([deep], inner.id)
+        self.file([own], p.id)
+        [card] = api.home().cards
+        self.assertEqual([s.project_id for s in card.sub_projects], [units.id, evals.id])
+        self.assertNotIn(p.id, [s.project_id for s in card.sub_projects])
+        units_line, evals_line = card.sub_projects
+        self.assertEqual((units_line.status, units_line.glyph, units_line.word, units_line.text, units_line.inside),
+                         ("running", "\u25cf", "Running", "2 runs, 1 active", "1 inside"))
+        self.assertEqual((evals_line.word, evals_line.text), ("", "no runs"))
+        tags = {r.title: (r.sub_project_id, r.sub_project) for r in card.runs}
+        self.assertEqual(tags, {"live-20261023": (units.id, "in Machina decision units"),
+                                "deep-20261022": (units.id, "in Machina decision units"),
+                                "own-20261021": ("", "")})
+        self.assertEqual(card.runs[0].title, "live-20261023")
+
+    def test_archived_sub_projects_do_not_show(self):
+        ws = self.workspace("arch-20261023", tags=DONE3)
+        p = api.create_project("P")
+        kept = api.create_project("Kept", parent_id=p.id)
+        gone = api.create_project("Gone", parent_id=p.id)
+        too = api.create_project("Gone too", parent_id=kept.id)
+        self.file([ws], gone.id)
+        api.archive_project(gone.id)
+        api.archive_project(too.id)
+        lone = api.create_project("Lone")
+        cards = {c.project.id: c for c in api.home().cards}
+        self.assertEqual([(s.name, s.inside) for s in cards[p.id].sub_projects], [("Kept", "")])
+        self.assertEqual((cards[p.id].runs, cards[p.id].empty), ([], "No night runs yet"))
+        self.assertEqual(cards[lone.id].sub_projects, [])
 
     def test_a_failed_pr_read_gives_a_banner_and_keeps_the_last_good_pr_text(self):
         repo, _ = self.git_repo("r", [])

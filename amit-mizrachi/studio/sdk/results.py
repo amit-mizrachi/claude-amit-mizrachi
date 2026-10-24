@@ -267,16 +267,34 @@ class HomeRun:
     open_plan_url: str
     pr: str
     gone: bool
+    sub_project_id: str = ""        # the card's sub-project the run lives in (or under), '' for the card's own
+    sub_project: str = ""           # its tag: "in Machina decision units", '' for the card's own
+
+
+@dataclass
+class HomeSubProject:
+    """One active sub-project as a line on its parent's home card: its own glyph, status word and
+    run line ("3 runs, 1 active", "no runs"), and "2 inside" for the levels below it. A click
+    opens `project_id`'s view."""
+
+    project_id: str
+    name: str
+    status: str                     # pending (no runs), needs-you, blocked, running, paused, done, ...
+    glyph: str
+    word: str                       # "Running", "Done", ...; '' with no runs
+    text: str
+    inside: str
 
 
 @dataclass
 class HomeCard:
-    """One top-level project on the home page: at most 3 runs, "+ n earlier runs", "2 inside"."""
+    """One top-level project on the home page: its active sub-projects in tree order, at most 3
+    runs, "+ n earlier runs"."""
 
     project: Project
+    sub_projects: List[HomeSubProject]
     runs: List[HomeRun]
     more: str
-    inside: str
     pr: str
     attention: str                  # needs-you, blocked or ''
     empty: str

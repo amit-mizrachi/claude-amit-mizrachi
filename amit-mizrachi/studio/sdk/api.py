@@ -380,9 +380,10 @@ def attach_session(session_id: str, cwd: str, job_dir: Optional[str] = None,
 # ---------------------------------------------------------------- the studio (ticket 04)
 
 def home(refresh: bool = False) -> HomeState:
-    """The studio's home page: one card per active top-level project (at most 3 runs of it and its
-    sub-projects, ranked needs-you > blocked > running > latest, "+ n earlier runs", "2 inside",
-    the newest PR state), cards ordered needs-you, blocked, running, then latest change; plus the
+    """The studio's home page: one card per active top-level project (its active sub-projects as
+    lines of their own in tree order, each with its glyph, status word, run line and "2 inside";
+    at most 3 runs of it and its sub-projects, ranked needs-you > blocked > running > latest, a
+    sub-project's run tagged "in <sub-project>"; "+ n earlier runs"; the newest PR state), cards ordered needs-you, blocked, running, then latest change; plus the
     Inbox count (items active in the last 14 days), the PR source age, a banner per failed source
     (last-good states kept), `first_run` when there is no project, and `reading` / `reading_text`
     naming the sources still being read ("Still reading PRs..."). It answers from what the store

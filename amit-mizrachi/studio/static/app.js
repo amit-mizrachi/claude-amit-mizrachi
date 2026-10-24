@@ -102,10 +102,33 @@
       line.appendChild(plan);
     }
     var st = add(el("span", "st"), el("span", "w " + tone, run.word));
+    if (run.sub_project) {
+      var tag = el("span", "in", run.sub_project);
+      tag.title = run.sub_project;
+      st.appendChild(tag);
+    }
     if (run.reason) { st.appendChild(el("span", null, run.reason)); }
     if (run.progress) { st.appendChild(el("span", null, run.progress)); }
     if (run.bar && run.bar.length) { st.appendChild(bar(run.bar)); }
     return add(line, st);
+  }
+
+  // A sub-project's own line on its parent's card: a click (or Enter) opens the sub-project, not the card.
+  function subLine(s) {
+    var tone = TONE[s.status] || "stale";
+    var href = "#/p/" + encodeURIComponent(s.project_id);
+    var name = el("span", "nm", s.name);
+    name.title = s.name;
+    var st = add(el("span", "st"), s.word ? el("span", "w " + tone, s.word) : null, el("span", null, s.text),
+      s.inside ? el("span", null, s.inside) : null);
+    var node = add(el("div", "subp"), el("span", "g " + tone, s.glyph), name, st);
+    node.setAttribute("data-project-id", s.project_id);
+    node.setAttribute("role", "link");
+    node.tabIndex = 0;
+    function go(e) { e.stopPropagation(); window.location.hash = href; }
+    node.addEventListener("click", go);
+    node.addEventListener("keydown", function (e) { if (e.key === "Enter") { go(e); } });
+    return node;
   }
 
   function card(c) {
@@ -120,7 +143,12 @@
     node.addEventListener("keydown", function (e) { if (e.key === "Enter") { window.location.hash = href; } });
     var title = el("h4", null, c.project.name);
     title.title = c.project.name;
-    add(node, add(el("div", "ct"), title, c.inside ? el("span", "sub", c.inside) : null));
+    node.appendChild(add(el("div", "ct"), title));
+    if (c.sub_projects.length) {
+      var subs = el("div", "subs");
+      c.sub_projects.forEach(function (s) { subs.appendChild(subLine(s)); });
+      node.appendChild(subs);
+    }
     c.runs.forEach(function (run) { node.appendChild(runLine(run)); });
     if (c.empty) { node.appendChild(el("span", "none", c.empty)); }
     if (c.more) { node.appendChild(el("span", "more", c.more)); }

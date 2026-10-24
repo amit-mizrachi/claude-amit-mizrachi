@@ -4,7 +4,9 @@ Every rule the home page shows lives here, not in the web server or the page scr
 - A card shows at most 3 night runs of the project and everything under it, ranked
   needs-you > blocked > running > paused > latest change, then "+ n earlier runs".
 - Cards are ordered needs-you first, then blocked, then running, then by latest change.
-- Sub-projects show only as a count ("2 inside").
+- A card lists its active sub-projects in tree order, each a line of its own (glyph, status word,
+  "3 runs, 1 active" / "no runs", "2 inside" for the levels below it); a run that lives in one
+  says which ("in Machina decision units"). Archived sub-projects do not show.
 - A failed source gives a banner; its items keep their last-good state.
 - The state is built from what the store holds and never waits for a read: a source still being
   read is named in a quiet note ("Still reading PRs...") until it lands.
@@ -15,7 +17,7 @@ import time
 
 from . import cache, items, model, store
 from .reconcile import WORKSPACE_KINDS
-from .results import HomeBanner, HomeCard, HomeRun, HomeState
+from .results import HomeBanner, HomeCard, HomeRun, HomeState, HomeSubProject
 
 MAX_RUNS = 3
 CARD_RANK = {"needs-you": 0, "blocked": 1, "running": 2}
@@ -119,15 +121,47 @@ def _more_text(hidden):
     return "+ %d earlier %s%s" % (len(hidden), noun, tail)
 
 
+def _active_children(tree, pid):
+    """`pid`'s sub-projects that are not archived, in tree order (by name, any case)."""
+    kids = [c for c in tree.children.get(pid, []) if not tree.rows[c]["archived_at"]]
+    return sorted(kids, key=lambda c: (tree.rows[c]["name"].lower(), c))
+
+
+def _holder(tree, pid, home):
+    """The sub-project of `pid` that `home` is (or is under), or None when `home` is `pid` itself."""
+    return next((p for p in [home] + tree.ancestors(home) if tree.rows[p]["parent_id"] == pid), None)
+
+
+def _sub_line(tree, sub, runs):
+    """A sub-project as its card line; `runs` (ranked) are the card's runs."""
+    from .projectview import tile_state   # projectview imports this module
+    homes = set(items.subtree(tree, sub))
+    mine = [r for r in runs if r.project_id in homes]
+    active = sum(1 for r in mine if r.status in items.RUN_RANK)
+    status, text = tile_state(len(mine), active, mine[0].status if mine else None)
+    deeper = len(_active_children(tree, sub))
+    return HomeSubProject(project_id=sub, name=tree.rows[sub]["name"], status=status,
+                          glyph="\u00b7" if status == "pending" else GLYPHS.get(status, "?"),
+                          word="" if status == "pending" else WORDS.get(status, status.title()),
+                          text=text, inside="%d inside" % deeper if deeper else "")
+
+
+def _card_run(tree, pid, run):
+    line = home_run(run)
+    holder = _holder(tree, pid, run.project_id)
+    if holder:
+        line.sub_project_id, line.sub_project = holder, "in %s" % tree.rows[holder]["name"]
+    return line
+
+
 def _card(tree, pid, runs):
     project = tree.project(pid)
     shown, hidden = runs[:MAX_RUNS], runs[MAX_RUNS:]
     top = shown[0].status if shown else None
     pr = next((pr_text(r.pr) for r in shown if pr_text(r.pr)), "")
     changed = max([r.updated_at for r in runs] + [project.updated_at])
-    subs = sum(1 for c in tree.children.get(pid, []) if not tree.rows[c]["archived_at"])
-    return HomeCard(project=project, runs=[home_run(r) for r in shown], more=_more_text(hidden),
-                    inside="%d inside" % subs if subs else "", pr=pr,
+    return HomeCard(project=project, sub_projects=[_sub_line(tree, c, runs) for c in _active_children(tree, pid)],
+                    runs=[_card_run(tree, pid, r) for r in shown], more=_more_text(hidden), pr=pr,
                     attention="needs-you" if top == "needs-you" else "blocked" if top == "blocked" else "",
                     empty="No night runs yet" if not runs else "", changed_at=changed)
 

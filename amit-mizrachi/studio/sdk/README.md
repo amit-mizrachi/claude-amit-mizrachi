@@ -51,7 +51,7 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `list_rules(project_id=None)` / `delete_rule(rule_id)` | `RuleList` / `Rule` | Strongest signal first. |
 | `purge_gone(item_id=None)` | `PurgeResult` | Deletes gone items for good, only when asked. |
 | `attach_session(session_id, cwd, job_dir=None, entrypoint=None)` | `AttachResult` | The SessionStart hook: files a starting session by title > cwd > rule > Inbox over what the store holds, no reader run. Headless (`sdk*`) runs are skipped; a known session stays put. |
-| `home(refresh=False)` | `HomeState` | The studio's home page: cards in final order (needs-you, blocked, running, latest change), at most 3 runs per card with "+ n earlier runs", "2 inside", PR line, a banner per failed source (last-good states kept), `first_run` with no project, `reading` / `reading_text` ("Still reading PRs...") for sources still being read. Answers from the store and never waits for a slow source. |
+| `home(refresh=False)` | `HomeState` | The studio's home page: cards in final order (needs-you, blocked, running, latest change), a line per active sub-project (`HomeCard.sub_projects`, below), at most 3 runs per card with "+ n earlier runs" (a sub-project's run tagged "in <sub-project>"), PR line, a banner per failed source (last-good states kept), `first_run` with no project, `reading` / `reading_text` ("Still reading PRs...") for sources still being read. Answers from the store and never waits for a slow source. |
 | `open_studio()` | `StudioServer` | Starts `studio/web.py` on 127.0.0.1 unless one of this code version runs (`started` False); asks an older one to stop first. Never opens a browser. `StartFailed` after 5 s (see `studio.log`). |
 | `studio_status()` | `StudioServer` | The running studio, or `running` False. |
 | `stop_studio()` | `StudioServer` | POST /shutdown with the token, waits up to 5 s. Never kills. |
@@ -116,6 +116,17 @@ done", not "T17 of 17"; a done run says how many tickets settled, "12 of 13".
 | `Refused` | `refused` | A rule says no: a cycle, a non-empty delete, the Inbox. |
 | `ReadOnlyStore` | `read_only` | The store was written by a newer SDK. |
 | `StartFailed` | `start_failed` | The studio web server did not come up (its log, `studio.log`, says why). |
+
+`HomeCard` fields: `project`, `sub_projects`, `runs` (at most 3), `more` ("+ 2 earlier runs"), `pr`,
+`attention` (`needs-you`, `blocked` or ''), `empty` ("No night runs yet"), `changed_at`. Each of
+`sub_projects` is a `HomeSubProject`, the card's active (not archived) sub-projects in tree order
+(by name, any case): `project_id` (what a click opens), `name`, `status` (`pending` with no runs,
+else the top run's, as the project view's tile says it), `glyph`, `word` ("Running"; '' with no
+runs), `text` ("3 runs, 1 active", "2 runs done", "no runs"; over its own active sub-projects too,
+runs not gone) and `inside` ("2 inside" for its active sub-projects, '' with none; deeper levels
+stay a count). A card run (`HomeRun`) that lives in a sub-project, or under one, carries that
+sub-project's `sub_project_id` and its tag `sub_project` ("in Machina decision units"); both are ''
+for the card's own runs. A card has no "n inside" count any more: the lines replace it.
 
 `Project` fields: `id`, `name`, `parent_id`, `path` (names from the top level down),
 `is_inbox`, `archived_at`, `created_at`, `updated_at` (ISO 8601 UTC), `child_count`,
