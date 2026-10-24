@@ -193,7 +193,7 @@ def status(conn, project_id):
         mine = [r for r in runs if r.project_id in set(subtree(tree, child))]
         active, top = sum(1 for r in mine if r.status in RUN_RANK), mine[0].status if mine else None
         subs.append(SubProject(project=tree.project(child), runs=len(mine), runs_active=active, top_status=top,
-                               text=tile_state(len(mine), active, top)[1]))
+                               text=tile_state(mine)[1]))
     sessions = by_kind.get("session-bg", []) + by_kind.get("session-interactive", [])
     sessions.sort(key=_recency, reverse=True)
     sessions.sort(key=lambda i: i.gone)

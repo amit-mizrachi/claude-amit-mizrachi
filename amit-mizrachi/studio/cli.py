@@ -112,10 +112,30 @@ def text_list(result):
     return table(rows) + cut(len(result.projects), result.total)
 
 
+def run_groups(groups, row):
+    """A heading per sub-project ("In Machina decision units  p_1a2b3c4d  1 blocked, 2 done"), one
+    indent per level below the project, and its own runs under it as `row(run)` cells."""
+    lines = []
+    for g in groups:
+        pad = "  " * (g.depth - 1)
+        lines += ["", "%sIn %s  %s  %s" % (pad, g.name, short(g.project_id), g.text)]
+        lines += [pad + "  " + line for line in table([row(r) for r in g.runs])]
+    return lines
+
+
+def view_run_row(r):
+    return [short(r.item_id), r.word, r.title, r.detail, r.started, r.pr]
+
+
+def status_run_row(r):
+    return [short(r.item_id), r.status, r.title, r.progress_text, r.stage, r.reason, r.pr_text]
+
+
 def text_view(view):
     head = ["%s  %s" % (path(view.project.path), view.project.id)] + ([view.linked] if view.linked else [])
     body = section("Inside", [[short(t.project_id), t.name, t.text] for t in view.inside])
-    body += section("Runs", [[short(r.item_id), r.word, r.title, r.detail, r.started, r.pr] for r in view.runs])
+    body += section("Runs", [view_run_row(r) for r in view.runs])
+    body += run_groups(view.sub_runs, view_run_row)
     body += section("Sessions", [[short(s.item_id), s.kind, s.title, s.age] for s in view.sessions])
     for fold in view.folds:
         if fold.kind != "sessions":     # the sessions fold has no rows of its own: they are view.sessions
@@ -133,8 +153,8 @@ def text_status(result):
     if isinstance(result, StudioServer):
         return text_server(result)
     head = ["%s  %s" % (path(result.project.path), result.project.id)]
-    lines = section("Runs", [[short(r.item_id), r.status, r.title, r.progress_text, r.stage, r.reason, r.pr_text]
-                             for r in result.runs])
+    lines = section("Runs", [status_run_row(r) for r in result.runs if r.project_id == result.project.id])
+    lines += run_groups(result.groups, status_run_row)
     lines += section("Inside", [[short(s.project.id), s.project.name, s.text] for s in result.sub_projects])
     lines += section("Sessions", [[short(i.id), i.kind, i.status or "-", i.title + (" (gone)" if i.gone else "")]
                                   for i in result.sessions])
@@ -514,11 +534,13 @@ COMMANDS = [
             "project-studio open", no_args, lambda a: api.open_studio(), text_server, after=open_browser),
     Command("stop", "Ask the running studio web server to stop.", "project-studio stop", no_args,
             lambda a: api.stop_studio(), text_server),
-    Command("status", "Without a project: whether the studio server runs. With one: its night runs and items.",
+    Command("status", "Without a project: whether the studio server runs. With one: its night runs (each "
+            "sub-project's under it) and items.",
             "project-studio status 'Project Studio'", setup_status, run_status, text_status),
-    Command("list", "Print the project tree with each project's night-run line.", "project-studio list --all",
+    Command("list", "Print the project tree with each project's night runs in words (\"2 blocked, 1 done\").", "project-studio list --all",
             setup_list, lambda a: api.list_projects(include_archived=a.all, limit=a.limit, with_runs=True), text_list),
-    Command("show", "Print one project's view: sub-projects, runs, sessions, PRs, worktrees, artifacts, rules.",
+    Command("show", "Print one project's view: sub-projects, its runs, each sub-project's runs under it, sessions, "
+            "PRs, worktrees, artifacts, rules.",
             "project-studio show p_1a2b3c", setup_show,
             lambda a: api.project_view(project_ref(a.project), refresh=a.refresh), text_view),
     Command("find", "List items that match, newest activity first.", "project-studio find alpha --kind session-bg",

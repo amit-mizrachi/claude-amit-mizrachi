@@ -27,7 +27,7 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | Function | Returns | Notes |
 |---|---|---|
 | `create_project(name, parent_id=None)` | `Project` | Refused under the Inbox or an archived parent, or for an active sibling's name (any case). |
-| `list_projects(parent_id=None, top_level=False, include_archived=False, limit=None, with_runs=False)` | `ProjectList` | Inbox first, then by path. `total` counts every match; `truncated` says the limit cut some. `with_runs` fills `run_lines` (id -> "running - 3 runs, 1 active" / "done - 2 runs done" / "no runs"; none for the Inbox), the CLI's `list` line. |
+| `list_projects(parent_id=None, top_level=False, include_archived=False, limit=None, with_runs=False)` | `ProjectList` | Inbox first, then by path. `total` counts every match; `truncated` says the limit cut some. `with_runs` fills `run_lines` (id -> "2 blocked, 1 running, 4 done" / "no runs", `runwords.run_counts_text` over it and its sub-projects; none for the Inbox), the CLI's `list` line. |
 | `get_project(project_id)` | `Project` | Archived or not. |
 | `resolve_project(ref)` | `Project` | What a person types: the exact id, then a unique id prefix (4+ characters, the `p_` optional), then a name (any case) among active projects. A unique name beats a prefix that matches several ids. `NotFound`, or `Ambiguous` with `candidates` ({id, name, parent_path}, at most 20). |
 | `resolve_item(ref)` | `Item` | The exact id or a unique id prefix (4+ characters, the `i_` optional); no title matching. `NotFound`, or `Ambiguous` with `candidates` ({id, title, kind, project_path}, at most 20). |
@@ -43,7 +43,7 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 
 | `refresh(force=False)` | `RefreshResult` | Runs the due readers, stores what they said, reconciles. `sources` shows each reader's state. |
 | `find_items(query=None, kind=None, project_id=None, include_gone=False, limit=None, refresh=True, include_dismissed=False)` | `ItemList` | Text match on title, key, name, cwd, branch; `project_id` includes its sub-projects. Dismissed items only with `include_dismissed` (last, `dismissed` True). |
-| `project_status(project_id, refresh=True, limit=None)` | `ProjectStatus` | Runs (status, reason, "T03 of 5", stage, PR, artifact; `progress_text` and `pr_text` are the words home and show use) ranked needs-you > blocked > running > paused > latest; sessions, PRs, worktrees, artifacts; rolled up over sub-projects (each `SubProject.text` is its tile's line: "no runs", "3 runs, 1 active"). `limit` caps each list; `totals` and `truncated` say what was cut. |
+| `project_status(project_id, refresh=True, limit=None)` | `ProjectStatus` | Runs (status, reason, "T03 of 5", stage, PR, artifact; `progress_text` and `pr_text` are the words home and show use) ranked needs-you > blocked > running > paused > latest; sessions, PRs, worktrees, artifacts; rolled up over sub-projects (each `SubProject.text` is its tile's line: "no runs", "1 blocked, 2 done"). `groups`: the same runs by active sub-project, `RunGroup`s as the project view's `sub_runs` (below) but each with every one of its `Run`s. `limit` caps each list (a group's runs too); `totals` and `truncated` say what was cut. |
 | `add_item(kind, key, project_id, title=None)` | `MoveResult` | By hand (`placed_by = manual`). A known item is moved instead (`created` False). |
 | `move_item(item_id, project_id, expected_revision=None)` | `MoveResult` | By hand; a stale revision is refused; a run's auto-attached items follow (`followed`). |
 | `move(target_id, to_project_id, expected_revision=None)` | `MoveResult` | An item (`i_...`) or a project (`p_...`): the one call behind drop = move. A project's move gets a `move_id` too; `message` is the toast ("Moved to Project Studio"). |
@@ -64,7 +64,7 @@ subclasses with a stable `code` and a message fit to show a person as it is.
 | `open_studio()` | `StudioServer` | Starts `studio/web.py` on 127.0.0.1 unless one of this code version runs (`started` False); asks an older one to stop first. Never opens a browser. `StartFailed` after 5 s (see `studio.log`). |
 | `studio_status()` | `StudioServer` | The running studio, or `running` False. |
 | `stop_studio()` | `StudioServer` | POST /shutdown with the token, waits up to 5 s. Never kills. |
-| `project_view(project_id, refresh=False)` | `ProjectView` | The studio's `#/p/<id>`: breadcrumb, "Linked: ..." text and `links` ({id, name} each, what the page's unlink x takes), link choices, sub-project tiles, run panels (Open plan / Open PR / Open in Terminal when they apply), session rows (bg live, bg done, interactive, gone), "Everything else" folds (sessions too when none is active), and the project's `rules` (each deletable). |
+| `project_view(project_id, refresh=False)` | `ProjectView` | The studio's `#/p/<id>`: breadcrumb, "Linked: ..." text and `links` ({id, name} each, what the page's unlink x takes), link choices, sub-project tiles, the project's OWN run panels (Open plan / Open PR / Open in Terminal when they apply), `sub_runs` (a `RunGroup` per active sub-project, below), session rows (bg live, bg done, interactive, gone), "Everything else" folds (sessions too when none is active), and the project's `rules` (each deletable). |
 | `terminal_command(item_id)` | `TerminalCommand` | A session (or a run's listed session): `claude attach <short>` when `claude agents` lists it, else `cd <cwd> && claude --resume <id>`; pattern-checked, shlex-quoted; `confirm` set when its transcript changed in the last 5 min. Runs nothing ("Copy command"). |
 | `open_in_terminal(item_id, confirmed=False)` | `TerminalOpen` | Writes `<data dir>/open/<item id>.command` (0700) and opens it in the `terminal` setting's app (`app`): no setting `open <file>`, `Terminal` `open -a Terminal <file>`, `iTerm` `osascript` (a fixed script: new window, default profile, `write text` the quoted path, which is the script's argument). An unknown stored name falls back to Terminal and the message says so. On failure `pbcopy` (`copied`). `needs_confirm` until `confirmed` when the guard asks. Never stops, kills or removes a session. |
 | `settings()` / `set_terminal(app)` | `Settings` | `<data dir>/settings.json` (0600). `terminal`: `Terminal`, `iTerm` or "" (the default). `set_terminal` takes any case and `iTerm2` / `Terminal.app`; `default` clears it; any other name is `InvalidInput`. |
@@ -142,7 +142,7 @@ done", not "T17 of 17"; a done run says how many tickets settled, "12 of 13".
 `sub_projects` is a `HomeSubProject`, the card's active (not archived) sub-projects in tree order
 (by name, any case): `project_id` (what a click opens), `name`, `status` (`pending` with no runs,
 else the top run's, as the project view's tile says it), `glyph`, `word` ("Running"; '' with no
-runs), `text` ("3 runs, 1 active", "2 runs done", "no runs"; over its own active sub-projects too,
+runs), `text` ("1 blocked, 2 done", "no runs"; over its own active sub-projects too,
 runs not gone) and `inside` ("2 inside" for its active sub-projects, '' with none; deeper levels
 stay a count). A card run (`HomeRun`) that lives in a sub-project, or under one, carries that
 sub-project's `sub_project_id` and its tag `sub_project` ("in Machina decision units"); both are ''
@@ -178,3 +178,19 @@ any `Host` but `127.0.0.1:<port>` (403), refuses a POST without the token (`X-St
 with a foreign `Origin` (403), and stops after `$PROJECT_STUDIO_IDLE` seconds (default 1800) with
 no open page and no request. `bin/project-studio [open|status|stop]` and the `studio_open` MCP tool
 call `open_studio()`.
+
+## Run counts in words and sub-project run sections
+
+`sdk/runwords.py` `run_counts_text(runs)` is the one wording for a set of runs, used by home's
+sub-project lines, the project view's tiles and sections, `list`, `show` and `status`: one count per
+status, most urgent first, done last ("1 waiting on you, 2 blocked, 1 running, 4 done"); a gone run
+counts as "gone"; none is "no runs". It replaced "3 runs, 1 active", whose "active" counted blocked
+runs too.
+
+`RunGroup` (`projectview.run_groups`): one per active (not archived) sub-project, at every depth,
+in tree order (a sub-project, then its own sub-projects at `depth` + 1; by name, any case):
+`project_id` ("Open" goes there), `name`, `parent_id`, `depth`, `status` / `glyph` / `word` of its
+top run ("pending", "\u00b7", '' with none), `text` (counts in words over it and everything under it),
+`open` (it starts open when a needs-you, blocked or running run, not gone, is in it or under it),
+`runs` (its OWN runs, ranked: `ViewRun` panels in `project_view`, `Run`s in `project_status`),
+`shown` (the page shows 5 before "+ n more"; `status` shows all) and `more` ("+ 3 more", '').

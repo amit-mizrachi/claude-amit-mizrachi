@@ -127,7 +127,7 @@ class Home(Sources):
         self.assertNotIn(p.id, [s.project_id for s in card.sub_projects])
         units_line, evals_line = card.sub_projects
         self.assertEqual((units_line.status, units_line.glyph, units_line.word, units_line.text, units_line.inside),
-                         ("running", "\u25cf", "Running", "2 runs, 1 active", "1 inside"))
+                         ("running", "\u25cf", "Running", "1 running, 1 done", "1 inside"))
         self.assertEqual((evals_line.word, evals_line.text), ("", "no runs"))
         tags = {r.title: (r.sub_project_id, r.sub_project) for r in card.runs}
         self.assertEqual(tags, {"live-20261023": (units.id, "in Machina decision units"),

@@ -88,6 +88,14 @@ body{margin:0;font:var(--font-size-2)/var(--line-height-2) var(--font);color:var
 .runbig b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .runbig .acts{display:flex;gap:var(--space-1);flex-wrap:wrap;justify-content:flex-end}
 .runbig .st{grid-column:2/4;display:flex;gap:var(--space-2);align-items:center;font-size:var(--font-size-1);color:var(--text-2);flex-wrap:wrap;min-width:0}
+.subsec{margin-top:var(--space-3);min-width:0}
+.subrow{display:flex;align-items:center;gap:var(--space-2);min-width:0;border-bottom:1px solid var(--border);padding-bottom:var(--space-1);margin-bottom:var(--space-2)}
+.subhead{flex:1;min-width:0;display:flex;align-items:center;gap:var(--space-2);font:inherit;color:var(--text);background:none;border:0;padding:2px 0;text-align:left;cursor:pointer}
+.subhead:focus-visible{outline:2px solid var(--blue-9);outline-offset:1px}
+.subhead .tw{color:var(--text-2);font-size:var(--font-size-1);flex:none}.subhead .g,.subhead .w{flex:none}
+.subhead b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:0 1 auto}
+.subhead .sub{overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+.subbody{padding-left:var(--space-4)}
 .rows{border:1px solid var(--border);border-radius:var(--radius-4);overflow:hidden}
 .row{display:grid;grid-template-columns:16px 76px 1fr auto auto;gap:var(--space-2);align-items:center;padding:var(--space-2) var(--space-3);border-top:1px solid var(--border)}
 .row:first-child{border-top:0}.row.hot{background:var(--bg-ui)}.row.plain{grid-template-columns:1fr auto auto}

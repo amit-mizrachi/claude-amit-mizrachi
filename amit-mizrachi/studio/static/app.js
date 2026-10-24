@@ -546,6 +546,56 @@
     return frag;
   }
 
+  // A section per sub-project under the project's own run panels: header (glyph, name, word,
+  // counts in words, Open) and its own run panels, at most `shown` before "+ n more", which
+  // expands in place. The SDK says whether it starts open; a click folds or opens it for this
+  // page, and a folded section hides the levels under it too.
+  var subOpen = {};       // "<project id>:<sub-project id>" -> true / false once toggled
+  var subMore = {};       // "<project id>:<sub-project id>" -> true once "+ n more" was clicked
+
+  function subHead(v, g, key, open) {
+    var toggle = add(el("button", "subhead"), el("span", "tw", open ? "\u25be" : "\u25b8"),
+      el("span", "g " + (TONE[g.status] || "stale"), g.glyph), el("b", null, g.name),
+      g.word ? el("span", "w " + (TONE[g.status] || "stale"), g.word) : null, el("span", "sub", g.text));
+    toggle.type = "button";
+    toggle.title = g.name;
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    toggle.addEventListener("click", function () { subOpen[key] = !open; renderView(lastView); });
+    var go = el("a", "btn", "Open");
+    go.href = "#/p/" + encodeURIComponent(g.project_id);
+    go.title = "Open " + g.name;
+    return add(el("div", "subrow"), toggle, go);
+  }
+
+  function subSection(v, g) {
+    var key = v.project.id + ":" + g.project_id;
+    var open = key in subOpen ? subOpen[key] : g.open;
+    var node = add(el("div", "subsec"), subHead(v, g, key, open));
+    node.style.marginLeft = ((g.depth - 1) * 20) + "px";
+    node.setAttribute("data-project-id", g.project_id);
+    if (!open) { return { node: node, open: false }; }
+    var all = !!subMore[key];
+    var shown = all ? g.runs : g.runs.slice(0, g.shown);
+    var body = el("div", "subbody");
+    shown.forEach(function (r) { body.appendChild(runPanel(r)); });
+    if (!g.runs.length) { body.appendChild(el("p", "none", "No night runs here.")); }
+    if (g.more && !all) {
+      body.appendChild(button(g.more, "ghost", function () { subMore[key] = true; renderView(lastView); }));
+    }
+    node.appendChild(body);
+    return { node: node, open: true };
+  }
+
+  function subSections(v, parent) {
+    var foldedAt = 0;     // the depth of the folded section we are under, 0 for none
+    v.sub_runs.forEach(function (g) {
+      if (foldedAt && g.depth > foldedAt) { return; }
+      var made = subSection(v, g);
+      foldedAt = made.open ? 0 : g.depth;
+      parent.appendChild(made.node);
+    });
+  }
+
   function renderView(v) {
     lastView = v;
     var page = $("project");
@@ -563,9 +613,11 @@
       v.inside.forEach(function (t) { minis.appendChild(tile(t)); });
       sec("Inside", v.inside.length).appendChild(minis);
     }
-    if (v.runs.length) {
-      var runs = sec("Night runs", v.runs.length);
+    if (v.runs.length || v.sub_runs.length) {
+      var total = v.sub_runs.reduce(function (n, g) { return n + g.runs.length; }, v.runs.length);
+      var runs = sec("Night runs", total);
       v.runs.forEach(function (r) { runs.appendChild(runPanel(r)); });
+      subSections(v, runs);
     }
     if (v.sessions.length && !v.sessions_folded) {
       var rows = el("div", "rows");

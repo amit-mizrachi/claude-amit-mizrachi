@@ -277,19 +277,26 @@ def project_status(project_id: str, refresh: bool = True, limit: Optional[int] =
     """A project's night runs (each with status, reason, "T03 of 5" progress, stage, PR state and
     artifact), ranked needs-you > blocked > running > paused > latest, plus its sessions, PRs,
     worktrees and artifacts, all rolled up over its active sub-projects, the sub-projects with a
-    run count, and every source's state. Refreshes due sources first unless `refresh` is False.
+    run count, and every source's state. `groups` holds the runs again by active sub-project
+    (`RunGroup`, tree order at every depth: header fields, counts in words, whether it starts
+    open, its own runs). Refreshes due sources first unless `refresh` is False.
     `limit` keeps at most that many of each list; `totals` counts them all and `truncated` says one was cut.
     """
     limit = _limit(limit)
     _maybe_refresh(refresh)
     with store.read() as conn:
         found = items.status(conn, project_id)
-    project, runs, sessions, prs, worktrees, artifacts, subs, sources = found
+        project, runs, sessions, prs, worktrees, artifacts, subs, sources = found
+        groups = projectview.run_groups(model.Tree(conn), project_id, runs)
     lists = {"runs": runs, "sessions": sessions, "prs": prs, "worktrees": worktrees, "artifacts": artifacts}
     paged = {name: _page(found, limit) for name, found in lists.items()}
-    return ProjectStatus(project=project, sub_projects=subs, sources=sources,
+    cut = False
+    for group in groups:
+        group.runs, _, cut_here = _page(group.runs, limit)
+        group.shown, group.more, cut = len(group.runs), "", cut or cut_here   # status lists them all
+    return ProjectStatus(project=project, sub_projects=subs, sources=sources, groups=groups,
                          totals={name: page[1] for name, page in paged.items()},
-                         truncated=any(page[2] for page in paged.values()),
+                         truncated=cut or any(page[2] for page in paged.values()),
                          **{name: page[0] for name, page in paged.items()})
 
 
@@ -560,8 +567,10 @@ def stop_studio() -> StudioServer:
 def project_view(project_id: str, refresh: bool = False) -> ProjectView:
     """The studio's project view: breadcrumb, "Linked: ..." text and its `links` (each unlinkable), the
     projects "Link..." can offer,
-    sub-project tiles ("1 run done", "no runs"), run panels (which of Open plan, Open PR and Open in
-    Terminal apply), session rows (bg live "working - 2 min", bg done "finished - 3 h", interactive
+    sub-project tiles ("1 done", "no runs"), the project's own run panels (which of Open plan, Open PR
+    and Open in Terminal apply), `sub_runs` (a section per active sub-project at every depth, tree order:
+    glyph, word, counts in words "2 blocked, 1 running, 4 done", whether it starts open, its own run
+    panels, at most 5 before "+ n more"), session rows (bg live "working - 2 min", bg done "finished - 3 h", interactive
     "last active 1 d", gone "(removed)"), and the "Everything else" folds (PRs, worktrees, artifacts,
     and sessions when none is active). Refreshes due sources first only when `refresh` is True.
     """

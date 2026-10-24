@@ -123,6 +123,26 @@ RUN_SCHEMA = {
                         "(reason \"marked done by you\")."},
     },
 }
+GROUP_SCHEMA = {
+    "type": "object",
+    "required": ["project_id", "name", "parent_id", "depth", "status", "glyph", "word", "text", "open", "runs",
+                 "shown", "more"],
+    "properties": {
+        "project_id": {"type": "string"},
+        "name": {"type": "string"},
+        "parent_id": {"type": "string", "description": "The project or sub-project it sits under."},
+        "depth": {"type": "integer", "minimum": 1, "description": "1 for a direct sub-project, 2 below it, ..."},
+        "status": {"type": "string", "description": "Its top run's status; \"pending\" with no runs."},
+        "glyph": {"type": "string"},
+        "word": {"type": "string", "description": "\"Blocked\", \"Running\", ...; \"\" with no runs."},
+        "text": {"type": "string", "description": "Counts in words over it and everything under it: "
+                 "\"2 blocked, 1 running, 4 done\", \"no runs\"."},
+        "open": {"type": "boolean", "description": "A needs-you, blocked or running run is in it or under it."},
+        "runs": {"type": "array", "items": RUN_SCHEMA, "description": "Its own runs, ranked."},
+        "shown": {"type": "integer", "minimum": 0},
+        "more": {"type": "string"},
+    },
+}
 ITEMS = {"type": "array", "items": ITEM_SCHEMA}
 MOVE_ID = {"type": "integer", "minimum": 1, "description": "The move_id a move, add, accept or remove returned."}
 RULE_SCHEMA = {
@@ -257,8 +277,12 @@ TOOLS = [
             "A project's night runs (status, reason, progress like \"T03 of 5\", stage, PR state, plan "
             "artifact) ranked needs-you > blocked > running > latest, plus its sessions, PRs, "
             "worktrees and artifacts, rolled up over its sub-projects, and each source's state (a "
-            "failed source keeps its last-good data and shows its error). Refreshes due sources first. "
-            "Each list holds at most `limit` entries; `totals` counts them all and `truncated` says one was cut."
+            "failed source keeps its last-good data and shows its error). `groups` holds the runs again by "
+            "active sub-project, in tree order at every depth (a sub-project, then its own at depth + 1): its "
+            "header (status word, counts in words like \"2 blocked, 1 running, 4 done\" over it and everything "
+            "under it, `open` when a needs-you, blocked or running run is in it) and its OWN runs. Refreshes due "
+            "sources first. Each list holds at most `limit` entries; `totals` counts them all and `truncated` "
+            "says one was cut."
         ),
         "inputSchema": {"type": "object", "required": ["project_id"], "additionalProperties": False,
                         "properties": {
@@ -269,13 +293,14 @@ TOOLS = [
         "outputSchema": {
             "type": "object",
             "required": ["project", "runs", "sessions", "prs", "worktrees", "artifacts", "sub_projects", "sources",
-                         "totals", "truncated"],
+                         "totals", "truncated", "groups"],
             "properties": {
                 "project": PROJECT_SCHEMA,
                 "runs": {"type": "array", "items": RUN_SCHEMA},
                 "sessions": ITEMS, "prs": ITEMS, "worktrees": ITEMS, "artifacts": ITEMS,
                 "sub_projects": {"type": "array", "items": {"type": "object", "required": ["project", "runs", "runs_active", "top_status"],
-                                                                "properties": {"text": {"type": "string", "description": "\"no runs\", \"3 runs, 1 active\", \"2 runs done\""}}}},
+                                                                "properties": {"text": {"type": "string", "description": "\"no runs\", \"2 blocked, 1 running, 4 done\""}}}},
+                "groups": {"type": "array", "items": GROUP_SCHEMA},
                 "sources": {"type": "array", "items": SOURCE_SCHEMA},
                 "totals": {"type": "object", "additionalProperties": {"type": "integer"}},
                 "truncated": {"type": "boolean"},

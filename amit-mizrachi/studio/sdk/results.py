@@ -29,7 +29,7 @@ class Project:
 @dataclass
 class ProjectList:
     """A bounded page of projects. `total` counts every match; `truncated` says some were cut.
-    `run_lines` (only when asked for) maps a project id to its night-run line, "running - 3 runs, 1 active"."""
+    `run_lines` (only when asked for) maps a project id to its night-run line, "2 blocked, 1 running, 4 done"."""
 
     projects: List[Project]
     total: int
@@ -310,7 +310,28 @@ class SubProject:
     runs: int
     runs_active: int
     top_status: Optional[str]
-    text: str = ""                  # "no runs", "3 runs, 1 active", "2 runs done", as its tile says it
+    text: str = ""                  # "no runs", "2 blocked, 1 running, 4 done", as its tile says it
+
+
+@dataclass
+class RunGroup:
+    """One active sub-project's section of night runs, under its parent's own runs (the project
+    view, `status`, `show`). Sections come in tree order at every depth: a sub-project, then its
+    own sub-projects at `depth` + 1. The header is over the sub-project and everything under it;
+    `runs` are only its OWN runs, ranked needs-you > blocked > running > paused > latest."""
+
+    project_id: str                 # what "Open" goes to
+    name: str
+    parent_id: str                  # the project (or section) it sits under
+    depth: int                      # 1 for a direct sub-project, 2 for one below it, ...
+    status: str                     # its top run's status, "pending" with no runs
+    glyph: str
+    word: str                       # "Blocked", "Running", ...; '' with no runs
+    text: str                       # "2 blocked, 1 running, 4 done", "no runs"
+    open: bool                      # starts open: a needs-you, blocked or running run is in it or under it
+    runs: List[Any]                 # `Run` in project_status, `ViewRun` (a run panel) in project_view
+    shown: int = 0                  # how many of `runs` the page shows before "+ n more"
+    more: str = ""                  # "+ 3 more", '' when every run shows
 
 
 @dataclass
@@ -328,6 +349,7 @@ class ProjectStatus:
     sources: List[SourceState]
     totals: Dict[str, int] = field(default_factory=dict)   # runs/sessions/prs/worktrees/artifacts before `limit`
     truncated: bool = False                                  # some list was cut to `limit`
+    groups: List[RunGroup] = field(default_factory=list)     # the runs again, by active sub-project (`RunGroup`)
 
 
 @dataclass
@@ -370,7 +392,7 @@ class HomeRun:
 @dataclass
 class HomeSubProject:
     """One active sub-project as a line on its parent's home card: its own glyph, status word and
-    run line ("3 runs, 1 active", "no runs"), and "2 inside" for the levels below it. A click
+    run line ("1 blocked, 2 done", "no runs"), and "2 inside" for the levels below it. A click
     opens `project_id`'s view."""
 
     project_id: str
@@ -523,7 +545,7 @@ class ProjectView:
     linked: str                     # "Linked: night-sprint plugin", or ""
     link_choices: List[Dict[str, str]]   # [{"id", "name"}]: active projects it is not linked to yet
     inside: List[ViewTile]
-    runs: List[ViewRun]
+    runs: List[ViewRun]             # the project's OWN runs; its sub-projects' runs are in `sub_runs`
     sessions: List[ViewSession]
     sessions_folded: bool
     folds: List[ViewFold]
@@ -532,6 +554,8 @@ class ProjectView:
     dismissed: Optional[ViewFold] = None   # the "Dismissed" fold at the bottom (rows: Restore), None when empty
     links: List[Dict[str, str]] = field(default_factory=list)   # [{"id", "name"}]: the projects "Linked: ..."
     # names, in its order, each with an unlink control on the page
+    sub_runs: List[RunGroup] = field(default_factory=list)   # a section per active sub-project, under `runs`
+    # (which holds only the project's OWN runs); each section's `runs` are `ViewRun` panels
 
 
 # ---------------------------------------------------------------- the Inbox drawer and the picker (ticket 06)

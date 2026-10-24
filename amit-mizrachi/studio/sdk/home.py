@@ -5,7 +5,7 @@ Every rule the home page shows lives here, not in the web server or the page scr
   needs-you > blocked > running > paused > latest change, then "+ n earlier runs".
 - Cards are ordered needs-you first, then blocked, then running, then by latest change.
 - A card lists its active sub-projects in tree order, each a line of its own (glyph, status word,
-  "3 runs, 1 active" / "no runs", "2 inside" for the levels below it); a run that lives in one
+  "1 blocked, 2 done" / "no runs", "2 inside" for the levels below it); a run that lives in one
   says which ("in Machina decision units"). Archived sub-projects do not show.
 - A failed source gives a banner; its items keep their last-good state.
 - The state is built from what the store holds and never waits for a read: a source still being
@@ -137,9 +137,7 @@ def _sub_line(tree, sub, runs):
     """A sub-project as its card line; `runs` (ranked) are the card's runs."""
     from .projectview import tile_state   # projectview imports this module
     homes = set(items.subtree(tree, sub))
-    mine = [r for r in runs if r.project_id in homes]
-    active = sum(1 for r in mine if r.status in items.RUN_RANK)
-    status, text = tile_state(len(mine), active, mine[0].status if mine else None)
+    status, text = tile_state([r for r in runs if r.project_id in homes])
     deeper = len(_active_children(tree, sub))
     return HomeSubProject(project_id=sub, name=tree.rows[sub]["name"], status=status,
                           glyph="\u00b7" if status == "pending" else GLYPHS.get(status, "?"),

@@ -120,7 +120,7 @@ class Cli(Sources):
         api.refresh(force=True)
         api.move_item(api.find_items(kind="night-sprint", refresh=False).items[0].id, self.docs_a.id)
         text = self.ok("status", "Alpha", "--no-refresh")
-        self.assertIn("1 run done", text)                  # not "1 runs, 0 active"
+        self.assertIn("1 done", text)                      # counts in words, not "1 runs, 0 active"
         self.assertIn("2 of 2", text)                      # a done run's progress, as home says it
         run = self.json_ok("--json", "status", "Alpha", "--no-refresh")["runs"][0]
         self.assertEqual((run["progress_text"], run["pr_text"]), ("2 of 2", ""))

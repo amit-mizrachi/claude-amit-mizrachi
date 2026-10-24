@@ -66,7 +66,7 @@ class MarkThroughTheSdk(Marking):
         self.assertEqual((before.attention, before.runs[0].item_id), ("blocked", self.stuck.id))
         bar = before.runs[0].bar
         lines = api.list_projects(with_runs=True).run_lines
-        self.assertEqual(lines[self.alpha.id], "blocked - 2 runs, 2 active")
+        self.assertEqual(lines[self.alpha.id], "1 blocked, 1 running")
         self.assertTrue(self.panel_of(self.stuck.id).can_mark_done)
         self.assertFalse(self.panel_of(self.live.id).can_mark_done)
 
@@ -86,7 +86,7 @@ class MarkThroughTheSdk(Marking):
         panel = self.panel_of(self.stuck.id)
         self.assertEqual((panel.word, panel.can_mark_done), ("Done", False))
         self.assertIn(MARKED, panel.detail)
-        self.assertEqual(api.list_projects(with_runs=True).run_lines[self.alpha.id], "running - 2 runs, 1 active")
+        self.assertEqual(api.list_projects(with_runs=True).run_lines[self.alpha.id], "1 running, 1 done")
         self.assertTrue(os.path.isfile(os.path.join(self.stuck_ws, "state", "T02.status")))   # no file touched
 
     def test_a_refresh_keeps_the_mark_while_the_files_hold_still(self):
@@ -167,7 +167,7 @@ class MarkFromTheCli(Marking):
         self.assertIn(MARKED, out)
         code, out, _ = self.cli("list")
         self.assertEqual(code, 0)
-        self.assertIn("running - 2 runs, 1 active", out)
+        self.assertIn("1 running, 1 done", out)
         code, out, _ = self.cli("undo", str(move_id), "--json")
         self.assertEqual((code, json.loads(out)["kind"]), (0, "unmark-done"))
 

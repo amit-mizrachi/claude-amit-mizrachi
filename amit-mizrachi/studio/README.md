@@ -35,8 +35,8 @@ every command, its options and an example.
 | `stop` | `project-studio stop` | ask the running studio to stop |
 | `status` | `project-studio status` | whether the studio runs, and where |
 | `status <project>` | `project-studio status 'Project Studio'` | a project's night runs and items |
-| `list` | `project-studio list --all` | the project tree with each project's night-run line |
-| `show` | `project-studio show p_1a2b3c` | one project's view: sub-projects, runs, sessions, PRs, rules |
+| `list` | `project-studio list --all` | the project tree with each project's night runs in words ("2 blocked, 1 running, 4 done") |
+| `show` | `project-studio show p_1a2b3c` | one project's view: sub-projects, its own runs, then each sub-project's runs under an "In <name>" heading (one indent per level), sessions, PRs, rules; `--json` has them as `sub_runs` |
 | `find` | `project-studio find alpha --kind session-bg` | items that match, newest activity first (`--gone`, `--dismissed` include those) |
 | `inbox` | `project-studio inbox --limit 20` | unfiled items with the suggested project |
 | `refresh` | `project-studio refresh --force` | re-read the sources; say what changed and what failed |
@@ -100,9 +100,14 @@ Exit codes: 0 ok; 1 a studio error (`not_found`, `ambiguous`, `invalid_input`, `
 
 The studio is a local web server on `127.0.0.1` only. The home page is a grid of project cards
 that show only each project's night-run status; a click on a card opens the project view
-(runs, sessions, everything else), where a session row's **Open in Terminal** opens Terminal on
+(its own runs, then a section per sub-project with that sub-project's runs, sessions, everything
+else), where a session row's **Open in Terminal** opens Terminal on
 `claude attach <id>` (a background session) or `cd <cwd> && claude --resume <id>` (an
-interactive one), or copies that command. The **Inbox** drawer files items by drag, by **Move
+interactive one), or copies that command. A sub-project section's header names it, its status
+word and its runs in words ("2 blocked, 1 running, 4 done"), with **Open** to go to it; it shows
+at most 5 run panels, needs-you first, and **+ n more** shows the rest in place. A section starts
+open when a run in it (or under it) waits on you, is blocked or is running, else folded; deeper
+levels nest one indent per level. The **Inbox** drawer files items by drag, by **Move
 to...** or by **Accept** on a suggestion, with **Undo** on every move. **Dismiss** on a run panel
 or an item row hides it (a run with its attached items) from the cards, the project view's lists,
 the Inbox and the counts, and deletes nothing; it waits in the **Dismissed** fold at the bottom of
@@ -145,7 +150,7 @@ Each tool is one SDK call:
 | `studio_list` | `api.list_projects(parent_id, top_level, include_archived, limit)` | reads |
 | `studio_create` | `api.create_project(name, parent_id)` | writes |
 | `studio_find` | `api.find_items(query, kind, project_id, include_gone, limit, include_dismissed)` | reads (refreshes due sources) |
-| `studio_status` | `api.project_status(project_id)` | reads (refreshes due sources) |
+| `studio_status` | `api.project_status(project_id)` | reads (refreshes due sources); `groups` has the runs by sub-project |
 | `studio_add` | `api.add_item(kind, key, project_id, title)` | writes |
 | `studio_move` | `api.move(id, to_project_id, expected_revision=revision)` | writes; an item (`i_...`) or a project (`p_...`) |
 | `studio_link` | `api.link_projects(a_id, b_id)` | writes |
