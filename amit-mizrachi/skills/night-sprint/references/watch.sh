@@ -83,6 +83,19 @@ SLUG=""
 PHASE=0
 [ -f "$WS/PHASE_CHAIN" ] && PHASE=1
 
+# conductor.sh writes state/CONDUCTOR.session: the conductor's own id, so the studio can open it.
+# In a plain sprint that is NOT a ticket tag. Read as one, the runner revived the idle conductor,
+# its ladder would have restarted or abandoned it, and the last pass force-closed it (manage3,
+# 2026-10-24). In a phase chain every tag is a conductor, so there it stays a tag.
+not_a_tag() { [ "$PHASE" -eq 0 ] && [ "$1" = CONDUCTOR ]; }
+ticket_sessions() {
+  local sf
+  for sf in "$STATE"/*.session; do
+    [ -e "$sf" ] && ! not_a_tag "$(basename "$sf" .session)" && return 0
+  done
+  return 1
+}
+
 # CONTEXT_WINDOW cannot be read off a transcript - a 1M model records the same name as the
 # 200k one - so it is pinned at kickoff. CEILING_USED is the only context reading anything
 # out here acts on, and even then it only logs: see the `working` case.
@@ -318,6 +331,7 @@ while true; do
   for sf in "$STATE"/*.session; do
     [ -e "$sf" ] || continue
     tag="$(basename "$sf" .session)"
+    not_a_tag "$tag" && continue
     sid="$(tr -d '[:space:]' < "$sf")"
     st="$STATE/$tag.status"
 
@@ -554,7 +568,7 @@ PYOUT
     stranded=0
   fi
 
-  if [ "$open_n" -eq 0 ] && [ -z "$pending" ] && ls "$STATE"/*.session >/dev/null 2>&1; then
+  if [ "$open_n" -eq 0 ] && [ -z "$pending" ] && ticket_sessions; then
     quiet=$((quiet + 1))
     if [ "$quiet" -ge "$QUIET_LIMIT" ]; then
       # Last pass before the runner goes: every tag is terminal and nothing is left to launch,
@@ -564,6 +578,7 @@ PYOUT
         unclosed=""
         for sf in "$STATE"/*.session; do
           tag="$(basename "$sf" .session)"
+          not_a_tag "$tag" && continue
           [ -f "$STATE/.closed-$tag" ] && continue
           do_close "$tag" --force || unclosed="$unclosed $tag"
         done

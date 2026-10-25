@@ -1667,5 +1667,49 @@ check "conductor.sh: no session id is an error, nothing written" "1 2" "$rc $(wc
 rm -rf "$CW"
 
 echo
+echo "== a plain sprint's CONDUCTOR.session is not a ticket tag =="
+# manage3, 2026-10-24: conductor.sh wrote state/CONDUCTOR.session, and in a plain sprint (no
+# PHASE_CHAIN) watch.sh read it as a ticket tag. The idle conductor was STALLED and resumed; its
+# ladder would next have restarted or abandoned it, and the last pass would have force-closed it.
+KC="$(mktemp -d)"
+KBIN="$KC/bin"; mkdir -p "$KBIN" "$KC/wt" "$KC/home/.claude/projects/p"
+cp "$HERE/mock-claude.sh" "$KBIN/claude"; chmod +x "$KBIN/claude"
+K="$KC/ws"; mkdir -p "$K/state" "$KC/mock"
+for f in agents.sh watch.sh revive.sh launch.sh advance.sh close.sh classify-error.sh context-used.sh; do
+  cp "$REF/$f" "$K/"
+done
+KSID=c0dc7000-0000-4000-8000-000000000001
+echo kslug > "$K/SLUG"; echo "$KC/wt" > "$K/WORKTREE"; echo auto > "$K/PERMISSION_MODE"
+echo "$KSID" > "$K/state/CONDUCTOR.session"
+echo 7e570001-0000-4000-8000-000000000001 > "$K/state/T01.session"
+echo DONE > "$K/state/T01.status"; : > "$K/state/.advanced-T01"; : > "$K/state/.closed-T01"
+echo '{"type":"user","message":{"content":"go"}}' > "$KC/home/.claude/projects/p/$KSID.jsonl"
+python3 -c 'import os,sys,time; t=time.time()-3600; os.utime(sys.argv[1],(t,t))' "$KC/home/.claude/projects/p/$KSID.jsonl"
+printf '[{"sessionId":"%s","id":"%s","name":"kickoff","state":"working","status":"idle","pid":null,"startedAt":1}]' \
+  "$KSID" "${KSID:0:8}" > "$KC/mock/agents.json"
+: > "$KC/mock/launches"; : > "$KC/mock/stops"; : > "$KC/mock/rms"
+kenv() { MOCK_STATE="$KC/mock" HOME="$KC/home" PATH="$KBIN:$PATH" "$@"; }
+(cd "$KC/wt" && kenv bash "$K/watch.sh" "$K" 0 0 --once >/dev/null 2>&1)
+check "an idle conductor is not revived as a stalled ticket" "0" "$(wc -l < "$KC/mock/launches" | tr -d ' ')"
+grep -q 'CONDUCTOR' "$K/state/EVENTS.log" 2>/dev/null \
+  && no "the runner says nothing about CONDUCTOR" "$(grep CONDUCTOR "$K/state/EVENTS.log" | head -2)" \
+  || ok "the runner says nothing about CONDUCTOR"
+# The whole runner, to its last pass: every ticket is terminal, so it must go quiet and exit
+# without closing the conductor, whose final message is the report somebody reads.
+( cd "$KC/wt" && MOCK_STATE="$KC/mock" HOME="$KC/home" PATH="$KBIN:$PATH" bash "$K/watch.sh" "$K" 1 0 >/dev/null 2>&1
+  echo $? > "$KC/rc" ) &
+kw=$! i=0
+while [ "$i" -lt 15 ] && kill -0 "$kw" 2>/dev/null; do sleep 1; i=$((i + 1)); done
+pkill -f "$K/watch.sh" 2>/dev/null; wait "$kw" 2>/dev/null
+check "the runner ends on SWEEP 0 with only the conductor left" "0" "$(cat "$KC/rc" 2>/dev/null || echo still-running)"
+check "and its last pass stops nothing" "0" "$(wc -l < "$KC/mock/stops" | tr -d ' ')"
+check "and removes nothing" "0" "$(wc -l < "$KC/mock/rms" | tr -d ' ')"
+check "the conductor's id file is left as it was" "$KSID" "$(cat "$K/state/CONDUCTOR.session")"
+# In a phase chain every tag is a conductor, so CONDUCTOR stays a tag there.
+grep -qF 'not_a_tag() { [ "$PHASE" -eq 0 ]' "$REF/watch.sh" && ok "the skip holds only outside a phase chain" \
+  || no "the skip holds only outside a phase chain" "not_a_tag does not check PHASE"
+rm -rf "$KC"
+
+echo
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
