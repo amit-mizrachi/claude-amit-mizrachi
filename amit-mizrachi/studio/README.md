@@ -5,7 +5,9 @@ project its night sprints, night marathons, Claude sessions (background and inte
 artifacts, PRs and worktrees. Every such thing is an **item** with exactly one **home project**;
 what the studio cannot place yet waits in the **Inbox**. Moving an item is how you file it, and
 "Always file items like this here" turns a move into a **rule** for the next one; `rule-add`
-(or "Add rule..." in a project's Rules section) writes one by pattern, like `sis-*`.
+(or "Add rule..." in a project's Rules section) writes one by pattern, like `sis-*` or a monday
+item id. `likely <project>` lists the Inbox items that probably belong in a project before any
+rule files them. Agents drive all of it through the `project-studio` skill (`skills/project-studio/`).
 
 Three ways in, all over the same data:
 
@@ -46,7 +48,9 @@ every command, its options and an example.
 | `status <project>` | `project-studio status 'Project Studio'` | a project's night runs (each with its one status word and reason, "Waiting on you  merge conflict with main: merge origin/main", and its PR's URL) and items; `--json` has each run's `pr_url`, `pr_number`, `pr_state` and `links` |
 | `list` | `project-studio list --by activity` | the project tree with each project's night runs in words ("2 blocked, 1 running, 4 done"); `--by activity` puts the latest activity first, as home does, and says when ("12 min ago"); `--all` adds archived ones |
 | `show` | `project-studio show p_1a2b3c` | one project's view: sub-projects, its own runs (each with its PR's URL), then each sub-project's runs under an "In <name>" heading (one indent per level), sessions, PRs, rules; `--json` has them as `sub_runs` |
-| `find` | `project-studio find alpha --kind session-bg` | items that match, newest activity first (`--gone`, `--dismissed` include those); `--status in-review` (or `needs-you`, `blocked`, `merged`, ...) keeps the night runs with that status |
+| `find` | `project-studio find alpha --kind session-bg` | items that match, newest activity first (`--gone`, `--dismissed` include those); `--status in-review` (or `needs-you`, `blocked`, `merged`, ...) keeps the night runs with that status; `--repo shapes-platform`, `--monday 13216938828` and `--pr-state open` (or `draft`, `merged`, `closed`; open keeps drafts) keep the items of a repo, of a monday id, and the PRs in a state. A PR's status column is its state |
+| `item` | `project-studio item i_1a2b3c4d` | one item, a field a line: kind, title, project, how it was placed, status (a PR's state), key, URL, branch |
+| `likely` | `project-studio likely 'Shapes in Shapes' --kind pr` | the Inbox items that probably belong in a project: they carry a monday id that items in it carry (the project's main id first), with the `file` and `rule-add --monday` commands that file them. Moves nothing |
 | `inbox` | `project-studio inbox --limit 20` | unfiled items with the suggested project |
 | `refresh` | `project-studio refresh --force` | re-read the sources; say what changed and what failed |
 | `rules` | `project-studio rules --project 'Shapes evals'` | the filing rules |
@@ -70,7 +74,7 @@ every command, its options and an example.
 | `throw` | `project-studio throw i_1a2b3c4d --yes` | throw away a night run: its folder to the macOS Trash, its worktrees removed with `git worktree remove` (never forced), the run and its attached items purged. Without `--yes` it prints what goes and asks y/N on a tty (exit 2, `confirm_needed`, without one). Refused while its runner or a session of it is live. The one command that removes things, see below |
 | `accept` | `project-studio accept i_1a2b3c4d` | file an Inbox item into its suggested project |
 | `rule-save` | `project-studio rule-save 42` | "Always file items like this here", from a move id |
-| `rule-add` | `project-studio rule-add Shapes --workspace 'sis-*' --dry-run` | write a rule by pattern: `--workspace GLOB`, `--repo NAME [--branch-prefix eval/]` or `--cwd-prefix FOLDER`. Says how many Inbox items it files now and names up to 5; `--dry-run` saves nothing; `--apply` files them now, one `undo` line each. `*`, `/` and `~` alone are refused |
+| `rule-add` | `project-studio rule-add Shapes --workspace 'sis-*' --dry-run` | write a rule by pattern: `--workspace GLOB`, `--monday ID` (a PR whose branch or title holds it, any repo), `--repo NAME [--branch-prefix eval/]` or `--cwd-prefix FOLDER`. Says how many Inbox items it files now and names up to 5; `--dry-run` saves nothing; `--apply` files them now, one `undo` line each. `*`, `/` and `~` alone are refused |
 | `rule-delete` | `project-studio rule-delete r_1a2b3c4d5e6f` | delete one rule; what it filed stays |
 | `export` | `project-studio export ~/studio.json` | the whole store as JSON, printed or written to a file |
 | `purge` | `project-studio purge` | delete gone items for good (one, or all) |
@@ -137,8 +141,8 @@ running, closed) - with its state and checks as the tooltip, a click opens it in
 **Plan** and **Conductor**, each when the run has one. A run waiting on you draws its Plan
 filled. Every other action is in the run's **...** menu (and right-click). A
 click on a row (or Enter on it) opens the project view
-(its own runs, then a section per sub-project with that sub-project's runs, sessions, everything
-else), where a session row's **Open in Terminal** opens Terminal on
+(its own runs, then a section per sub-project with that sub-project's runs, then **Open pull
+requests**: each open or draft PR no run line shows, then sessions, everything else), where a session row's **Open in Terminal** opens Terminal on
 `claude attach <id>` (a background session) or `cd <cwd> && claude --resume <id>` (an
 interactive one), or copies that command. A sub-project section's header names it, its status
 word and its runs in words ("2 blocked, 1 running, 4 done"), with **Open** to go to it; it shows
@@ -197,7 +201,9 @@ Each tool is one SDK call:
 |---|---|---|
 | `studio_list` | `api.list_projects(parent_id, top_level, include_archived, limit, by)` | reads |
 | `studio_create` | `api.create_project(name, parent_id)` | writes |
-| `studio_find` | `api.find_items(query, kind, project_id, include_gone, limit, include_dismissed)` | reads (refreshes due sources) |
+| `studio_find` | `api.find_items(query, kind, project_id, include_gone, limit, include_dismissed, status, repo, monday, pr_state)` | reads (refreshes due sources) |
+| `studio_item` | `api.get_item(item_id)` | reads; one item by id or unique prefix, a PR's status is its state |
+| `studio_likely` | `api.likely_items(project_id, kind, limit)` | reads (refreshes due sources); the Inbox items that share a monday id with the project, and the ids a `monday` rule could file |
 | `studio_status` | `api.project_status(project_id)` | reads (refreshes due sources); `groups` has the runs by sub-project |
 | `studio_add` | `api.add_item(kind, key, project_id, title)` | writes |
 | `studio_move` | `api.move(id, to_project_id, expected_revision=revision)` | writes; an item (`i_...`) or a project (`p_...`) |

@@ -29,7 +29,8 @@ from collections import Counter
 from . import cache, model, rules, runstatus, store
 from .errors import InvalidInput, NotFound, Refused
 from .reconcile import AUTO_LINK, WORKSPACE_KINDS, item_data, new_item_id
-from .results import (InboxEntry, Item, MoveResult, ProjectRemoval, Rule, RuleAdd, RuleFiling, RulePreview,
+from .inventory import monday_ids
+from .results import (InboxEntry, Item, LikelyItem, MoveResult, ProjectRemoval, Rule, RuleAdd, RuleFiling, RulePreview,
                       RuleSample, Run, SourceState, SubProject, Suggestion)
 
 ITEM_ID = re.compile(r"^i_[0-9a-f]{12}$")
@@ -37,6 +38,7 @@ SESSION_KEY = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 PR_KEY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$")
 RUN_RANK = {"needs-you": 0, "blocked": 1, "running": 2, "paused": 3}
 RULE_SAMPLE = 5         # how many matching items a rule written by pattern names
+PR_STATES = ("open", "draft", "merged", "closed")    # find's pr_state: "open" keeps drafts too
 
 
 def check_item_id(value):
@@ -99,9 +101,40 @@ def _recency(item):
     return data.get("last_active") or data.get("updated_at") or item.seen_at or ""
 
 
-def find(conn, query, kind, project_id, include_gone, include_dismissed=False, status=None):
+def item_repos(item):
+    """The repo names an item is of, lower case: "shapes-platform" and "dreamteamapp/shapes-platform"."""
+    data, signals = item.data, item.data.get("signals") or {}
+    slugs = [data.get("repo_slug"), data.get("repo"), signals.get("repo")]
+    if item.kind == "pr":
+        slugs.append(item.key.split("#", 1)[0])
+    names = {str(s).strip().lower() for s in slugs if s}
+    return names | {n.rsplit("/", 1)[-1] for n in names}
+
+
+def item_mondays(item):
+    """The monday item ids an item carries: in its title, key, branch or name, or its reader's `monday` signal."""
+    data, signals = item.data, item.data.get("signals") or {}
+    texts = [item.title, item.key] + [str(data.get(k) or "") for k in ("branch", "git_branch", "name", "slug")]
+    return sorted(set(monday_ids(*texts)) | set(signals.get("monday") or []))
+
+
+def _keep(item, repo, monday, pr_state_key):
+    if repo and repo.lower() not in item_repos(item):
+        return False
+    if monday and monday not in item_mondays(item):
+        return False
+    if pr_state_key:
+        return item.kind == "pr" and (item.status == pr_state_key
+                                      or (pr_state_key == "open" and item.status == "draft"))
+    return True
+
+
+def find(conn, query, kind, project_id, include_gone, include_dismissed=False, status=None, repo=None,
+         monday=None, pr_state_key=None):
     """Matching items, newest activity first, gone ones last; dismissed ones only when asked (after the rest).
-    A night run's `status` is its one status (`runstatus`); `status` keeps the runs with that key."""
+    A night run's `status` is its one status (`runstatus`); `status` keeps the runs with that key.
+    `repo` keeps an item of that repo ("shapes-platform" or "owner/shapes-platform", any case); `monday`
+    one that carries that monday id (`item_mondays`); `pr_state_key` a PR in that state ("open" with drafts)."""
     tree = model.Tree(conn)
     homes = set(subtree(tree, tree.row(project_id)["id"])) if project_id else None
     out = []
@@ -116,6 +149,7 @@ def find(conn, query, kind, project_id, include_gone, include_dismissed=False, s
     with_run_status(out, every_pr(conn, tree))
     if status:
         out = [i for i in out if i.kind in WORKSPACE_KINDS and i.status == status]
+    out = [i for i in out if _keep(i, repo, monday, pr_state_key)]
     out.sort(key=_recency, reverse=True)
     out.sort(key=lambda i: (i.dismissed, i.gone))
     return out
@@ -197,11 +231,54 @@ def run_status(item, prs):
 
 def with_run_status(found, prs):
     """`found` items with each night run's `status` set to its one status key (`run_status`), so
-    `find`, the Inbox and every list say what home says."""
+    `find`, the Inbox and every list say what home says, and each PR's to its state (`home.pr_state`:
+    draft, open, merged, closed)."""
+    from .home import pr_state   # home imports this module
     for item in found:
         if item.kind in WORKSPACE_KINDS:
             item.status = run_status(item, prs)
+        elif item.kind == "pr":
+            item.status = pr_state(item.data)
     return found
+
+
+def detail(conn, ref):
+    """The item `ref` names (an id or a unique id prefix), with its status as `find` says it."""
+    from . import refs   # refs imports this module
+    found = refs.item(conn, ref)
+    with_run_status([found], every_pr(conn, model.Tree(conn)))
+    return found
+
+
+def likely(conn, project_id, kind=None):
+    """Inbox items (of `kind`, when given) that probably belong in `project_id`: not gone or dismissed, and carrying a monday id
+    that an item in the project (or under it) carries. Returns (entries, the ones sharing the id most
+    items here carry first, then newest; {monday id:
+    how many items here carry it}, only the ids some entry shares)."""
+    tree = model.Tree(conn)
+    project = tree.project(project_id)
+    if project.is_inbox:
+        raise Refused("The Inbox has no likely items: every item in it is unfiled.")
+    homes = set(subtree(tree, project_id))
+    here, waiting = Counter(), []
+    for r in conn.execute("SELECT * FROM items WHERE dismissed_at IS NULL"):
+        r = dict(r)
+        if r["project_id"] in homes:
+            here.update(item_mondays(to_item(r, tree)))
+        elif r["project_id"] == store.INBOX_ID and not r["gone_at"] and kind in (None, r["kind"]):
+            waiting.append(to_item(r, tree))
+    entries = []
+    for item in waiting:
+        shared = [m for m in item_mondays(item) if here[m]]
+        if shared:
+            reason = ", ".join("monday %s, like %d item%s here" % (m, here[m], "" if here[m] == 1 else "s")
+                               for m in shared)
+            entries.append(LikelyItem(item=item, monday_ids=shared, reason=reason))
+    with_run_status([e.item for e in entries], every_pr(conn, tree))
+    entries.sort(key=lambda e: _recency(e.item), reverse=True)
+    entries.sort(key=lambda e: max(here[m] for m in e.monday_ids), reverse=True)   # the project's main id first
+    used = {m for e in entries for m in e.monday_ids}
+    return entries, {m: here[m] for m in sorted(used)}
 
 
 def rank_runs(runs):
@@ -223,7 +300,7 @@ def status(conn, project_id):
     for found in by_kind.values():
         found.sort(key=_recency, reverse=True)
         found.sort(key=lambda i: i.gone)
-    prs, arts = by_kind.get("pr", []), by_kind.get("artifact", [])
+    prs, arts = with_run_status(by_kind.get("pr", []), []), by_kind.get("artifact", [])
     prs_all = every_pr(conn, tree)
     known = session_ids(conn)
     runs = rank_runs([to_run(i, prs_all, arts, known) for k in WORKSPACE_KINDS for i in by_kind.get(k, [])])

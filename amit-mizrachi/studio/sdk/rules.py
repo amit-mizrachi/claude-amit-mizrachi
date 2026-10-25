@@ -1,10 +1,13 @@
 """Attach rules learned from moves (D5 A): "Always file items like this here".
 
-A rule is (project, signal, pattern). Three signals, strongest first:
+A rule is (project, signal, pattern). Four signals, strongest first:
 - `workspace`   - the run's slug, date suffix as `*`: `claude-project-studio-*`
+- `monday`      - a monday item id in a PR's branch or title, in any repo: `13216938828`
 - `repo-branch` - repo folder name + branch prefix: `shapes-platform eval/*`
 - `cwd`         - a folder; matches it and everything under it
-`for_signals` picks the strongest one an item has, so a rule is never weaker than it could be.
+`for_signals` picks the strongest one an item has, so a rule is never weaker than it could be. It
+never learns `monday`: a move says where one item goes, not which of its ids is the project's, so a
+monday rule is written by hand (`check`).
 `match` returns the first rule an item's signals satisfy (strongest signal first, then newest),
 skipping rules whose project is archived: an archived project gets nothing new.
 A rule written by hand (`check`, then `items.add_rule`) is stored in the same shape, so it ranks
@@ -17,9 +20,9 @@ import re
 import uuid
 
 from .errors import InvalidInput, Refused
-from .inventory import rule_pattern_for_slug
+from .inventory import MONDAY_ID, monday_ids, rule_pattern_for_slug
 
-SIGNALS = ("workspace", "repo-branch", "cwd")
+SIGNALS = ("workspace", "monday", "repo-branch", "cwd")
 RULE_ID = re.compile(r"^r_[0-9a-f]{12}$")
 GLOB = re.compile(r"[*?\[\]]")
 MAX_PATTERN = 300
@@ -57,6 +60,7 @@ def check(signal, pattern):
     """A rule written by hand as the stored (signal, pattern), or InvalidInput / Refused saying why.
 
     - workspace: a glob on the run's slug (`sis-*`); it needs some fixed text, so `*` is refused.
+    - monday: one monday item id (`13216938828`); it files a PR whose branch or title holds it, in any repo.
     - repo-branch: "<repo>" or "<repo> <branch>". The repo is matched exactly; a branch with no
       `*` or `?` is a prefix (`eval/` -> `eval/*`); no branch means every branch of the repo.
     - cwd: an absolute folder (`~` allowed); it files that folder and everything under it, so it
@@ -71,6 +75,8 @@ def check(signal, pattern):
         raise InvalidInput("A pattern is 1-%d characters with no control characters." % MAX_PATTERN)
     if signal == "workspace":
         return signal, _workspace_glob(pattern)
+    if signal == "monday":
+        return signal, _monday(pattern)
     if signal == "repo-branch":
         return signal, _repo_branch(pattern)
     return signal, _folder(pattern)
@@ -81,6 +87,13 @@ def _workspace_glob(pattern):
         raise InvalidInput("A workspace pattern has no spaces: it matches a run's slug, like sis-*.")
     if not re.sub(r"[*?]", "", pattern):
         raise Refused("%s matches every workspace. Give it some fixed text, like sis-*." % pattern)
+    return pattern
+
+
+def _monday(pattern):
+    if not MONDAY_ID.fullmatch(pattern):
+        raise InvalidInput("A monday rule is one monday item id, 9-13 digits like 13216938828: %s is not one."
+                           % pattern)
     return pattern
 
 
@@ -117,6 +130,8 @@ def parts(signal, pattern):
     if signal == "cwd":
         home = os.path.expanduser("~")
         return [["folder", "~" + pattern[len(home):] if pattern.startswith(home + "/") else pattern]]
+    if signal == "monday":
+        return [["monday", pattern]]
     return [["workspace", pattern]]
 
 
@@ -129,6 +144,8 @@ def matches(signal, pattern, signals):
     signals = signals or {}
     if signal == "workspace":
         return bool(signals.get("workspace")) and fnmatch.fnmatchcase(signals["workspace"], pattern)
+    if signal == "monday":
+        return pattern in monday_ids(signals.get("branch")) or pattern in (signals.get("monday") or [])
     if signal == "repo-branch":
         repo, _, branch = pattern.partition(" ")
         return (signals.get("repo") == repo and bool(signals.get("branch"))

@@ -97,6 +97,14 @@ def rule_pattern_for_slug(slug):
     return DATE_SUFFIX.sub("-*", slug) if DATE_SUFFIX.search(slug) else slug
 
 
+MONDAY_ID = re.compile(r"(?<![0-9])[0-9]{9,13}(?![0-9])")    # a monday item id: 13216938828
+
+
+def monday_ids(*texts):
+    """The monday item ids in `texts` (a branch, a title), sorted, each once. An 8-digit date is not one."""
+    return sorted({m for text in texts for m in MONDAY_ID.findall(text or "")})
+
+
 class Inventory(object):
     def __init__(self, entries, now=None):
         self.now = now or time.time()
@@ -282,7 +290,7 @@ class Inventory(object):
                 ws = self.joins.by_branch(key, pr["branch"])
                 repo = key.split("/", 1)[-1]
                 signals = {"workspace": os.path.basename(ws) if ws else "", "repo": repo,
-                           "branch": pr["branch"], "cwd": ""}
+                           "branch": pr["branch"], "cwd": "", "monday": monday_ids(pr["branch"], pr["title"])}
                 pkey = "%s#%d" % (key, pr["number"])
                 title = "%s#%d %s" % (repo, pr["number"], pr["title"])
                 out.append(Found("pr", pkey, title[:200], dict(pr, good_at=entry.good_at), scope, signals,

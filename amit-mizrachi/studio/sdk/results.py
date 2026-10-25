@@ -307,6 +307,29 @@ class InboxList:
 
 
 @dataclass
+class LikelyItem:
+    """An Inbox item that probably belongs in a project: the monday ids it shares with items there,
+    and the words for it ("monday 13216938828, like 12 items here")."""
+
+    item: Item
+    monday_ids: List[str]
+    reason: str
+
+
+@dataclass
+class LikelyList:
+    """`likely_items`: a project's likely but unfiled items, newest first. `monday_ids` is {id: how many
+    items in the project carry it} for the ids the entries share: what a `monday` rule could file."""
+
+    project_id: str
+    project_name: str
+    entries: List[LikelyItem]
+    monday_ids: Dict[str, int]
+    total: int
+    truncated: bool
+
+
+@dataclass
 class RunStatus:
     """A night run's one status (`runstatus.decide`): `key` (needs-you, blocked, running, paused,
     in-review, merged, done, unknown), its `word` ("Waiting on you", "In review"), one short
@@ -682,6 +705,7 @@ class ProjectView:
     links: List[Dict[str, str]] = field(default_factory=list)   # [{"id", "name"}]: the projects "Linked: ..."
     # names, in its order, each with an unlink control on the page
     sub_runs: List[RunGroup] = field(default_factory=list)   # a section per active sub-project, under `runs`
+    open_prs: List[ViewRow] = field(default_factory=list)    # open and draft PRs no run here shows, newest first
     # (which holds only the project's OWN runs); each section's `runs` are `ViewRun` panels
 
 

@@ -845,6 +845,11 @@
       v.runs.forEach(function (r) { runs.appendChild(runPanel(r, v.project.id)); });
       subSections(v, runs);
     }
+    if (v.open_prs && v.open_prs.length) {
+      var prs = el("div", "rows");
+      v.open_prs.forEach(function (r) { prs.appendChild(itemRow(r, false)); });
+      sec("Open pull requests", v.open_prs.length).appendChild(prs);
+    }
     if (v.sessions.length && !v.sessions_folded) {
       var rows = el("div", "rows");
       v.sessions.forEach(function (s) { rows.appendChild(sessionRow(s)); });

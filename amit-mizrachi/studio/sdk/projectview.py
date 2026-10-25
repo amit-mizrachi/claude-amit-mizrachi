@@ -6,6 +6,8 @@ Every rule the project view shows lives here, not in the web server or the page 
   offers Open in Terminal (a ticket session of it is still listed by `claude agents`).
 - A bg session still listed opens ("Open in Terminal"); an interactive or removed one resumes.
 - Sessions fold into "Everything else" when none is active; PRs, worktrees and artifacts always do.
+- An open or draft PR that no run here shows (filed by hand or by a rule, not a run's) is also
+  listed under the runs, in "Open pull requests" (`open_prs`), so it is not lost under the sessions.
 - Gone PRs, worktrees and artifacts are left out; gone sessions show greyed, "(removed)".
 - The project's own attach rules are listed, strongest signal first, each one deletable.
 - A Blocked or Waiting-on-you run panel offers "Mark done" (`can_mark_done`); a run marked done
@@ -186,9 +188,18 @@ def _counted(states):
     return ", ".join("%d %s" % (states.count(s), s) for s in order)
 
 
+def pr_row(p):
+    return ViewRow(item_id=p.id, title=p.title, text=pr_text(p.data).split(" ", 2)[-1] or _pr_state(p), action="Open")
+
+
+def open_prs(prs, runs):
+    """The open and draft PRs among `prs` whose run is not one of `runs`: what no run line shows."""
+    shown = {r.item_id for r in runs}
+    return [pr_row(p) for p in prs if _pr_state(p) in ("open", "draft") and p.workspace_item_id not in shown]
+
+
 def pr_fold(prs):
-    rows = [ViewRow(item_id=p.id, title=p.title, text=pr_text(p.data).split(" ", 2)[-1] or _pr_state(p), action="Open")
-            for p in prs]
+    rows = [pr_row(p) for p in prs]
     return ViewFold(kind="prs", label="Pull requests", count=len(prs), summary=_counted([_pr_state(p) for p in prs]),
                     rows=rows)
 
@@ -291,4 +302,5 @@ def state(conn, project_id, now=None):
                        inside=[view_tile(s) for s in subs], runs=own, sub_runs=groups,
                        sessions=rows, sessions_folded=folded, folds=folds(rows, folded, prs, trees, arts, live_cwds),
                        generated_at=store.now_iso(), rules=items.list_rules(conn, project.id),
-                       dismissed=dismissed_fold(items.dismissed(conn, project.id), now), links=links)
+                       dismissed=dismissed_fold(items.dismissed(conn, project.id), now), links=links,
+                       open_prs=open_prs(prs, runs))

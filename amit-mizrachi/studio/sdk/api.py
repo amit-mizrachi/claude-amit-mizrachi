@@ -23,12 +23,13 @@ from . import (actions, attach, home as homepage, inboxview, items, model, proje
                server, settings as user_settings, store, throw)
 from .errors import InvalidInput, Refused
 from .results import (AttachResult, DeleteRequest, DeleteResult, Export, HomeState, InboxList, InboxView, Item, ItemList,
-                      LinkResult, MoveChoices, MoveResult, OpenResult, Project, ProjectList, ProjectStatus, ProjectView,
+                      LikelyList, LinkResult, MoveChoices, MoveResult, OpenResult, Project, ProjectList, ProjectStatus, ProjectView,
                       ProjectRemoval, PurgeResult, RefreshResult, Rule, RuleAdd, RuleList, RunActions, Settings, StudioServer,
                       TerminalCommand, TerminalOpen, ThrowAway, UnlinkResult)
 
 MAX_LIST_LIMIT = 1000
 RUN_STATUSES = runstatus.KEYS   # a night run's one status key (`runstatus`): what `find_items(status=)` takes
+PR_STATES = items.PR_STATES     # what `find_items(pr_state=)` takes: open (drafts too), draft, merged, closed
 
 
 def _optional_id(value, name):
@@ -105,6 +106,15 @@ def resolve_project(ref: str) -> Project:
     """
     with store.read() as conn:
         return refs.project(conn, ref)
+
+
+def get_item(ref: str) -> Item:
+    """One item, by its exact id or a unique id prefix, with its status as `find_items` says it (a
+    night run's one status, a PR's state: draft, open, merged, closed) and everything its reader last
+    said in `data` (a PR's url, branch, checks; its `signals`). NotFound or Ambiguous as `resolve_item`.
+    """
+    with store.read() as conn:
+        return items.detail(conn, ref)
 
 
 def resolve_item(ref: str) -> Item:
@@ -284,12 +294,17 @@ def _maybe_refresh(fresh, slow=True):
 
 def find_items(query: Optional[str] = None, kind: Optional[str] = None, project_id: Optional[str] = None,
                include_gone: bool = False, limit: Optional[int] = None, refresh: bool = True,
-               include_dismissed: bool = False, status: Optional[str] = None) -> ItemList:
+               include_dismissed: bool = False, status: Optional[str] = None, repo: Optional[str] = None,
+               monday: Optional[str] = None, pr_state: Optional[str] = None) -> ItemList:
     """Items whose title, key, name, cwd or branch holds `query` (any case), newest activity first,
     gone ones last. `kind` keeps one kind; `project_id` keeps items in that project or under it.
     Dismissed items are left out unless `include_dismissed` (then they come last, `dismissed` True).
     A night run's `status` is its one status (`runstatus.decide`, as home shows it); `status`
-    ("in-review", "waiting-on-you", "Merged", ...) keeps only the night runs with it.
+    ("in-review", "waiting-on-you", "Merged", ...) keeps only the night runs with it. A PR's `status`
+    is its state (draft, open, merged, closed).
+    `repo` keeps items of that repo ("shapes-platform" or "dreamteamapp/shapes-platform", any case),
+    `monday` the items that carry that monday item id (in the title, key or branch), and `pr_state`
+    (one of PR_STATES) the PRs in that state; "open" keeps open drafts too.
     Refreshes due sources first unless `refresh` is False.
     """
     if query is not None and not isinstance(query, str):
@@ -301,9 +316,18 @@ def find_items(query: Optional[str] = None, kind: Optional[str] = None, project_
     key = runstatus.parse(status) if status is not None else None
     if status is not None and key is None:
         raise InvalidInput("status must be one of: %s." % ", ".join(runstatus.KEYS))
+    if pr_state is not None and pr_state not in PR_STATES:
+        raise InvalidInput("pr_state must be one of: %s." % ", ".join(PR_STATES))
+    for name, value in (("repo", repo), ("monday", monday)):
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            raise InvalidInput("%s must be some text." % name)
+    if monday is not None and not monday.strip().isdigit():
+        raise InvalidInput("monday is a monday item id, digits only: %s is not one." % monday)
     _maybe_refresh(refresh)
     with store.read() as conn:
-        found = items.find(conn, query, kind, project_id, include_gone, include_dismissed, key)
+        found = items.find(conn, query, kind, project_id, include_gone, include_dismissed, key,
+                           repo=repo.strip() if repo else None, monday=monday.strip() if monday else None,
+                           pr_state_key=pr_state)
     shown, total, truncated = _page(found, limit)
     return ItemList(items=shown, total=total, truncated=truncated)
 
@@ -423,6 +447,28 @@ def mark_done(item_id: str) -> MoveResult:
         return items.mark_done(conn, item_id)
 
 
+def likely_items(project_id: str, kind: Optional[str] = None, limit: Optional[int] = None,
+                 refresh: bool = True) -> LikelyList:
+    """The Inbox items that probably belong in `project_id`: not gone or dismissed,
+    and carrying a monday item id (in the title, key or branch) that an item in the project, or
+    under it, carries too. Each entry names the shared ids and how many items here hold each
+    ("monday 13216938828, like 12 items here"). The ones sharing the id most items here carry come
+    first, then the newest. `monday_ids` sums them up, what
+    `add_rule(project_id, "monday", <id>)` would file from now on. `kind` keeps one kind ("pr").
+    It moves nothing. Refused for the Inbox. Refreshes due sources first unless `refresh` is False.
+    """
+    if kind is not None and kind not in store.ITEM_KINDS:
+        raise InvalidInput("kind must be one of: %s." % ", ".join(store.ITEM_KINDS))
+    limit = _limit(limit)
+    _maybe_refresh(refresh)
+    with store.read() as conn:
+        project = model.Tree(conn).project(project_id)
+        entries, ids = items.likely(conn, project_id, kind)
+    shown, total, truncated = _page(entries, limit)
+    return LikelyList(project_id=project.id, project_name=project.name, entries=shown, monday_ids=ids,
+                      total=total, truncated=truncated)
+
+
 def inbox(limit: Optional[int] = None, refresh: bool = True) -> InboxList:
     """Every unfiled item active in the last 14 days, newest first, each with a suggested project
     and the reason ("same run as ...", "rule: ...", "repo shapes-platform: 4 items there"), or none.
@@ -454,11 +500,12 @@ def save_rule_from_move(move_id: int) -> Rule:
 def add_rule(project_id: str, signal: str, pattern: str, apply: bool = False, dry_run: bool = False) -> RuleAdd:
     """Write a filing rule by hand: file what `pattern` matches on `signal` into `project_id`.
 
-    `signal` is one of the three a learned rule uses, and the rule ranks and matches exactly like
-    one: `workspace` (a glob on a run's slug, `sis-*`; `*` alone is refused), `repo-branch`
+    `signal` is `workspace` (a glob on a run's slug, `sis-*`; `*` alone is refused), `monday` (one
+    monday item id, `13216938828`: a PR whose branch or title holds it, in any repo), `repo-branch`
     ("<repo>" or "<repo> <branch prefix>": `shapes-platform eval/`, a prefix with no `*` gets one;
     no branch is every branch) or `cwd` (an absolute folder, `~` allowed, and everything under it;
-    `/` and the home folder are refused). Refused into the Inbox or an archived project.
+    `/` and the home folder are refused). The rule ranks and matches exactly like a learned one.
+    Refused into the Inbox or an archived project.
 
     Returns `matching`, the Inbox items it files now (a refresh may file them on its own; items
     put in the Inbox by hand, gone or dismissed are left out), with a `sample` of up to 5. A

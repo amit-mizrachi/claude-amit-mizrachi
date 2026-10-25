@@ -60,7 +60,8 @@ ITEM_SCHEMA = {
         "workspace_item_id": NULLABLE_TEXT,
         "revision": {"type": "integer"},
         "status": {"type": "string", "description": "From the item's reader; \"unknown\" when its source failed. "
-                   "A night run's is its one status (in-review, merged, needs-you, ...), as home shows it."},
+                   "A night run's is its one status (in-review, merged, needs-you, ...), as home shows it; "
+                   "a PR's is its state (draft, open, merged, closed) in studio_find, studio_item and studio_likely."},
         "gone": {"type": "boolean"},
         "gone_at": NULLABLE_TEXT,
         "seen_at": NULLABLE_TEXT,
@@ -320,7 +321,8 @@ TOOLS = [
             "query. Refreshes due sources first. kind keeps one kind; project_id keeps items in that "
             "project or under it. Gone items only with include_gone. A night run's status is its one "
             "status, the same word home shows; status keeps only night runs with it (in-review, merged, "
-            "needs-you = waiting on you, ...). Bounded: total and truncated."
+            "needs-you = waiting on you, ...). repo keeps one repo's items, monday the items that carry "
+            "a monday item id, pr_state the PRs in a state (open keeps drafts too). Bounded: total and truncated."
         ),
         "inputSchema": {
             "type": "object",
@@ -335,6 +337,12 @@ TOOLS = [
                 "status": {"type": "string", "maxLength": 40,
                            "description": "Only night runs with this one status: " + ", ".join(api.RUN_STATUSES)
                            + " (needs-you is Waiting on you); a word like \"In review\" works too."},
+                "repo": {"type": "string", "minLength": 1, "maxLength": 200,
+                         "description": "Only items of this repo: shapes-platform or dreamteamapp/shapes-platform."},
+                "monday": {"type": "string", "pattern": "^[0-9]{1,20}$",
+                           "description": "Only items that carry this monday item id in the title, key or branch."},
+                "pr_state": {"type": "string", "enum": list(api.PR_STATES),
+                             "description": "Only PRs in this state; open keeps drafts too."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": LIST_MAX,
                           "description": "At most this many, default %d, max %d." % (LIST_DEFAULT, LIST_MAX)},
             },
@@ -342,6 +350,57 @@ TOOLS = [
         "outputSchema": {"type": "object", "required": ["items", "total", "truncated"],
                          "properties": {"items": ITEMS, "total": {"type": "integer"}, "truncated": {"type": "boolean"}}},
         "annotations": {"title": "Find items", "readOnlyHint": True, "destructiveHint": False,
+                        "idempotentHint": True, "openWorldHint": False},
+    },
+    {
+        "name": "studio_item",
+        "title": "Show one item",
+        "description": (
+            "One item by its id or a unique id prefix (4+ characters): kind, title, home project, how it was "
+            "placed, status (a night run's one status, a PR's state) and data, what its reader last said (a "
+            "PR's url, branch, checks, signals). Reads the store only."
+        ),
+        "inputSchema": {"type": "object", "required": ["item_id"], "additionalProperties": False,
+                        "properties": {"item_id": {"type": "string", "pattern": "^(i_)?[0-9a-f]{4,12}$",
+                                                   "description": "i_1a2b3c4d5e6f, or a unique prefix like i_1a2b."}}},
+        "outputSchema": ITEM_SCHEMA,
+        "annotations": {"title": "Show one item", "readOnlyHint": True, "destructiveHint": False,
+                        "idempotentHint": True, "openWorldHint": False},
+    },
+    {
+        "name": "studio_likely",
+        "title": "Likely but unfiled items",
+        "description": (
+            "The Inbox items that probably belong in project_id: they carry a monday item id that items in "
+            "it (or under it) carry. Each entry says which ids and how many items here hold each; the ones "
+            "sharing the project's main id come first. monday_ids sums them up: what studio_rule_add with "
+            "signal monday would file from now on. kind keeps one kind (pr). Moves nothing; file one with "
+            "studio_move. Refused for the Inbox. Refreshes due sources first. Bounded: total and truncated."
+        ),
+        "inputSchema": {"type": "object", "required": ["project_id"], "additionalProperties": False,
+                        "properties": {
+                            "project_id": dict(PROJECT_ID, description="The project to find likely items for."),
+                            "kind": {"type": "string", "enum": list(store.ITEM_KINDS)},
+                            "limit": {"type": "integer", "minimum": 1, "maximum": LIST_MAX,
+                                      "description": "At most this many, default %d, max %d."
+                                                     % (LIST_DEFAULT, LIST_MAX)}}},
+        "outputSchema": {
+            "type": "object",
+            "required": ["project_id", "project_name", "entries", "monday_ids", "total", "truncated"],
+            "properties": {
+                "project_id": {"type": "string"},
+                "project_name": {"type": "string"},
+                "entries": {"type": "array", "items": {
+                    "type": "object", "required": ["item", "monday_ids", "reason"],
+                    "properties": {"item": ITEM_SCHEMA, "monday_ids": {"type": "array", "items": {"type": "string"}},
+                                   "reason": {"type": "string"}}}},
+                "monday_ids": {"type": "object", "additionalProperties": {"type": "integer"},
+                               "description": "Monday id -> how many items in the project carry it."},
+                "total": {"type": "integer"},
+                "truncated": {"type": "boolean"},
+            },
+        },
+        "annotations": {"title": "Likely but unfiled items", "readOnlyHint": True, "destructiveHint": False,
                         "idempotentHint": True, "openWorldHint": False},
     },
     {
@@ -701,10 +760,11 @@ TOOLS = [
         "description": (
             "Write a filing rule directly, not from a move: file what pattern matches on signal into "
             "project_id. signal workspace: a glob on a run's slug (\"sis-*\"; \"*\" alone is refused). "
+            "monday: one monday item id (\"13216938828\"): a PR whose branch or title holds it, in any repo. "
             "repo-branch: \"<repo>\" or \"<repo> <branch prefix>\" (\"shapes-platform eval/\"; the repo "
             "is matched exactly, no branch means every branch). cwd: an absolute folder and everything under "
             "it (\"/\" and the home folder are refused). It ranks and matches exactly like a learned rule: "
-            "workspace > repo-branch > cwd, newest first. Returns matching, the Inbox items it files now, with "
+            "workspace > monday > repo-branch > cwd, newest first. Returns matching, the Inbox items it files now, with "
             "a sample of up to 5. dry_run true saves and files nothing: call it first and show the count. "
             "apply true also files each matching Inbox item now, one move_id each for studio_undo; items filed "
             "elsewhere are left alone. Writing the same rule twice keeps the one there (created false)."
@@ -712,9 +772,10 @@ TOOLS = [
         "inputSchema": {"type": "object", "required": ["project_id", "signal", "pattern"], "additionalProperties": False,
                         "properties": {
                             "project_id": dict(PROJECT_ID, description="The project the rule files into (not the Inbox)."),
-                            "signal": {"type": "string", "enum": ["workspace", "repo-branch", "cwd"]},
+                            "signal": {"type": "string", "enum": ["workspace", "monday", "repo-branch", "cwd"]},
                             "pattern": {"type": "string", "minLength": 1, "maxLength": 300,
-                                        "description": "sis-*, shapes-platform eval/, or /Users/me/work/shapes."},
+                                        "description": "sis-*, 13216938828, shapes-platform eval/, or "
+                                                       "/Users/me/work/shapes."},
                             "apply": {"type": "boolean", "description": "Also file the matching Inbox items now."},
                             "dry_run": {"type": "boolean", "description": "Say what it would file; save nothing."}}},
         "outputSchema": RULE_ADD_SCHEMA,
@@ -902,7 +963,16 @@ def tool_create(args):
 def tool_find(args):
     return api.find_items(query=args.get("query"), kind=args.get("kind"), project_id=args.get("project_id"),
                           include_gone=args.get("include_gone", False), limit=args.get("limit", LIST_DEFAULT),
-                          include_dismissed=args.get("include_dismissed", False), status=args.get("status"))
+                          include_dismissed=args.get("include_dismissed", False), status=args.get("status"),
+                          repo=args.get("repo"), monday=args.get("monday"), pr_state=args.get("pr_state"))
+
+
+def tool_item(args):
+    return api.get_item(args["item_id"])
+
+
+def tool_likely(args):
+    return api.likely_items(args["project_id"], kind=args.get("kind"), limit=args.get("limit", LIST_DEFAULT))
 
 
 def tool_status(args):
@@ -1015,6 +1085,8 @@ HANDLERS = {
     "studio_list": tool_list,
     "studio_create": tool_create,
     "studio_find": tool_find,
+    "studio_item": tool_item,
+    "studio_likely": tool_likely,
     "studio_status": tool_status,
     "studio_add": tool_add,
     "studio_move": tool_move,

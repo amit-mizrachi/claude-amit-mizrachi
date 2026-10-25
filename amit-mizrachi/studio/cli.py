@@ -30,6 +30,8 @@ Output and exit codes, the same for every command:
 - `actions <run>` prints the run's actions menu, one line each: id, label, the command that does it.
 - `rule-add` prints the rule and, with `--apply`, one move id and `undo` command per filed item;
   `--dry-run` saves nothing. `--branch-prefix` without `--repo` is a usage error (exit 2).
+- `item <item>` prints one item, field by field; `likely <project>` prints its likely but unfiled
+  Inbox items with the `file` and `rule-add --monday` commands that file them.
 
 Zero dependencies. Python 3.9+. Data in `$PROJECT_STUDIO_HOME`, default `~/.project-studio`.
 """
@@ -37,6 +39,7 @@ Zero dependencies. Python 3.9+. Data in `$PROJECT_STUDIO_HOME`, default `~/.proj
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
 
@@ -177,6 +180,31 @@ def text_find(result):
     rows = [[short(i.id), i.kind, i.status or "-", path(i.project_path),
              i.title + (" (gone)" if i.gone else "") + (" (dismissed)" if i.dismissed else "")] for i in result.items]
     return (table(rows) or ["No items match."]) + cut(len(result.items), result.total)
+
+
+def text_item(item):
+    """One item, a field a line: what `find` cuts to one row."""
+    data = item.data
+    rows = [["id", item.id], ["kind", item.kind], ["title", item.title], ["project", path(item.project_path)],
+            ["placed by", item.placed_by], ["status", item.status or "-"], ["key", item.key]]
+    rows += [[name, str(data[key])] for name, key in (("url", "url"), ("branch", "branch"), ("cwd", "cwd"),
+                                                       ("updated", "updated_at")) if data.get(key)]
+    rows += [["gone", item.gone_at]] if item.gone else []
+    rows += [["dismissed", "%s (restore: %s restore %s)" % (item.dismissed_at, PROG, short(item.id))]] \
+        if item.dismissed else []
+    return table(rows)
+
+
+def text_likely(result):
+    """Each likely item with why, then the commands that file them: one by one, or a rule per monday id."""
+    if not result.entries:
+        return ["No Inbox item shares a monday id with %s." % result.project_name]
+    rows = [[short(e.item.id), e.item.kind, e.item.status or "-", e.item.title, e.reason] for e in result.entries]
+    lines = table(rows) + cut(len(result.entries), result.total)
+    lines += ["", "File one: %s file <item> %s" % (PROG, shlex.quote(result.project_name))]
+    lines += ["File them from now on: %s rule-add %s --monday %s --dry-run  (%d item%s here)"
+              % (PROG, shlex.quote(result.project_name), m, n, "" if n == 1 else "s") for m, n in result.monday_ids.items()]
+    return lines
 
 
 def text_inbox(result):
@@ -372,6 +400,18 @@ def setup_find(parser):
     parser.add_argument("--dismissed", action="store_true", help="include dismissed items (marked, listed last)")
     parser.add_argument("--status", help="only night runs with this status: %s (needs-you is waiting on you)"
                         % ", ".join(api.RUN_STATUSES))
+    parser.add_argument("--repo", metavar="NAME", help="only items of this repo: shapes-platform or "
+                                                       "dreamteamapp/shapes-platform")
+    parser.add_argument("--monday", metavar="ID", help="only items that carry this monday item id (title, key "
+                                                       "or branch)")
+    parser.add_argument("--pr-state", choices=api.PR_STATES, help="only PRs in this state (open keeps drafts too)")
+    add_limit(parser, LIST_LIMIT)
+    add_no_refresh(parser)
+
+
+def setup_likely(parser):
+    add_project_arg(parser)
+    parser.add_argument("--kind", choices=store.ITEM_KINDS, help="keep one kind: pr for the likely PRs")
     add_limit(parser, LIST_LIMIT)
     add_no_refresh(parser)
 
@@ -393,6 +433,8 @@ def setup_rule_add(parser):
     parser.add_argument("project", help="the project the rule files into: id, unique id prefix or name")
     signal = parser.add_mutually_exclusive_group(required=True)
     signal.add_argument("--workspace", metavar="GLOB", help="a night run's slug, as a glob: 'sis-*'")
+    signal.add_argument("--monday", metavar="ID", help="a monday item id: PRs whose branch or title holds it, "
+                                                       "in any repo")
     signal.add_argument("--repo", metavar="NAME", help="a repo folder name, matched exactly (every branch unless "
                                                        "--branch-prefix)")
     signal.add_argument("--cwd-prefix", metavar="FOLDER", help="a folder: what runs in it or under it")
@@ -408,6 +450,8 @@ def run_rule_add(args):
         raise UsageError("--branch-prefix narrows a repo rule: add --repo <name>.")
     if args.workspace is not None:
         signal, pattern = "workspace", args.workspace
+    elif args.monday is not None:
+        signal, pattern = "monday", args.monday
     elif args.repo is not None:
         signal, pattern = "repo-branch", " ".join(p for p in (args.repo, args.branch_prefix) if p)
     else:
@@ -613,8 +657,17 @@ COMMANDS = [
     Command("find", "List items that match, newest activity first.", "project-studio find alpha --kind session-bg",
             setup_find, lambda a: api.find_items(query=a.query, kind=a.kind, project_id=project_ref(a.project),
                                                  include_gone=a.gone, limit=a.limit, refresh=not a.no_refresh,
-                                                 include_dismissed=a.dismissed, status=a.status),
+                                                 include_dismissed=a.dismissed, status=a.status, repo=a.repo,
+                                                 monday=a.monday, pr_state=a.pr_state),
             text_find),
+    Command("item", "Print one item, field by field: kind, title, project, how it was placed, status (a PR's "
+            "state), key, URL, branch.", "project-studio item i_1a2b3c4d", lambda p: add_item_arg(p),
+            lambda a: api.get_item(a.item), text_item),
+    Command("likely", "List the Inbox items that probably belong in a project (they share a monday id with "
+            "items in it), with the commands that file them. Moves nothing.",
+            "project-studio likely 'Shapes in Shapes' --kind pr", setup_likely,
+            lambda a: api.likely_items(project_ref(a.project), kind=a.kind, limit=a.limit, refresh=not a.no_refresh),
+            text_likely),
     Command("inbox", "List unfiled items, newest first, with the suggested project.", "project-studio inbox --limit 20",
             setup_inbox, lambda a: api.inbox(limit=a.limit, refresh=not a.no_refresh), text_inbox),
     Command("refresh", "Re-read the due sources and say what changed and which sources failed.",
@@ -679,7 +732,8 @@ COMMANDS = [
     Command("rule-save", "Always file items like this here: save a rule from a filing's move id.",
             "project-studio rule-save 42", add_move_id, lambda a: api.save_rule_from_move(a.move_id),
             text_rule("Saved")),
-    Command("rule-add", "Write a filing rule by pattern: a workspace glob, a repo (+ branch prefix) or a folder. "
+    Command("rule-add", "Write a filing rule by pattern: a workspace glob, a monday id, a repo (+ branch prefix) "
+            "or a folder. "
             "Says how many Inbox items it files now; --apply files them, --dry-run saves nothing.",
             "project-studio rule-add Shapes --workspace 'sis-*' --dry-run", setup_rule_add, run_rule_add,
             text_rule_add),
