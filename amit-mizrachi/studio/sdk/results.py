@@ -326,7 +326,8 @@ class RunLink:
     order. `id` is the run action it does (open-pr, open-plan, open-conductor) on `target_id`. The
     PR's `label` is "#733" and its `hint` (the tooltip) its state and checks, "PR #733 open - checks
     green"; on a home row's PR line the label is that whole text. `primary`: drawn filled (Open plan
-    on a run waiting on you), else a quiet (ghost) button. `url`: the PR's URL, '' for the others."""
+    on a run waiting on you), else a quiet (ghost) button. `url`: the PR's URL, '' for the others.
+    `tone`: the PR's colour (`home.pr_tone`: merged, red, green, gray), '' for the others."""
 
     id: str
     label: str
@@ -334,6 +335,7 @@ class RunLink:
     hint: str
     primary: bool = False
     url: str = ""
+    tone: str = ""
 
 
 @dataclass

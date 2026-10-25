@@ -8,7 +8,7 @@ import re
 import subprocess
 import sys
 
-from sdk import api, runmenu
+from sdk import api, home, runmenu
 from sdk.results import to_dict
 
 from . import PLUGIN
@@ -75,9 +75,16 @@ class EveryRunCarriesItsLinks(RunLinks):
             self.assertEqual((run.pr_url, run.pr_number, run.pr_state), (PR_A, 733, "open"), where)
             self.assertEqual([link.id for link in run.links], ["open-pr", "open-plan", "open-conductor"], where)
             pr = run.links[0]
-            self.assertEqual((pr.label, pr.hint, pr.url, pr.target_id, pr.primary),
-                             ("#733", "PR #733 open - checks green", PR_A, self.run.id, False), where)
+            self.assertEqual((pr.label, pr.hint, pr.url, pr.target_id, pr.primary, pr.tone),
+                             ("#733", "PR #733 open - checks green", PR_A, self.run.id, False, "green"), where)
             self.assertFalse(any(link.primary for link in run.links), where)    # In review: every link quiet
+
+    def test_a_pr_link_is_coloured_by_its_state_and_checks(self):
+        self.assertEqual(self.surfaces(self.two.id)["home"].links[0].tone, "gray")     # checks running
+        for pr, tone in (({"state": "merged"}, "merged"), ({"state": "open", "checks": {"total": 3, "red": 1}}, "red"),
+                         ({"state": "open", "checks": {"total": 3}}, "green"), ({"state": "open"}, "green"),
+                         ({"state": "open", "draft": True}, "gray"), ({"state": "closed"}, "gray")):
+            self.assertEqual(home.pr_tone(pr), tone, pr)
 
     def test_a_run_without_a_pr_has_no_pr_fields_and_no_links(self):
         for where, run in self.surfaces(self.stuck.id).items():
@@ -162,10 +169,12 @@ class ThePageDrawsTheLinks(RunLinks):
     def body(self, signature):
         return re.search(r"function %s \{(.*?)\n  \}\n" % re.escape(signature), self.script(), re.S).group(1)
 
-    def test_run_lines_and_panels_draw_links_and_the_row_its_pr_links(self):
+    def test_run_lines_and_panels_draw_links_and_the_row_no_pr_line(self):
+        """The row's PR line said each run's PR a second time; the run's coloured "#733" says it."""
         self.assertIn("runLinks(run, acts);", self.body("runLine(run, from)"))
         self.assertIn("runLinks(r, acts);", self.body("runPanel(r, from)"))
-        self.assertIn("prLinks(c.prs)", self.body("card(c)"))
+        self.assertNotIn("c.prs", self.body("card(c)"))
+        self.assertIn('"lk prn " + (l.tone || "gray")', self.script())
         self.assertNotIn("open_plan_url", self.script())
 
     def test_a_run_name_wraps_instead_of_being_cut(self):

@@ -25,6 +25,11 @@
   var TONE = { "needs-you": "wait", blocked: "blk", running: "run_", "in-review": "rev", merged: "done", done: "done",
     pending: "pend", paused: "pend", unknown: "stale" };
   var ATTENTION = { "needs-you": "attn", blocked: "bad" };
+  // As few words as can be: a run's status is its glyph and colour (word and reason on hover); the
+  // reason is written out only where a person may act (SAY), and the stage bar only while it is not
+  // settled (BUSY). A settled run (merged, done, in review) is one line: glyph, name, links.
+  var SAY = { "needs-you": 1, blocked: 1, paused: 1 };
+  var BUSY = { "needs-you": 1, blocked: 1, paused: 1, running: 1 };
 
   function el(tag, cls, text) {
     var node = document.createElement(tag);
@@ -109,11 +114,11 @@
 
   // ------------------------------------------------------------------ components
 
-  function prLine(text) {
-    var node = el("span", "pr");
-    var match = /^PR (#\d+)(.*)$/.exec(text);
-    if (!match) { node.textContent = text; return node; }
-    return add(node, document.createTextNode("PR "), el("b", null, match[1]), document.createTextNode(match[2]));
+
+  function glyph(tone, run) {
+    var node = el("span", "g " + tone, run.glyph);
+    node.title = run.word + (run.reason || run.detail ? ": " + (run.reason || run.detail) : "");
+    return node;
   }
 
   function bar(cells) {
@@ -125,12 +130,16 @@
   // A home run line: its links after its name (PR, Open plan, Open conductor: `runLinks`); every
   // line has the "..." menu (and right-click), and drags onto another project's row or block to
   // move there. `from` is the project it lives in. A long name wraps; it is never cut for the buttons.
+  // A reason that only repeats the run's PR ("PR #701 open, 3 checks red") is not written: its
+  // coloured "#701" already says it.
+  function says(run, reason) { return SAY[run.status] && reason && !/^PR #\d+/.test(reason); }
+
   function runLine(run, from) {
     var tone = TONE[run.status] || "stale";
     var line = el("div", run.gone ? "run dim" : "run");
     var name = el("span", "nm", run.title);
     name.title = run.title;
-    add(line, el("span", "g " + tone, run.glyph), name);
+    add(line, glyph(tone, run), name);
     var acts = el("span", "ra");
     runLinks(run, acts);
     quickButtons(run, acts);
@@ -138,16 +147,18 @@
     withMenu(line, run);
     line.setAttribute("data-item-id", run.item_id);
     draggable(line, { id: run.item_id, name: run.title, revision: null, from: from });
-    var st = add(el("span", "st"), el("span", "w " + tone, run.word));
+    var st = el("span", "st");
     if (run.sub_project) {
       var tag = el("span", "in", run.sub_project);
       tag.title = run.sub_project;
       st.appendChild(tag);
     }
-    if (run.reason) { st.appendChild(el("span", null, run.reason)); }
-    if (run.progress) { st.appendChild(el("span", null, run.progress)); }
-    if (run.bar && run.bar.length) { st.appendChild(bar(run.bar)); }
-    return add(line, st);
+    if (says(run, run.reason)) { st.appendChild(el("span", "w " + tone, run.reason)); }
+    if (BUSY[run.status] && run.bar && run.bar.length) {
+      var cells = st.appendChild(bar(run.bar));
+      cells.title = run.progress || "";
+    }
+    return st.firstChild ? add(line, st) : line;
   }
 
   // The runs of a home row or block, laid across the width: several per line, each in a cell of its own.
@@ -164,9 +175,9 @@
     var href = "#/p/" + encodeURIComponent(s.project_id);
     var name = el("span", "nm", s.name);
     name.title = s.name;
-    var head = add(el("div", "bh"), el("span", "g " + tone, s.glyph), name,
-      s.word ? el("span", "w " + tone, s.word) : null, el("span", "sub", s.text),
-      s.inside ? el("span", "sub", s.inside) : null);
+    var mark = el("span", "g " + tone, s.glyph);
+    mark.title = [s.word, s.text].filter(Boolean).join(": ");
+    var head = add(el("div", "bh"), mark, name);
     var node = add(el("div", "block"), head, s.runs.length ? runCells(s.runs.map(function (r) {
       return r.sub_project_id ? r : Object.assign({}, r, { sub_project_id: s.project_id });
     })) : null, s.more ? el("span", "more", s.more) : null);
@@ -196,18 +207,16 @@
     var title = el("h4", null, c.project.name);
     title.title = c.project.name;
     var tone = TONE[c.status] || "stale";
-    node.appendChild(add(el("div", "ct"), el("span", "g " + tone, c.glyph), title,
-      c.word ? el("span", "w " + tone, c.word) : null, el("span", "sub", c.counts),
-      el("span", "age", c.last_activity)));
+    var mark = el("span", "g " + tone, c.glyph);
+    mark.title = [c.word, c.counts].filter(Boolean).join(": ");
+    node.appendChild(add(el("div", "ct"), mark, title, el("span", "age", c.last_activity)));
     if (c.runs.length) { node.appendChild(runCells(c.runs, c.project.id)); }
     if (c.more) { node.appendChild(el("span", "more", c.more)); }
-    if (c.prs.length) { node.appendChild(prLinks(c.prs)); } else if (c.pr) { node.appendChild(prLine(c.pr)); }
     if (c.sub_projects.length) {
       var blocks = el("div", "blocks");
       c.sub_projects.forEach(function (s) { blocks.appendChild(subBlock(s)); });
       node.appendChild(blocks);
     }
-    if (c.empty && !c.sub_projects.length) { node.appendChild(el("span", "none", c.empty)); }
     return node;
   }
 
@@ -502,8 +511,11 @@
       button("Remove project...", null, function () { removeProject(v); })));
   }
 
+  // The back button names where it goes, and the title says where you are, so the path is drawn
+  // only two levels down or deeper, where it says something neither does.
   function crumb(v) {
     var node = add(el("div", "crumb"), backButton(v));
+    if (v.crumbs.length < 2) { return node; }
     var top = el("a", null, "Projects");
     top.href = "#/";
     node.appendChild(top);
@@ -531,8 +543,9 @@
   }
 
   function tile(t) {
-    var node = add(el("button", "mini"), el("span", "g " + (TONE[t.status] || "stale"), t.glyph),
-      document.createTextNode(t.name), el("span", "sub", t.text));
+    var mark = el("span", "g " + (TONE[t.status] || "stale"), t.glyph);
+    mark.title = t.text || "";
+    var node = add(el("button", "mini"), mark, document.createTextNode(t.name));
     node.type = "button";
     node.setAttribute("data-project-id", t.project_id);
     dropTarget(node, t.project_id);
@@ -550,11 +563,10 @@
     runLinks(r, acts);
     quickButtons(r, acts);
     acts.appendChild(menuButton(r));
-    var st = add(el("span", "st"), el("span", "w " + tone, r.word), r.detail ? el("span", null, r.detail) : null,
-      r.bar.length ? bar(r.bar) : null);
-    if (r.started) { add(st, el("span", null, "-"), el("span", null, r.started)); }
-    if (r.pr) { add(st, el("span", null, "-"), prLine(r.pr)); }
-    var node = add(el("div", r.gone ? "runbig dim" : "runbig"), el("span", "g " + tone, r.glyph), name, acts, st);
+    var st = add(el("span", "st"), says(r, r.detail) ? el("span", "w " + tone, r.detail) : null,
+      BUSY[r.status] && r.bar.length ? bar(r.bar) : null);
+    var node = add(el("div", r.gone ? "runbig dim" : "runbig"), glyph(tone, r), name, acts,
+      st.firstChild ? st : null);
     node.setAttribute("data-item-id", r.item_id);
     withMenu(node, r);
     draggable(node, { id: r.item_id, name: r.title, revision: null, from: from });
@@ -638,26 +650,17 @@
   // A run's links (sdk/runmenu.py `links`), drawn after its name on home and in the view: its PR
   // ("#733", state and checks as the tooltip), Open plan (filled when `primary`) and Open conductor.
   // Each does its run action: the PR and the plan open through /api/open.
+  var SHORT = { "open-plan": "Plan", "open-conductor": "Conductor" };
   function runLinks(run, into) {
     run.links.forEach(function (l) {
       var look = ACT_LOOK[l.id] || ["", null];
-      var node = button(look[0] + l.label, l.primary ? "pri lk" : "ghost lk", function (b) { RUN_ACTS[l.id](l, b); });
+      var cls = l.id === "open-pr" ? "lk prn " + (l.tone || "gray") : l.primary ? "pri lk" : "ghost lk";
+      var node = button(look[0] + (SHORT[l.id] || l.label), cls, function (b) { RUN_ACTS[l.id](l, b); });
       node.title = l.hint;
       into.appendChild(node);
     });
   }
 
-  // A home row's PR line as links, one per PR of its shown runs ("PR #738 open - checks running").
-  function prLinks(prs) {
-    var line = el("span", "prs");
-    prs.forEach(function (l) {
-      var node = button("", "ghost lk pr", function (b) { RUN_ACTS[l.id](l, b); });
-      add(node, prLine(l.label));
-      node.title = l.hint;
-      line.appendChild(node);
-    });
-    return line;
-  }
 
   function quickButtons(run, into) {
     run.actions.forEach(function (a) {
@@ -779,8 +782,7 @@
 
   function subHead(v, g, key, open) {
     var toggle = add(el("button", "subhead"), el("span", "tw", open ? "\u25be" : "\u25b8"),
-      el("span", "g " + (TONE[g.status] || "stale"), g.glyph), el("b", null, g.name),
-      g.word ? el("span", "w " + (TONE[g.status] || "stale"), g.word) : null, el("span", "sub", g.text));
+      el("span", "g " + (TONE[g.status] || "stale"), g.glyph), el("b", null, g.name));
     toggle.type = "button";
     toggle.title = g.name;
     toggle.setAttribute("aria-expanded", open ? "true" : "false");
@@ -803,7 +805,6 @@
     var shown = all ? g.runs : g.runs.slice(0, g.shown);
     var body = el("div", "subbody");
     shown.forEach(function (r) { body.appendChild(runPanel(r, g.project_id)); });
-    if (!g.runs.length) { body.appendChild(el("p", "none", "No night runs here.")); }
     if (g.more && !all) {
       body.appendChild(button(g.more, "ghost", function () { subMore[key] = true; renderView(lastView); }));
     }
@@ -1363,7 +1364,6 @@
   // (`status_text`, a fixed-width spot), and the body changes only where the data did.
   function render(s) {
     lastState = s;
-    text($("caption"), s.caption);
     text($("age"), s.status_text);
     text($("inbox-count"), String(s.inbox_count));
     keep($("banners"), s.banners.map(banner));

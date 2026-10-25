@@ -15,19 +15,19 @@ Rules kept here, in menu order:
 - Every run line, on home, in the project view and in `status`, shows its links after its name
   (`links`): its PR ("#733", its state and checks as the tooltip), Open plan (filled on a run
   waiting on you, quiet otherwise) and Open conductor, each one only when its action applies.
-- Besides the menu and the links, a project view panel shows every other action but Move to...
-  (the menu and drag) as a button too (`quick`); a home line shows none.
+- Besides its links, neither a home line nor a project view panel shows a button: every other
+  action is in the "..." menu (and right-click), so a line says as little as it can.
 """
 
 from . import items, model, runstatus
 from .actions import run_session
 from .errors import Refused
+from .home import pr_tone
 from .reconcile import WORKSPACE_KINDS
 from .results import RunAction, RunActions, RunLink
 
 MARKABLE = runstatus.MARKABLE
 LINKS = ("open-pr", "open-plan", "open-conductor")   # a run line's links after its name, in this order
-MENU_ONLY = ("move",)                                # a run panel shows every other action as a button too
 HINTS = {
     "open-plan": "Open its plan page.",
     "open-pr": "Open its pull request.",
@@ -93,7 +93,7 @@ def links(run, actions):
             continue
         if link_id == "open-pr":
             found.append(RunLink(id=a.id, label=pr_label(run.pr), target_id=a.target_id,
-                                 hint=run.pr_text or a.hint, url=run.pr.get("url") or ""))
+                                 hint=run.pr_text or a.hint, url=run.pr.get("url") or "", tone=pr_tone(run.pr)))
         else:
             found.append(RunLink(id=a.id, label=a.label, target_id=a.target_id, hint=a.hint,
                                  primary=link_id == "open-plan" and run.status == "needs-you"))
@@ -109,14 +109,8 @@ def pr_links(runs):
         if url and run.pr_text and url not in seen:
             seen.add(url)
             found.append(RunLink(id="open-pr", label=run.pr_text, target_id=run.item_id, hint=HINTS["open-pr"],
-                                 url=url))
+                                 url=url, tone=pr_tone(run.pr)))
     return found
-
-
-def panel_quick(actions):
-    """The ids of `actions` a project view run panel draws as buttons besides its links: all but
-    Move to... and the links."""
-    return [a.id for a in actions if a.id not in MENU_ONLY and a.id not in LINKS]
 
 
 def live_session(conn, run):

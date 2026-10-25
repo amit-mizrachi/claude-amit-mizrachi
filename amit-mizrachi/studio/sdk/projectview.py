@@ -25,7 +25,7 @@ import os
 import time
 
 from . import cache, items, model, runstatus, store
-from .runmenu import for_run, has_plan as run_has_plan, links as run_links, live_session, panel_quick
+from .runmenu import for_run, has_plan as run_has_plan, links as run_links, live_session
 from .reconcile import WORKSPACE_KINDS
 from .home import MOVING, _active_children, _progress_text, _stage_bar, clock, pr_text
 from .results import ProjectView, RunGroup, ViewFold, ViewRow, ViewRun, ViewSession, ViewTile
@@ -108,7 +108,7 @@ def view_run(conn, run, arts):
                    terminal_item_id=live, gone=run.gone,
                    can_mark_done=run.status in runstatus.MARKABLE and not run.gone,
                    conductor_item_id=run.conductor_item_id if not run.gone else None,
-                   actions=menu, quick=panel_quick(menu), pr_url=run.pr_url, pr_number=run.pr_number,
+                   actions=menu, quick=[], pr_url=run.pr_url, pr_number=run.pr_number,
                    pr_state=run.pr_state, links=run_links(run, menu))
 
 

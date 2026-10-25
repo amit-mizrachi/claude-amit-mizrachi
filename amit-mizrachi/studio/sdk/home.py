@@ -73,6 +73,20 @@ def pr_state(pr):
     return "draft" if pr.get("draft") and pr.get("state") == "open" else (pr.get("state") or "")
 
 
+def pr_tone(pr):
+    """A PR's colour as its link draws it: 'merged' (purple), 'red' (a check failed), 'green' (open,
+    not a draft, checks green or none: ready for merge), else 'gray' (draft, checks running, closed)."""
+    state = pr_state(pr)
+    if state == "merged":
+        return "merged"
+    checks = (pr or {}).get("checks") or {}
+    if state in ("open", "draft") and checks.get("red"):
+        return "red"
+    if state == "open" and not checks.get("pending"):
+        return "green"
+    return "gray"
+
+
 def pr_text(pr):
     """'PR #4102 draft - 2 checks red', 'PR #4127 open - checks green', 'PR #1182 merged', or ''."""
     if not pr or not pr.get("number"):

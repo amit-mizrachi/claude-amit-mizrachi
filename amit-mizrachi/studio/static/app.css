@@ -63,7 +63,6 @@ body{margin:0;font:var(--font-size-2)/var(--line-height-2) var(--font);color:var
 .w{font-weight:600}.w.run_{color:var(--amber-11)}.w.done{color:var(--green-11)}.w.wait{color:var(--violet-11)}.w.blk{color:var(--red-11)}.w.rev{color:var(--blue-11)}
 .bar{display:inline-flex;gap:2px;flex:0 1 auto;min-width:0}.bar i{width:14px;flex:0 1 auto;min-width:3px;height:6px;border-radius:2px;background:var(--bg-ui);border:1px solid var(--border)}
 .bar i.d{background:var(--green-9);border-color:var(--green-9)}.bar i.r{background:var(--amber-9);border-color:var(--amber-11)}.bar i.b{background:var(--red-9);border-color:var(--red-9)}.bar i.w{background:var(--violet-9);border-color:var(--violet-9)}
-.pr{font-size:var(--font-size-1);color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pr b{font-weight:600;color:var(--text)}
 .none{color:var(--text-2);font-size:var(--font-size-1)}
 .more{color:var(--text-2);font-size:var(--font-size-1)}
 .sk{background:var(--bg-ui);border-radius:var(--radius-2);height:12px}.sk.w60{width:60%;height:16px}.sk.w90{width:90%}.sk.w40{width:40%}
@@ -140,7 +139,6 @@ code{font-family:var(--mono);font-size:12px;background:rgba(127,127,127,.25);pad
 .run.drag,.runbig.drag{opacity:.5}
 .run .ra{display:flex;gap:var(--space-1);align-items:center;justify-content:flex-end;flex-wrap:wrap}
 .btn.lk{padding:0 6px;line-height:1.5}.btn.ghost.lk{border-color:var(--border)}.btn.ghost.lk:hover{background:var(--bg-ui);color:var(--text)}
-.prs{display:flex;flex-wrap:wrap;gap:var(--space-1);min-width:0}.prs .btn.lk{max-width:100%}.prs .btn .pr{color:inherit}
 .btn.more{padding:0 6px;min-height:0;line-height:1.4}
 .rmenu{position:fixed;z-index:20;min-width:190px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-3);padding:var(--space-1);display:flex;flex-direction:column;gap:2px;box-shadow:0 4px 16px rgba(0,0,0,.18)}
 .rmenu .btn{justify-content:flex-start;border-color:transparent;background:none}.rmenu .btn:hover,.rmenu .btn:focus-visible{background:var(--bg-ui)}
@@ -161,4 +159,7 @@ code{font-family:var(--mono);font-size:12px;background:rgba(127,127,127,.25);pad
 .pop input[type=text]{font:inherit;font-size:var(--font-size-1);color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-2);padding:3px 6px;margin-bottom:var(--space-1)}
 .pop .note{font-size:var(--font-size-1);color:var(--text-2);max-width:320px;margin-bottom:var(--space-1);overflow-wrap:anywhere}.pop .note.err{color:var(--red-9)}
 .pop label{display:flex;gap:6px;align-items:center;font-size:var(--font-size-1);margin-bottom:var(--space-1);cursor:pointer}
-
+/* a PR link is its number in its colour: purple merged, red a check failed, green ready for merge, gray otherwise */
+.btn.prn{font-weight:600;background:none}.btn.prn.merged{color:var(--violet-11);border-color:var(--violet-9)}.btn.prn.red{color:var(--red-11);border-color:var(--red-9)}.btn.prn.green{color:var(--green-11);border-color:var(--green-9)}.btn.prn.gray{color:var(--text-2)}
+/* a session row shows its first button; the others (Copy command, Dismiss) on hover or focus */
+.row .acts .btn:not(:first-child){visibility:hidden}.row:hover .acts .btn,.row:focus-within .acts .btn{visibility:visible}

@@ -126,11 +126,16 @@ first, "+ n more"), then each active sub-project as an indented block with its o
 to 3 runs. Projects with no runs and nothing new in 14 days fold into "n quiet projects" at the
 bottom. A long name ends in "..." and shows in full on hover; nothing runs past a row's edge. A
 run's name never ends in "..." for its buttons: it wraps to a second line, full name on hover.
-Every run line, on home and in the project view, shows its links after its name as small
-buttons: its PR (**#733**, its state and checks as the tooltip; a click opens the PR in the
-browser), **Open plan** and **Open conductor**, each when the run has one. A run waiting on you
-draws its Open plan filled; every other link is a quiet button. A row's PR line ("PR #738 open -
-checks running") is a link too, one per PR of the runs it shows. A
+The page says as few words as it can. A run's status is its glyph and colour (its word and
+reason on hover); only a run waiting on you, blocked or paused writes its reason out ("plan
+gate"), and only a run not yet settled draws its stage bar. A merged, done or in-review run is
+one line. A project row's header is its glyph, name and last activity (its status and counts on
+hover). Every run line, on home and in the project view, shows its links after its name as
+small buttons: its PR as just its number (**#733**) in its colour - purple merged, red a check
+failed, green ready for merge (open, checks green or none), gray otherwise (draft, checks
+running, closed) - with its state and checks as the tooltip, a click opens it in the browser;
+**Plan** and **Conductor**, each when the run has one. A run waiting on you draws its Plan
+filled. Every other action is in the run's **...** menu (and right-click). A
 click on a row (or Enter on it) opens the project view
 (its own runs, then a section per sub-project with that sub-project's runs, sessions, everything
 else), where a session row's **Open in Terminal** opens Terminal on

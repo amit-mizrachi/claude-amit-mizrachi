@@ -102,7 +102,7 @@ MOVE_SCHEMA = {
 }
 RUN_LINK_SCHEMA = {
     "type": "object",
-    "required": ["id", "label", "target_id", "hint", "primary", "url"],
+    "required": ["id", "label", "target_id", "hint", "primary", "url", "tone"],
     "properties": {
         "id": {"type": "string", "enum": ["open-pr", "open-plan", "open-conductor"],
                "description": "The run action it does (studio_open with target pr / plan, studio_terminal "
@@ -113,6 +113,10 @@ RUN_LINK_SCHEMA = {
                  "checks green\"."},
         "primary": {"type": "boolean", "description": "Drawn filled: Open plan on a run waiting on you."},
         "url": {"type": "string", "description": "The PR's URL; \"\" for the others."},
+        "tone": {"type": "string", "enum": ["", "merged", "red", "green", "gray"],
+                 "description": "The PR's colour: merged (purple), red (a check failed), green (open, checks "
+                                "green or none: ready for merge), gray (draft, checks running, closed); \"\" for "
+                                "the others."},
     },
 }
 RUN_SCHEMA = {

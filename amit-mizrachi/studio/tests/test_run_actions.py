@@ -160,11 +160,12 @@ class HomeAndViewDrawTheSameList(RunMenu):
         for run in (self.live, self.stuck, self.wait):
             self.assertEqual(lines[run.id].quick, [], run.title)
 
-    def test_a_panel_shows_its_links_then_every_other_action_but_move_as_a_button(self):
+    def test_a_panel_shows_its_links_and_no_other_button(self):
+        """Fewer words: every other action is in the panel's "..." menu, as on a home line."""
         panels = self.panels()
         self.assertEqual([link.id for link in panels[self.live.id].links], ["open-pr", "open-plan", "open-conductor"])
-        self.assertEqual(panels[self.live.id].quick, ["open-terminal", "dismiss", "throw-away"])
-        self.assertEqual(panels[self.stuck.id].quick, ["mark-done", "dismiss", "throw-away"])
+        for run in (self.live, self.stuck):
+            self.assertEqual(panels[run.id].quick, [], run.title)
 
     def test_a_sub_projects_run_panel_carries_its_menu_too(self):
         inner = api.create_project("Inner", self.alpha.id)
