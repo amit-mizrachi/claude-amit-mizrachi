@@ -759,3 +759,45 @@ not end the sprint before it has run. `ci-watch.sh` is gone. Ready before green 
 some repos run their full test lanes only on a ready PR. An owner who forbids sessions that wait
 on CI must carve the `CI` ticket out of that rule in their own instructions; the skill does not
 override them.
+
+## One feature, three repos, one PR (2026-10-31, machina evals through io-server, 1.20.0)
+
+A feature touched shapes-machina, shapes-platform and shapes-internal: 16 tickets, each tagged
+with its repo in the title, with blocking edges across all three. The sprint could make one
+branch and one PR, so it was launched with routing written by hand into every prompt. That left
+one `CI` ticket watching one PR, one `FIX-FINAL` for three trees, one `ACCEPTANCE.verdict`, and
+no place for "merge platform before internal". Each PR needed links to the others and its own
+"Manual steps after merge", and nothing wrote them.
+
+**Rule.** `MULTI_REPO=1` and `REPOS=<key> ...` in `facts.env`, one `repos/<key>.env` per repo,
+and `state/<TAG>.repo` per tag. The decisions behind it:
+
+- **Per-repo facts live only in the repo files**, and bootstrap refuses one in `facts.env`. Two
+  copies of a worktree path is how a session ends up in the wrong tree.
+- **A continuation inherits its ticket's repo** through `repos.sh`, by stripping `c<n>`. A relay
+  that had to copy `.repo` would be one more file a session can forget at 30% used.
+- **The scripts take the repo from the tag, not from an argument**, so `launch.sh`, `revive.sh`,
+  `land.sh` and the runner need no new calling convention. With no `.repo` they read the
+  sprint's own files, which keeps a single-repo sprint on exactly the old path.
+- **Single-repo prompts are byte-identical.** Every multi-repo line in a template is inside a
+  `{{#MULTI_REPO}}` block, which bootstrap drops, so a single-repo sprint renders what 1.19.0
+  rendered. This was checked by resolving every template against origin/main in both speeds;
+  `tests/multi-repo.sh` asserts no multi-repo text survives in a single-repo workspace.
+- **Each repo lands under its own lock** (`land-<key>.lock`): repos share no branch, so a landing
+  in one must not wait on a landing in another.
+- **`REVIEW-FINAL-<key>` waits on every repo's tickets**, not only its own. The bugs of a
+  cross-repo feature sit at the contract, and a reviewer that started before the other side was
+  finished would review half of it.
+- **The tails of different repos run side by side**, even in a serial sprint. Each is alone in
+  its own tree, so the rule that matters - never two writers in one tree - still holds, and
+  three serial tails would triple the end of the night for nothing.
+- **`FIX-TEST` queues `CI2-<key>` itself**, only for the repos it pushed to. Queued at kickoff,
+  a `CI2` whose `FIX-TEST` never ran stays pending for ever and the runner calls it STRANDED.
+- **The keys file is `REPO_KEYS`, not `REPOS`**: on a case-insensitive disk (every Mac this
+  runs on) `REPOS` and the `repos/` directory are the same name, and bootstrap crashed on it.
+- **Keys have no hyphen.** The runner finds a tag's sessions by name prefix plus `-`, so a key
+  `shapes` beside `shapes-internal` would make `CI-shapes` claim `CI-shapes-internal`'s sessions
+  and raise a false DUP.
+- **One new BLOCKED case for the CI ticket**: a lane red only because a sibling PR is not merged
+  and deployed yet. It is BLOCKED only when the plan's merge order says so; otherwise the
+  dependency is a bug in this repo's change.

@@ -17,6 +17,10 @@ WORK HERE - THE TICKET'S OWN WORKTREE. THIS IS A BLITZ SPRINT:
   cd "$(cat <WS>/state/<CONT_TAG>.cwd)"
 Branch <BRANCH>--the ticket's first tag: <PREV_TAG>'s worktree and branch, which are now yours. Other tickets are building in other worktrees. Never touch another worktree, never check out or commit to <BRANCH> yourself, never rebase or force-push. Your work reaches <BRANCH> only through `<WS>/land.sh`, at the end. If <PREV_TAG> was holding the landing lock (it says so below), you hold it now, as the same ticket.
 {{/BLITZ}}
+{{#MULTI_REPO}}
+
+THIS SPRINT SPANS SEVERAL REPOS. Ticket <NN> belongs to one of them, and the worktree and branch above are that repo's. <WS>/REPOS.md lists the others: read them only to learn a contract a blocker landed there, never edit anything in them. Manual-step blocks start with `REPO: <this repo's key | all>`.
+{{/MULTI_REPO}}
 
 ## What already landed
 

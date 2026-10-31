@@ -1,6 +1,6 @@
 ---
 name: night-sprint
-description: Delivers a whole feature overnight through autonomous sessions, run one after another by default or side by side in blitz mode (`speed: blitz`, tickets on a dependency graph, each in its own worktree, landed onto the branch one by one), and asks the user nothing once it is invoked, all on ONE branch landing as ONE pull request. A conductor session writes no code - it sets the sprint up, then a deterministic runner launches each ticket, advances the chain, revives what dies and waits out spending limits, escalating only what needs judgement. Each implementer watches its own context window and hands its ticket to a fresh session before it fills. Gets or builds a ticket breakdown first (via a spec and a ticket-splitting skill), decides whether to review once at the end or also at checkpoints, runs every checkpoint review ASYNC (it reads a snapshot while the next ticket keeps building, and nothing waits for it) and fixes every finding of the night once, at the end, with only the review lanes that diff actually earns, optionally runs a test session that boots the stack or runs evals, and ends with the PR ready for review and a CI ticket on the chain that waits for the checks and fixes what is red, so the user wakes to a ready PR with green CI or a named reason it is not. Also runs in research mode (`mode: research`), where each ticket is a research question answered from cited sources and the sprint ends in one published artifact instead of a PR. Use when the user says "night sprint", "sprint this feature", "build this overnight", "run this while I sleep", "ticket after ticket", "blitz", or wants a feature taken end to end unattended in a single PR.
+description: Delivers a whole feature overnight through autonomous sessions, run one after another by default or side by side in blitz mode (`speed: blitz`, tickets on a dependency graph, each in its own worktree, landed onto the branch one by one), and asks the user nothing once it is invoked, all on ONE branch landing as ONE pull request (or, when the feature spans several repos, one branch and one cross-linked PR per repo). A conductor session writes no code - it sets the sprint up, then a deterministic runner launches each ticket, advances the chain, revives what dies and waits out spending limits, escalating only what needs judgement. Each implementer watches its own context window and hands its ticket to a fresh session before it fills. Gets or builds a ticket breakdown first (via a spec and a ticket-splitting skill), decides whether to review once at the end or also at checkpoints, runs every checkpoint review ASYNC (it reads a snapshot while the next ticket keeps building, and nothing waits for it) and fixes every finding of the night once, at the end, with only the review lanes that diff actually earns, optionally runs a test session that boots the stack or runs evals, and ends with the PR ready for review and a CI ticket on the chain that waits for the checks and fixes what is red, so the user wakes to a ready PR with green CI or a named reason it is not. Also runs in research mode (`mode: research`), where each ticket is a research question answered from cited sources and the sprint ends in one published artifact instead of a PR. Use when the user says "night sprint", "sprint this feature", "build this overnight", "run this while I sleep", "ticket after ticket", "blitz", or wants a feature taken end to end unattended in a single PR.
 argument-hint: "<feature | spec path | ticket dir | issue URL> [speed: serial|blitz] [parallel: <n>] [test: none|dev-stack|evals|<command>] [permission: auto|<mode>] [approval: delegated] [mode: research]"
 ---
 
@@ -46,6 +46,13 @@ choose it.
 kickoff, the reviews, acceptance and the PR below; the runner, the context rungs and everything
 about reviving apply unchanged. A calling skill may render `SYNTH` from its own template
 (`night-marathon` does, to publish a plan instead of a findings page); the chain is the same.
+
+**Multi-repo.** If the tickets name more than one repo (a `**Repo:**` line, or a `[repo]` tag in
+their titles) or the invocation does, read `references/multi-repo.md` now. The sprint then ends
+with one branch and one PR per repo: each ticket names one repo, each repo has its own worktree,
+checkpoint and final reviews, `FIX-FINAL` and `CI` ticket, and every PR links the others and
+carries its own "Manual steps after merge". The chain, the runner and every rule below still
+apply; only the per-repo parts are multiplied.
 
 `references/rationale.md` holds the incident history behind every rule here. Read it when you
 are changing the skill, not when you are running a sprint.
@@ -115,6 +122,8 @@ Decide that deliberately rather than discovering it in the morning.
        VERIFY, FORMAT_CHECK, CONVENTIONS, TOTAL,
        CONTEXT_WINDOW, WARN_AT_USED, RELAY_AT_USED, CEILING_USED,
        BLITZ, MAX_PARALLEL
+
+   A multi-repo sprint keeps every per-repo fact in `repos/<key>.env` instead (`multi-repo.md`).
 
    **`VERIFY` is what PR CI runs, recorded for the `CI` ticket - never run it locally**, not even to
    check it resolves: the full suite runs only on the PR. **`FORMAT_CHECK` is the formatter or
@@ -240,7 +249,8 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
 |---|---|
 | Workspace | `~/.claude/night-sprint/<slug>/` - `facts.env`, `PLAN.md`, `tickets/`, `prompt-<TAG>.txt`, `vars-<TAG>.env`, `state/`, `LOG.md` |
 | Pinned facts | `facts.env`, plus one-value files the scripts read: `WORKTREE`, `SLUG`, `PERMISSION_MODE`, `BRANCH`, `VERIFY`, `CONTEXT_WINDOW`, `WARN_AT_USED`, `RELAY_AT_USED`, `CEILING_USED` |
-| Tags | `T01`..`TNN`, async finders `REVIEW-C1`.., then `REVIEW-FINAL` + `FIX-FINAL`, then the CI ticket `CI`, then `TEST`, `FIX-TEST` if the tester finds an in-scope failure and `CI2` after it, plus continuations `<TAG>c2`, `<TAG>c3` |
+| Tags | `T01`..`TNN`, async finders `REVIEW-C1`.., then `REVIEW-FINAL` + `FIX-FINAL`, then the CI ticket `CI`, then `TEST`, `FIX-TEST` if the tester finds an in-scope failure and `CI2` after it, plus continuations `<TAG>c2`, `<TAG>c3`. Multi-repo: the review, fix and CI tags take a repo suffix, `REVIEW-FINAL-<key>` |
+| Repo of a tag | multi-repo only: `state/<TAG>.repo` = its key; a continuation inherits its ticket's. `repos.sh` resolves it for `launch.sh`, `revive.sh`, `land.sh`, `accept.sh` and the runner |
 | Successors | `state/<TAG>.next`, written at setup, rewritable by the session **before** its status |
 | Queue | `state/<TAG>.queued` + `.after` (hard deps) + `.waits` (soft deps), started by `schedule.sh` from the runner. A dependency whose `.after` ends BLOCKED or SKIPPED gets its dependents `SKIPPED: blocker <X>`, recursively. Finders never count toward `MAX_PARALLEL` |
 | Own worktrees | `state/<TAG>.isolate` (blitz ticket: `<WORKTREE>-<TAG>` on `<BRANCH>--<TAG>`) or `state/<TAG>.snapshot` (finder: `<WORKTREE>-<TAG>`, detached at the branch tip). `launch.sh` creates it and records `state/<TAG>.cwd`; a relay copies `.cwd` to its continuation. Left on disk after the sprint for inspection |
@@ -289,10 +299,13 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
 | `references/accept.sh` | are the required CI checks green **at the pushed sha**? Run by the `CI` ticket |
 | `references/ci-prompt.md` | the `CI` ticket (and `CI2`): sync to the pushed head, `accept.sh`, read the failing log, fix, push, repeat; BLOCKED after three passes |
 | `references/agents.sh` | shared: ask the harness for background sessions, with the `--cwd` fallback |
+| `references/repos.sh` | shared: the repo a tag works in, and that repo's worktree and branch. Prints nothing in a single-repo sprint |
+| `references/multi-repo.md` | **conductor, at kickoff, multi-repo only**: facts per repo, worktrees, cross-repo edges, per-repo tails, cross-linked PRs, the report |
 | `references/context-used.sh` | the gauge: percent of a window already USED |
 | `references/rationale.md` | **maintainer only, never loaded at runtime**: the incident behind every rule here |
 | `tests/run.sh` | offline tests for the classifier, the transition owner, the renderer and the `set -u` guards |
 | `tests/blitz.sh` | offline tests for the queue, the landing lock, the render blocks and the relay's worktree |
+| `tests/multi-repo.sh` | offline tests for multi-repo: bootstrap's per-repo facts, launching and landing in a tag's own repo, the per-repo PR ask, and single-repo prompts left unchanged |
 
 **There is deliberately no script for the context rungs.** A session hands its own ticket on.
 
@@ -397,7 +410,7 @@ waits and closing finished sessions itself, and logs all of them to `state/EVENT
 | `BUDGET-EXHAUSTED <tag>` | Capacity never came back. Report what landed and what did not. |
 | `HELD <tag>` | A successor was not launched because the sprint is paused. It launches when the pause clears. Nothing to do. |
 | `REVIVE-REFUSED <tag>` | The reviver would not touch it - usually because it is still working. Read `state/EVENTS.log` and decide. |
-| `NEEDS-PR` | Open the **draft** PR. Early CI and early bot review are why it opens after the first ticket rather than at the end. |
+| `NEEDS-PR` | Open the **draft** PR. Early CI and early bot review are why it opens after the first ticket rather than at the end. Multi-repo: `NEEDS-PR <key>`, once per repo - open that repo's draft and cross-link it (`multi-repo.md`). |
 | `STRANDED <tags>` | A successor is wired (or a tag claimed) but no session and no status appeared for five sweeps. Something failed to launch it: check `state/<tag>.launch.log` and `EVENTS.log`, then launch it with `launch.sh <WS> <tag> --reclaim`, which drops the stale claim and refuses if the tag has a session. A tag whose launch failed (`BLOCKED: could not ...`) needs no flag: plain `launch.sh` retries it. |
 | `UNCLOSED <tags>` | The runner's last pass could not remove these finished sessions from the agent list. The work is not affected. Name them in the morning report so the user can `claude rm <id>` them. |
 | `SWEEP 0 tags= all-sessions-terminal` | The runner **exited** and has removed every finished session - nothing but you is on the agent list. Your follower exits with it. Tags left? Launch the next, `runner.sh start`, and **re-arm the follower**. Sprint complete? Write the morning report. Never leave the sprint with no running runner and work outstanding. |
@@ -720,7 +733,8 @@ without producing anything - says the breakdown was wrong. Say which kind each w
 budget wait with its duration**: that is usually the largest single line item in the night's
 wall-clock, and it is not a failure of the work.
 
-The final message must contain, in this order:
+The final message must contain, in this order (a multi-repo sprint reports per repo where
+`multi-repo.md` section 7 says):
 
 1. **The verdict in one line** - what the user actually has this morning, taken from
    `state/ACCEPTANCE.verdict` and `state/GOLDEN.verdict`, **not** from "every stage said DONE".
@@ -758,7 +772,7 @@ Open **one draft PR** as soon as `T01` lands - the runner raises `NEEDS-PR` for 
 early bot review give the checkpoint reviewers something real to address. Every later session
 pushes to the same branch, so the PR grows all night. `FIX-FINAL` (or `REVIEW-FINAL` on the SKIP
 route) takes it out of draft once the night's fixes are pushed, and the `CI` ticket gets CI green.
-No session before them marks it ready. Never a second PR.
+No session before them marks it ready. Never a second PR (a multi-repo sprint has one per repo, and never two for one repo).
 
 **Never merge and never deploy** - those are the user's, always. If a required check has no
 ticket to point at, open the PR anyway and report the red check. Never fabricate a ticket id and
@@ -768,6 +782,7 @@ never bypass hooks with `--no-verify`.
 
 | Rationalization | Reality |
 |---|---|
+| "The tickets touch three repos; I'll route each one by hand in its prompt." | That is a multi-repo sprint. Write `state/<TAG>.repo` and `repos/<key>.env`, and the scripts run each tag in its repo and the sprint ends with one PR per repo. Hand routing leaves one branch, one PR and one CI ticket for three repos. |
 | "Tickets 3 and 4 are independent, I'll run both." | In a serial sprint, serial is the contract - it is what removes conflicts and integration. Concurrency is blitz mode, and only the invocation turns it on. |
 | "This is a big sprint, I'll switch it to blitz." | Blitz spends more tokens and quota per hour; that trade is the user's. Run what they invoked. |
 | "The checkpoint found a BLOCKER - I'll launch a fixer now." | Reviews are async and fixes happen once, in `FIX-FINAL`. REVIEW-FINAL re-checks it against the finished code and carries it forward. |

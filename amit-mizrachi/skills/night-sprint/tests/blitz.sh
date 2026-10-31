@@ -37,7 +37,7 @@ git init -q -b main "$T/wt"
 new_ws() {   # new_ws <dir> <BLITZ> [MAX_PARALLEL]
   local ws="$1"
   mkdir -p "$ws/state"
-  for f in agents.sh launch.sh advance.sh schedule.sh land.sh render.sh; do cp "$REF/$f" "$ws/"; done
+  for f in agents.sh repos.sh launch.sh advance.sh schedule.sh land.sh render.sh; do cp "$REF/$f" "$ws/"; done
   printf '%s\n' "$T/wt" > "$ws/WORKTREE"
   printf 'feat/x\n'     > "$ws/BRANCH"
   printf 'bz\n'         > "$ws/SLUG"

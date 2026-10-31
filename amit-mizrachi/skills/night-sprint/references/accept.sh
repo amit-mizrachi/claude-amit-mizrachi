@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # night-sprint acceptance gate - is the thing actually green, at the sha that is actually pushed?
 #
-#   accept.sh <WORKSPACE> [TIMEOUT_SECONDS] [WORKTREE]
+#   accept.sh <WORKSPACE> [TIMEOUT_SECONDS] [WORKTREE] [REPO]
 #
 # WORKTREE defaults to the sprint's own (`<WS>/WORKTREE`), which is where the `CI` ticket runs it.
-# Pass another to check a different checkout of the same branch.
+# Pass another to check a different checkout of the same branch. An empty WORKTREE means the
+# default.
+#
+# REPO is a multi-repo sprint's repo key (a `CI-<key>` ticket passes its own). The worktree and
+# branch then default to that repo's (repos/<key>/), and the verdict goes to
+# state/ACCEPTANCE-<key>.verdict, so one repo's CI ticket never overwrites another's verdict.
 #
 # Writes state/ACCEPTANCE.verdict, one line:
 #   PASS <sha>                every required check passed at the pushed head
@@ -31,15 +36,19 @@ set -uo pipefail
 WS="${1:?usage: accept.sh <WORKSPACE> [TIMEOUT_SECONDS] [WORKTREE]}"
 TIMEOUT="${2:-900}"
 WT_ARG="${3:-}"
+REPO_KEY="${4:-}"
 
 STATE="$WS/state"
 mkdir -p "$STATE"
+# shellcheck source=repos.sh
+. "$WS/repos.sh"
 OUT="$STATE/ACCEPTANCE.verdict"
-WT="${WT_ARG:-$(tr -d '[:space:]' < "$WS/WORKTREE")}"
+[ -n "$REPO_KEY" ] && OUT="$STATE/ACCEPTANCE-$REPO_KEY.verdict"
+WT="${WT_ARG:-$(repo_fact "$WS" "$REPO_KEY" WORKTREE)}"
 
 verdict() {
   printf '%s\n' "$*" > "$OUT"
-  printf '%s acceptance %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$STATE/EVENTS.log"
+  printf '%s acceptance %s%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${REPO_KEY:+$REPO_KEY }" "$*" >> "$STATE/EVENTS.log"
   printf '%s\n' "$*"
 }
 
@@ -50,7 +59,7 @@ LOCAL="$(git rev-parse HEAD 2>/dev/null || echo)"
 
 # Ask by branch name, not by the checkout: a worktree on a detached HEAD has no branch, a bare
 # `gh pr view` there finds no PR, and the caller stalls on UNKNOWN.
-BRANCH="$(tr -d '[:space:]' < "$WS/BRANCH" 2>/dev/null || echo)"
+BRANCH="$(repo_fact "$WS" "$REPO_KEY" BRANCH 2>/dev/null || echo)"
 PR="$(gh pr view ${BRANCH:+"$BRANCH"} --json number -q .number 2>/dev/null || echo)"
 [ -n "$PR" ] || { verdict "UNKNOWN $LOCAL no PR on this branch yet"; exit 2; }
 

@@ -6,6 +6,10 @@ Repo: <REPO_PATH>. Workspace: <WS>. You are tag TEST.
 Read for the acceptance path: <WS>/PLAN.md and <WS>/tickets/ (their acceptance criteria are what you are checking), plus <WS>/LOG.md for anything the reviewers deferred - do not report a known deferral as a new failure.
 
   cd <WORKTREE>          # branch <BRANCH>, everything the sprint built is here
+{{#MULTI_REPO}}
+
+THIS SPRINT SPANS SEVERAL REPOS. The worktree above is only the first: each repo in <WS>/REPOS.md holds its own part on its own sprint branch, and the golden path runs across all of them. Run each repo's part from its own worktree, the way PLAN.md says, and change nothing in any of them. Every manual-step block you write starts with `REPO: <key | all>`, and the setup verdict below is one file per repo, `<WS>/state/SETUP-<key>.verdict`, never `SETUP.verdict`.
+{{/MULTI_REPO}}
 
 HOW TO EXERCISE IT - <pick exactly one at kickoff and delete the rest>:
 

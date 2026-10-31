@@ -29,6 +29,9 @@
 #                       one fixed commit while the next ticket keeps changing the shared tree.
 #                     Either one is created once, by the claimer, and recorded as state/<TAG>.cwd,
 #                     which a relay copies on (advance.sh) and a revive resumes in (revive.sh).
+#   state/<TAG>.repo  - optional, multi-repo sprints: the repo key the tag works in. Its worktree
+#                       and branch then come from repos/<key>/ instead of WORKTREE and BRANCH,
+#                       for the tag itself and for any tree of its own. See repos.sh.
 # Writes:
 #   state/claim-<TAG>/ - the claim
 #   state/<TAG>.session - the resolved background session id
@@ -48,6 +51,8 @@ TAG="${2:?usage: launch.sh <WORKSPACE> <TAG>}"
 
 # shellcheck source=agents.sh
 . "$WS/agents.sh"
+# shellcheck source=repos.sh
+. "$WS/repos.sh"
 
 STATE="$WS/state"
 mkdir -p "$STATE"
@@ -70,8 +75,9 @@ fi
 PROMPT="$WS/prompt-$TAG.txt"
 [ -f "$PROMPT" ] || { echo "launch: no prompt file at $PROMPT" >&2; exit 1; }
 
+REPO_KEY="$(repo_of "$WS" "$TAG")"
 WT="$( { tr -d '[:space:]' < "$STATE/$TAG.cwd"; } 2>/dev/null || true)"
-[ -n "$WT" ] || WT="$(tr -d '[:space:]' < "$WS/WORKTREE")"
+[ -n "$WT" ] || WT="$(repo_fact "$WS" "$REPO_KEY" WORKTREE)"
 MODE="$(tr -d '[:space:]' < "$WS/PERMISSION_MODE" 2>/dev/null || echo auto)"
 SLUG="$(tr -d '[:space:]' < "$WS/SLUG" 2>/dev/null || echo sprint)"
 NAME="ns-$SLUG-$TAG"
@@ -103,7 +109,7 @@ esac
 
 # --- a tree of its own, for a blitz ticket or a review snapshot. Only the claimer gets here. ---
 if [ ! -f "$STATE/$TAG.cwd" ] && { [ -f "$STATE/$TAG.isolate" ] || [ -f "$STATE/$TAG.snapshot" ]; }; then
-  BR="$(tr -d '[:space:]' < "$WS/BRANCH")"
+  BR="$(repo_fact "$WS" "$REPO_KEY" BRANCH)"
   OWN="$WT-$TAG"
   if git -C "$OWN" rev-parse --git-dir >/dev/null 2>&1; then
     out="reused"

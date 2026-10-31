@@ -27,6 +27,28 @@
 | Review lanes | `<correctness, plus the lanes this feature's risk actually earns>` - correctness always; security / architecture / observability / reuse / simplification only where the diff gives them something to find. Never all six by default |
 | Test session | `<none | dev-stack | evals | custom: <cmd>>` - chosen by the user |
 | How to boot the stack | `<the dev-environment skill name and/or the exact boot command>` - only for `dev-stack`; the TEST session reads it from here |
+{{#MULTI_REPO}}
+
+## 0. Repos - this sprint ends with one branch and one PR per repo
+
+The Repo, Base, Branch, Worktree, Toolchain, Verify and Format rows above are per repo here: each repo's are in `<WS>/REPOS.md` and `<WS>/repos/<key>.env`. Every tag that works in a repo names it in `state/<TAG>.repo`. A tag with none (TEST, FIX-TEST) starts in the first repo's worktree and reaches the others through REPOS.md.
+
+| Key | Tickets | Merge order | Why that order |
+|---|---|---|---|
+| <key> | <T01, T04, ...> | <1> | <what the other repos need from it live> |
+
+**Cross-repo edges** - every "Blocked by" that crosses repos, and the contract it carries:
+
+- <T<NN> (<key>) needs T<NN> (<key>): the API, schema, event or package it builds against>
+
+**Merge order.** <The order a human merges and deploys the PRs, read off the cross-repo edges. If the edges form a cycle between repos, say how each PR stays safe to merge alone - an additive contract, a flag - and log that call under `Decided without asking`.>
+
+**Every PR body carries these sections** after its own summary. The conductor writes them as it opens each draft PR; `FIX-FINAL-<key>` (or `REVIEW-FINAL-<key>` on the SKIP route) brings them up to date at the end:
+
+1. `## Part of a multi-repo change` - one line per repo: its PR link (or "no PR - nothing landed") and what that repo's part does. Every sibling, never only some.
+2. `## Merge order` - the order above, this PR's place in it, and what breaks if it merges out of order.
+3. `## Manual steps after merge` - this repo's steps that pass both tests of section 5a (blocks with `REPO: <key>` or `all`), in the order a human does them, paste-ready. None: "None for this repo". Always last: merge the PRs in the order above, and deploy - <USER>'s, always.
+{{/MULTI_REPO}}
 
 ## 1. Goal
 
@@ -68,6 +90,10 @@ may assume exactly the tickets in its "Blocked by" column have landed - nothing 
 | TEST | - | <the chosen test mode>; writes `state/GOLDEN.verdict` | CI | FIX-TEST if an in-scope step failed, else end |
 | FIX-TEST | - | one bounded repair pass over `state/TEST.findings.md`, then re-runs the affected golden-path steps. Only rendered when a test session was chosen | TEST | CI2 |
 | CI2 | - | the CI ticket again, over the head FIX-TEST pushed. Only rendered when a test session was chosen | FIX-TEST | end |
+{{#MULTI_REPO}}
+
+**Multi-repo:** add a `Repo` column after `Tag`. Each repo gets its own tail in place of the shared rows above: `REVIEW-C<n>-<key>`, `REVIEW-FINAL-<key>`, `FIX-FINAL-<key>`, `CI-<key>`. Every `REVIEW-FINAL-<key>` waits on every ticket of every repo, so it reads the finished other side of each contract. `TEST`, when chosen, is queued after every `CI-<key>`; `FIX-TEST` queues `CI2-<key>` only for the repos it pushed to.
+{{/MULTI_REPO}}
 
 ## 4. Acceptance - the golden path the tester walks
 
@@ -93,6 +119,12 @@ row, an eval score.>
    reads. FIX-FINAL, TEST and FIX-TEST work in `<WORKTREE>` on `<BRANCH>`, after every ticket has
    landed. Nobody rebases, force-pushes or creates another branch.
 {{/BLITZ}}
+{{#MULTI_REPO}}
+1a. **Several repos.** `<WORKTREE>` and `<BRANCH>` in your prompt are your tag's repo's
+   (`state/<TAG>.repo`, listed in `<WS>/REPOS.md`). Read another repo's worktree only to learn a
+   contract; never edit, commit or run anything there. Push with `git push origin HEAD:<branch>`.
+   Every manual-step block starts with `REPO: <key | all>`.
+{{/MULTI_REPO}}
 2. Implement only your own tag's scope. **The full suite never runs locally** - PR CI runs it,
    and the `CI` ticket fixes what is red. Run the static checks (format / lint, typecheck or
    compile) before each commit; FIX-FINAL and FIX-TEST may add a few targeted test files for
@@ -216,6 +248,11 @@ has never meant the branch is acceptable.
 | `state/ACCEPTANCE.verdict` | `accept.sh`, run by the `CI` ticket | the required CI checks at the PUSHED head sha: `PASS` / `FAIL` / `UNKNOWN`. The `CI` ticket is on the chain, so the sprint has not ended until it wrote this |
 | `state/GOLDEN.verdict` | the TEST session | the golden path above, actually walked: `PASS` / `FAIL` / `UNKNOWN` |
 
+{{#MULTI_REPO}}
+Multi-repo: `state/ACCEPTANCE-<key>.verdict` and `state/SETUP-<key>.verdict` are one file per
+repo; `GOLDEN.verdict` stays one file, because the golden path crosses every repo.
+
+{{/MULTI_REPO}}
 The morning report's headline verdict comes from the last two. A sprint whose every stage said
 DONE and whose `ACCEPTANCE.verdict` says FAIL is a sprint that did not deliver, and the report
 says so in its first line.

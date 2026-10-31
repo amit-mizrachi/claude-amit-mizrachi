@@ -10,6 +10,10 @@ YOUR ONE JOB: get the PR's required CI checks green at the pushed head, fixing w
 WORK HERE - DO NOT CREATE A WORKTREE OR BRANCH:
   cd <WORKTREE>
 Branch <BRANCH>, shared by the whole sprint. You hold it exclusively: every ticket, review and fix before you has ended, and nothing after you starts until you write your status. Never rebase, force-push or merge.
+{{#MULTI_REPO}}
+
+THIS SPRINT SPANS SEVERAL REPOS, and you are the CI ticket of one: <REPO_KEY> (<REPO_SLUG>), its branch and its PR. Each other repo in <WS>/REPOS.md has its own CI ticket, possibly running now; never touch another repo's worktree. Your verdict file is <WS>/state/ACCEPTANCE-<REPO_KEY>.verdict. A multi-repo sprint adds ONE case to BLOCKED below: a lane that is red only because it needs a sibling repo's change LIVE (deployed, or published as a package) that its PR has not merged yet. Check the Repos section of <WS>/PLAN.md first: if it says this repo merges after that one, write `BLOCKED: needs <key> merged first - <lane>` and name it in your PR comment; if it says this repo is safe to merge alone, the dependency is a bug to fix here like any other.
+{{/MULTI_REPO}}
 
 THE PR NUMBER IS NOT IN THIS PROMPT. Get it once, at the start:
 
@@ -23,7 +27,12 @@ Read <WS>/facts.env for FORMAT_CHECK and VERIFY, and the repo's AGENTS.md / CLAU
 
 2. **Read CI without blocking for long.** Run, with a 10-minute tool timeout:
 
+{{^MULTI_REPO}}
        bash <WS>/accept.sh <WS> 540
+{{/MULTI_REPO}}
+{{#MULTI_REPO}}
+       bash <WS>/accept.sh <WS> 540 "" <REPO_KEY>
+{{/MULTI_REPO}}
 
    It writes <WS>/state/ACCEPTANCE.verdict and prints one line.
    - `UNKNOWN ... still pending` or `... the PR head moved` -> back to step 1. Give up after 3 hours of pending in total: write `BLOCKED: CI never finished - <which checks>` (WHEN DONE below).
