@@ -15,6 +15,10 @@ WORK HERE - YOUR OWN WORKTREE. THIS IS A BLITZ SPRINT:
   cd "$(cat <WS>/state/<TAG>.cwd)"
 Tickets build side by side here. You were launched in a worktree of your own, on branch <BRANCH>--<TAG>, cut from the sprint branch <BRANCH> the moment you started, so every ticket that blocks yours has already landed in it. Other tickets are building in other worktrees right now. Never touch another worktree, never check out or commit to <BRANCH> yourself, never rebase or force-push, never create another branch. Your work reaches <BRANCH> one way only: `<WS>/land.sh`, at the end (WHEN YOU ARE DONE).
 {{/BLITZ}}
+{{#MULTI_REPO}}
+
+THIS SPRINT SPANS SEVERAL REPOS, and yours is <REPO_KEY> (<REPO_SLUG>): the worktree and branch above are this repo's. <WS>/REPOS.md lists the other repos, their worktrees and their sprint branches. A blocker of yours in another repo has landed on THAT repo's sprint branch, not on yours and not on its base branch: read its commits there (`git -C <its worktree> log` / `show`) to learn the contract you build against. Read only. Never edit, commit, check out or run anything in another repo's worktree - another session may be working in it. A change you need over there is a FOLLOWUPS.md line naming the repo, or BLOCKED if your ticket cannot work without it. Keep this repo's change safe to merge in the order the Repos section of <WS>/PLAN.md gives. If you relay, fill the continuation prompt with this repo's values from <WS>/repos/<REPO_KEY>.env, not facts.env.
+{{/MULTI_REPO}}
 
 READ FIRST:
 - <WS>/PLAN.md - goal, ticket order, verify command, review cadence.
@@ -43,6 +47,10 @@ Your ticket may need an API key nobody pasted, a terraform unit applied, a third
     LANDS:    <.env | github secret | terraform var | a service | nowhere>
     SECRET:   <yes|no>
     BLOCKING: <yes = the feature does not work at all without it | no>
+{{#MULTI_REPO}}
+
+Start each block with one more line, `REPO:     <REPO_KEY>` (or `all` when every repo's PR needs the step), so each repo's PR lists only its own manual steps.
+{{/MULTI_REPO}}
 
 ONLY IF THE SHIPPED FEATURE DOES NOT WORK UNTIL A HUMAN DOES IT. A key the deployed feature needs counts. A value somebody fills into `.env.local` to run the app on their laptop does not, and neither does drift that was already broken on the base ref.
 

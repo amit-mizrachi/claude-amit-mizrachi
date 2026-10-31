@@ -44,6 +44,7 @@ Give each ticket its **blocking edges**: the other tickets that must complete be
 - **Cut for width.** Prefer slices that each depend on one shared foundation over a long chain where each needs the one before. A prefactor or a contract (schema, interface, types) that many tickets build on is its own early ticket, and the rest fan out from it.
 - **Heavy overlap is an edge too.** Two tickets that would both rewrite the same file or function cannot be merged cleanly when built side by side. Make one block the other, or move the shared change into its own earlier ticket.
 - **No cycles.** If A needs B and B needs A, they are one ticket, or a third ticket holds what both need.
+- **Several repos: one repo per ticket.** When the work spans repos, every ticket changes exactly one, named on its `**Repo:**` line, and night-sprint ends with one PR per repo. A slice that needs a change on both sides of a repo boundary is two tickets: the provider side (the API, schema or event) first, and the consumer side blocked by it.
 
 **Wide refactors are the exception to vertical slicing.** A **wide refactor** is one mechanical change (rename a column, retype a shared symbol) whose **blast radius** fans across the whole codebase, so a single edit breaks thousands of call sites at once and no vertical slice can land green. Don't force it into a tracer bullet; sequence it as **expand-contract**. First expand: add the new form beside the old so nothing breaks. Then migrate the call sites over in batches sized by blast radius (per package, per directory), each batch its own ticket blocked by the expand, keeping CI green batch to batch because the old form still exists. Finally contract: delete the old form once no caller remains, in a ticket blocked by every migrate batch. When even the batches can't stay green alone, keep the sequence but let them share an integration branch that all block a final integrate-and-verify ticket; green is promised only there.
 
@@ -83,6 +84,8 @@ Do NOT close or modify any parent issue.
 **What to build:** the end-to-end behaviour this ticket makes work, from the user's perspective, not a layer-by-layer implementation list.
 
 **Blocked by:** the two-digit numbers of the tickets that gate this one, comma separated and nothing else on the line (`**Blocked by:** 01, 03`), or `None (can start immediately)`. A runner turns this line into the dependency graph, so keep it to numbers.
+
+**Repo:** only when the work spans more than one repo: the one repo this ticket changes, by its repo name (`shapes-platform`), and nothing else on the line. Leave the line out for single-repo work.
 
 **Status:** ready-for-agent
 

@@ -58,7 +58,7 @@ case "$CMD" in
     WINDOW="${5:-}"
     mkdir -p "$PWS/state"
     missing=""
-    for f in agents.sh launch.sh advance.sh watch.sh revive.sh close.sh classify-error.sh context-used.sh phase-chain.sh runner.sh trust.sh; do
+    for f in agents.sh repos.sh launch.sh advance.sh watch.sh revive.sh close.sh classify-error.sh context-used.sh phase-chain.sh runner.sh trust.sh; do
       if [ -f "$REF/$f" ]; then cp "$REF/$f" "$PWS/$f"; else missing="$missing $f"; fi
     done
     [ -z "$missing" ] || { echo "phase-chain: FAILED - missing from $REF:$missing" >&2; exit 1; }

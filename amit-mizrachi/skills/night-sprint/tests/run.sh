@@ -316,7 +316,7 @@ out="$(bash "$REF/bootstrap.sh" "$BWS" "$REF" 2>&1)"; rc=$?
 check "with facts.env: bootstrap succeeds" "0" "$rc"
 # agents.sh is sourced on the first line of four scripts. A workspace without it has a
 # launcher, a reviver, a runner and a closer that all fail before doing anything.
-for need in agents.sh launch.sh advance.sh watch.sh runner.sh revive.sh classify-error.sh \
+for need in agents.sh repos.sh launch.sh advance.sh watch.sh runner.sh revive.sh classify-error.sh \
             context-used.sh schedule.sh land.sh accept.sh ci-prompt.md render.sh continuation-prompt.md; do
   [ -f "$BWS/$need" ] && ok "copied $need" || no "copied $need" "absent from $BWS"
 done
@@ -430,7 +430,7 @@ grep -q 'AFTER="\$(pr_head)"' "$REF/accept.sh" \
 MWS="$(mktemp -d)"
 MBIN="$MWS/bin"; mkdir -p "$MBIN" "$MWS/ws/state" "$MWS/wt"
 cp "$HERE/mock-claude.sh" "$MBIN/claude"; chmod +x "$MBIN/claude"
-for f in agents.sh revive.sh classify-error.sh context-used.sh launch.sh advance.sh; do
+for f in agents.sh repos.sh revive.sh classify-error.sh context-used.sh launch.sh advance.sh; do
   cp "$REF/$f" "$MWS/ws/$f"
 done
 printf '%s\n' "$MWS/wt" > "$MWS/ws/WORKTREE"
@@ -1236,7 +1236,7 @@ DSID=c5081c1b-cf5a-4f08-8347-a74c6dd5bf0e
 DT="$DC/home/.claude/projects/p/$DSID.jsonl"
 dreset() {
   rm -rf "$D" "$DC/mock"; mkdir -p "$D/state" "$DC/mock"
-  for f in agents.sh watch.sh revive.sh launch.sh advance.sh close.sh classify-error.sh context-used.sh; do
+  for f in agents.sh repos.sh watch.sh revive.sh launch.sh advance.sh close.sh classify-error.sh context-used.sh; do
     cp "$REF/$f" "$D/"
   done
   echo dslug > "$D/SLUG"; echo "$DC/wt" > "$D/WORKTREE"; echo auto > "$D/PERMISSION_MODE"
@@ -1540,7 +1540,7 @@ echo "== a failed launch is retried with launch.sh alone - nobody types rm or mv
 # `rm` ask for confirmation even in auto mode. Nobody was awake to answer it.
 LR="$(mktemp -d)"; LBIN="$LR/bin"; mkdir -p "$LBIN" "$LR/ws/state" "$LR/wt"
 cp "$HERE/mock-claude.sh" "$LBIN/claude"; chmod +x "$LBIN/claude"
-cp "$REF/agents.sh" "$REF/launch.sh" "$LR/ws/"
+cp "$REF/agents.sh" "$REF/repos.sh" "$REF/launch.sh" "$LR/ws/"
 printf '%s\n' "$LR/wt" > "$LR/ws/WORKTREE"
 printf 'lslug\n'       > "$LR/ws/SLUG"
 printf 'auto\n'        > "$LR/ws/PERMISSION_MODE"
@@ -1645,7 +1645,7 @@ check "after marking <WS>/work trusted" "True" "$(trusted "$TH/home/.claude.json
 check "launch.sh starts a tag in a folder outside the run" "0" "$(tl T02)"
 check "and never trusts that folder - it is the user's" "False" "$(trusted "$TH/home/.claude.json" "$TH/repo")"
 PP="$TQ/phases"; mkdir -p "$PP/state"
-cp "$REF/agents.sh" "$REF/launch.sh" "$REF/trust.sh" "$PP/"
+cp "$REF/agents.sh" "$REF/repos.sh" "$REF/launch.sh" "$REF/trust.sh" "$PP/"
 printf 'pslug\n' > "$PP/SLUG"; printf 'auto\n' > "$PP/PERMISSION_MODE"; printf 'c\n' > "$PP/prompt-CONDUCTOR.txt"
 printf '%s\n' "$TQ" > "$PP/state/CONDUCTOR.cwd"
 env -u CLAUDE_CONFIG_DIR HOME="$TH/home" MOCK_STATE="$TH/mock" PATH="$TBIN:$PATH" bash "$PP/launch.sh" "$PP" CONDUCTOR >/dev/null 2>&1

@@ -12,6 +12,10 @@ DO NOT RUN A REVIEW OF ANY KIND. Not `code-review`, not "just on the files I tou
 WORK HERE - DO NOT CREATE A WORKTREE OR BRANCH:
   cd <WORKTREE>
 Branch <BRANCH>, shared by the whole sprint. You hold it exclusively; no implementer is running. Never rebase, force-push, or merge - with ONE exception: if your push is rejected because the branch moved, `git pull --rebase` your own unpushed commits onto it and push again. Never force.
+{{#MULTI_REPO}}
+
+THIS SPRINT SPANS SEVERAL REPOS; <WS>/REPOS.md lists each one's worktree and branch. FIX-FINAL fixes its own repo only (STEP 4); FIX-TEST may fix any of them (STEP 5). In every repo you touch, push with `git push origin HEAD:<that repo's branch>`, never a bare `git push`: a sprint worktree's upstream can be its base branch.
+{{/MULTI_REPO}}
 
 THE PR NUMBER IS NOT IN THIS PROMPT - the draft PR did not exist when it was written. Get it
 once, at the start:
@@ -72,6 +76,9 @@ DELETE THIS WHOLE SECTION when rendering FIX-TEST. It applies only to FIX-FINAL.
 Your fixes are pushed. Now the PR is the sprint's deliverable, so:
 
 - **Make sure the PR description reflects everything the sprint delivered.** Reviewers read it next.
+{{#MULTI_REPO}}
+- **You are <REPO_KEY>'s fixer in a multi-repo sprint.** Change nothing outside <WORKTREE>: another repo's fixer may be working in its own tree right now, and a fix that belongs there is a FOLLOWUPS.md line naming that repo. The PR description is where the repos meet: write the sections the Repos section of <WS>/PLAN.md lists - every sibling PR linked, the merge order and this PR's place in it, and `## Manual steps after merge` for this repo - into YOUR PR only (`gh pr edit "$PR" --body-file <file>`). Your setup verdict file is <WS>/state/SETUP-<REPO_KEY>.verdict.
+{{/MULTI_REPO}}
 - **Take the PR out of draft:** `gh pr ready "$PR"`. The sprint ends with a PR ready for review. Ready before CI is green is deliberate: some repos run their full test lanes only on a ready PR, and the CI ticket after you fixes whatever comes back red.
 - **Do NOT wait for CI yourself.** Do not run `accept.sh`, `gh pr checks --watch`, or any loop or wake-up that waits on checks. That is the CI ticket's whole job, and it runs next on the chain.
 - Then WHEN DONE as usual: your `.next` is `CI`.
@@ -107,9 +114,20 @@ after you have proved the failures are gone.
      TEST 1 - REQUIRED?   the shipped feature does not work until a human acts
      TEST 2 - HUMAN-ONLY? no agent could have done it
    Both, or it does not count.
+{{^MULTI_REPO}}
      ANY counts -> echo NEEDED > <WS>/state/SETUP.verdict
      NONE does  -> echo NONE   > <WS>/state/SETUP.verdict
    Your `.next` is `CI2`: it checks CI at the head you pushed, and the sprint ends with it.
+{{/MULTI_REPO}}
+{{#MULTI_REPO}}
+   One verdict per repo in <WS>/REPOS.md, each over that repo's blocks (`REPO: <key>` or `all`):
+     ANY counts -> echo NEEDED > <WS>/state/SETUP-<key>.verdict
+     NONE does  -> echo NONE   > <WS>/state/SETUP-<key>.verdict
+
+**Multi-repo: you are the one fixer that may change more than one repo.** Every other session has ended. Fix each finding in the worktree of the repo it names, commit there, and push each repo as the top of this prompt says. Then, before your status, queue a second CI ticket for every repo you pushed to, and only those - their prompts already exist:
+     touch <WS>/state/CI2-<key>.queued
+Leave your `.next` EMPTY. The runner starts each queued CI2-<key> once you end DONE, and the sprint ends with them.
+{{/MULTI_REPO}}
 
 ## CONTEXT
 
@@ -125,6 +143,9 @@ Several sessions for one fix pass is fine. A pass that dies holding un-recorded 
 2. `echo "<n fixed, n rejected, n deferred, in one line>" > <WS>/state/<TAG>.summary`
 3. `echo "<NEXT_TAG>" > <WS>/state/<TAG>.next` - your successor, written BEFORE your status.
    <NEXT_TAG is CI for FIX-FINAL, and CI2 for FIX-TEST.>
+{{#MULTI_REPO}}
+   Multi-repo: FIX-FINAL's is its own repo's `CI-<REPO_KEY>`; FIX-TEST's is empty (STEP 5).
+{{/MULTI_REPO}}
 4. `echo "DONE" > <WS>/state/<TAG>.status` (or `BLOCKED: <reason>`). LAST.
 5. `bash <WS>/advance.sh <WS> <TAG>` - it reads the pair you just wrote and starts whatever
    comes next. Run it once and do not second-guess the result.

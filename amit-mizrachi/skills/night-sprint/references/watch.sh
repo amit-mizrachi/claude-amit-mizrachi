@@ -69,6 +69,8 @@ done
 
 # shellcheck source=agents.sh
 . "$WS/agents.sh"
+# shellcheck source=repos.sh
+. "$WS/repos.sh"
 
 STATE="$WS/state"
 SEEN="$STATE/.watch-seen"
@@ -500,7 +502,28 @@ for r in rows:
   # The one thing the conductor owns at a DONE boundary: the draft PR. Early CI and early bot
   # review are why it opens after the first ticket rather than at the end, and writing a PR
   # body is not a script's job. Asked once, then never again.
-  if [ "$any_done" -eq 1 ] && [ -n "$WT" ] && [ ! -f "$STATE/.pr-asked" ]; then
+  #
+  # A multi-repo sprint has one PR per repo, so it asks once PER REPO, the first time a tag of
+  # that repo ends DONE (a continuation counts for its ticket's repo).
+  if [ "$any_done" -eq 1 ] && [ -f "$WS/REPO_KEYS" ]; then
+    read -r -a repo_keys < "$WS/REPO_KEYS"
+    for key in "${repo_keys[@]}"; do
+      [ -f "$STATE/.pr-asked-$key" ] && continue
+      landed=0
+      for done_sf in "$STATE"/*.status; do
+        [ -e "$done_sf" ] || continue
+        case "$(head -1 "$done_sf")" in DONE*) ;; *) continue ;; esac
+        [ "$(repo_of "$WS" "$(basename "$done_sf" .status)")" = "$key" ] && { landed=1; break; }
+      done
+      [ "$landed" -eq 1 ] || continue
+      repo_wt="$(repo_fact "$WS" "$key" WORKTREE 2>/dev/null || true)"
+      repo_br="$(repo_fact "$WS" "$key" BRANCH 2>/dev/null || true)"
+      : > "$STATE/.pr-asked-$key"
+      if [ -z "$(cd "$repo_wt" 2>/dev/null && gh pr view "$repo_br" --json number -q .number 2>/dev/null)" ]; then
+        emit_once "sprint:needs-pr:$key" "NEEDS-PR $key - a $key ticket has landed and $repo_br has no PR yet; open its draft and cross-link it to the other repos' PRs"
+      fi
+    done
+  elif [ "$any_done" -eq 1 ] && [ -n "$WT" ] && [ ! -f "$STATE/.pr-asked" ]; then
     if [ -z "$(cd "$WT" 2>/dev/null && gh pr view --json number -q .number 2>/dev/null)" ]; then
       : > "$STATE/.pr-asked"
       emit_once "sprint:needs-pr" "NEEDS-PR - a ticket has landed and the branch has no PR yet; open the draft"

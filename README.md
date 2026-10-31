@@ -50,6 +50,12 @@ worktree on its own branch. A finished ticket lands itself with `land.sh` - merg
 branch in under a lock, fix the combined tree, fast-forward - so it is still one branch and one
 PR. It buys wall-clock with tokens and quota, so it is never the default.
 
+**Multi-repo.** When a feature spans several repos, each ticket names one repo (a `**Repo:**`
+line, or a `[repo]` tag in its title) and the sprint ends with **one branch and one PR per
+repo**. Every repo gets its own worktree, final review, fix pass and CI ticket; blocking edges
+cross repos freely; and every PR links its siblings, gives the merge order, and lists its own
+"Manual steps after merge". Single-repo sprints are unchanged.
+
 You are the conductor and you write no product code. You set the sprint up, launch the first
 ticket, arm the runner, and then handle only what a script cannot decide.
 

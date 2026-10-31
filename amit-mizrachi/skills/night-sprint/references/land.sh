@@ -23,6 +23,10 @@
 # LAND_STALE_MIN (90), is taken over and logged. `merge` waits up to LAND_WAIT seconds (240,
 # under a session's shell timeout) and then exits 75: run it again.
 #
+# In a multi-repo sprint a ticket lands on ITS repo's sprint branch (state/<TAG>.repo, see
+# repos.sh), under that repo's own lock, state/land-<key>.lock: two repos share no branch, so a
+# landing in one never waits on a landing in another.
+#
 # Exit codes: 0 ok; 2 the ticket tree is not clean - commit first; 3 CONFLICT, resolve and
 # commit, then check and publish; 4 you do not hold the lock - run merge; 5 publish found the
 # sprint branch not inside the ticket branch - run merge again; 6 landed locally but the push
@@ -35,7 +39,11 @@ TAG="${2:?usage: land.sh <WORKSPACE> <TAG> merge|publish|abort}"
 VERB="${3:?usage: land.sh <WORKSPACE> <TAG> merge|publish|abort}"
 
 STATE="$WS/state"
+# shellcheck source=repos.sh
+. "$WS/repos.sh"
+REPO_KEY="$(repo_of "$WS" "$TAG")"
 LOCK="$STATE/land.lock"
+[ -n "$REPO_KEY" ] && LOCK="$STATE/land-$REPO_KEY.lock"
 LAND_WAIT="${LAND_WAIT:-240}"
 LAND_STALE_MIN="${LAND_STALE_MIN:-90}"
 WAIT="$LAND_WAIT"
@@ -45,8 +53,8 @@ note() { printf '%s land %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TAG" "$*" >
 die()  { echo "land: $2" >&2; note "$VERB rc=$1 $2"; exit "$1"; }
 
 OWNER="$(printf '%s' "$TAG" | sed -E 's/c[0-9]+$//')"
-WT="$(tr -d '[:space:]' < "$WS/WORKTREE")"
-BRANCH="$(tr -d '[:space:]' < "$WS/BRANCH")"
+WT="$(repo_fact "$WS" "$REPO_KEY" WORKTREE)"
+BRANCH="$(repo_fact "$WS" "$REPO_KEY" BRANCH)"
 TW="$(tr -d '[:space:]' < "$STATE/$TAG.cwd" 2>/dev/null || true)"
 [ -n "$TW" ] && [ "$TW" != "$WT" ] || die 1 "$TAG has no worktree of its own (state/$TAG.cwd) - only a blitz ticket lands"
 

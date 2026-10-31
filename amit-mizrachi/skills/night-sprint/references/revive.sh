@@ -61,6 +61,8 @@ CAUSE="${3:-ended-without-signal}"
 
 # shellcheck source=agents.sh
 . "$WS/agents.sh"
+# shellcheck source=repos.sh
+. "$WS/repos.sh"
 
 STATE="$WS/state"
 SEEN="$STATE/.watch-seen"
@@ -79,7 +81,7 @@ fi
 # A resume MUST run there too: the harness files a transcript under its cwd, and
 # `claude --resume <id>` from any other directory does not find the conversation.
 WT="$( { tr -d '[:space:]' < "$STATE/$TAG.cwd"; } 2>/dev/null || true)"
-[ -n "$WT" ] || WT="$(tr -d '[:space:]' < "$WS/WORKTREE")"
+[ -n "$WT" ] || WT="$(repo_fact "$WS" "$(repo_of "$WS" "$TAG")" WORKTREE)"
 PHASE=0
 [ -f "$WS/PHASE_CHAIN" ] && PHASE=1
 MODE="$(tr -d '[:space:]' < "$WS/PERMISSION_MODE" 2>/dev/null || echo auto)"

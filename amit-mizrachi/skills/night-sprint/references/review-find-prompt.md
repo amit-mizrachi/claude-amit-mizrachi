@@ -33,6 +33,13 @@ manifest anyway, and skip only the posting step - the manifest is the deliverabl
 READ FIRST: <WS>/PLAN.md (goal + tickets), <WS>/LOG.md (what landed, and what the sprint already deferred on purpose - never re-raise a conscious deferral), and `git log --oneline` on the branch.
 
 SCOPE: <SCOPE>. Review it as one body of work.
+{{#MULTI_REPO}}
+
+THIS SPRINT SPANS SEVERAL REPOS, AND YOU REVIEW ONE: <REPO_KEY> (<REPO_SLUG>) - its branch <BRANCH>, its PR, its tickets (the ones whose <WS>/state/T<NN>.repo says <REPO_KEY>). <WS>/REPOS.md lists the others. A defect inside another repo is that repo's reviewer's. The contract BETWEEN repos is yours from this side: where this repo calls, or is called by, code another repo's tickets built, read that side in its worktree (read only) and post a mismatch here as a finding. Two names change for you below:
+- the checkpoint manifests REVIEW-FINAL carries forward are `<WS>/state/REVIEW-C*-<REPO_KEY>.findings.md`, never another repo's;
+- the setup verdict is `<WS>/state/SETUP-<REPO_KEY>.verdict`, never `SETUP.verdict`, and it covers the <WS>/state/*.manual blocks for this repo: `REPO: <REPO_KEY>` or `all`, or, with no REPO line, a block written by a tag whose <WS>/state/<TAG>.repo is <REPO_KEY>.
+On the SKIP route, the PR description you bring up to date carries the multi-repo sections the Repos section of <WS>/PLAN.md lists (sibling PRs, merge order, manual steps after merge).
+{{/MULTI_REPO}}
 
 ## STEP 1 - REVIEW, WITH THE LANES THIS DIFF ACTUALLY NEEDS
 
