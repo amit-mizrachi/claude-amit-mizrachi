@@ -154,6 +154,31 @@ Two honest caveats, both worth keeping in mind before claiming a saving:
 - **Going from six lanes to two cuts specialist invocations by two thirds, NOT total tokens by
   two thirds.** Several of those reviewers already ran Sonnet. Measure across the whole run.
 
+### Why the lanes went entirely, for one deep-review reviewer (1.21.0)
+
+Picking lanes by risk fixed the invocation count, not the quality. In October 2026 six
+squad-reviewed commits were replayed at their exact heads, each through one blind Opus reviewer
+at high effort, and a separate judge rated every real issue from both: the single reviewer found
+3 Highs to the squad's 1, 17 High + Medium to 10, and 93% of what it reported was real against
+46%. It also caught a bug that had escaped the squad to the PR reviewer. The squad won only on
+Low and Nit cleanups. The owner moved every review, in Claude and in Codex, to `deep-review`;
+the sprint's finders followed. The details are in the deep-review skill's `references/sources.md`.
+
+Two things changed with it:
+
+- **The finder still triages.** deep-review reports every issue at confidence 50 or more, on
+  purpose (a reproduced crash scored 55). The finder opens the code for each one before it
+  queues a fix, so the wider band costs triage time, not 3am fixer time.
+- **The runner learned to see subagents.** One reviewer on a whole-night diff is one long
+  `Agent` call: a median of 9.4 minutes, about 34 for 334 files. During that call the finder's own
+  transcript does not move, and `watch.sh` and `revive.sh` read only that file, so at 25 minutes
+  the runner would have revived a review that was working. `transcript_last_write` in `agents.sh`
+  now takes the newest write across `<sid>.jsonl` and `<sid>/subagents/*.jsonl`.
+
+The fixer still never reviews, although deep-review's own Step 5 says to review a fix diff.
+That is a known gap: `FIX-FINAL`'s commits reach the PR reviewed only by CI. Closing it means a
+review tag between `FIX-FINAL` and `CI`, not a review inside the fixer's window.
+
 ### Why FIND and FIX are separate, and why the fixer may be the implementer
 
 Consolidating several specialist reports is the most expensive single act in a night sprint: it

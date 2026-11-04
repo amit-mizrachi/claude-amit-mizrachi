@@ -1,8 +1,8 @@
 # amit-mizrachi
 
-Seven [Claude Code](https://claude.com/claude-code) skills for running work you are not
+Eight [Claude Code](https://claude.com/claude-code) skills for running work you are not
 sitting and watching - handing a session off, turning a feature into a spec and tickets, taking
-it through the night, researching a product question end to end, taking a feature from idea to
+it through the night, reviewing it with one deep reviewer, researching a product question end to end, taking a feature from idea to
 plan to PR, and keeping a big effort's map legible - plus `codex-bridge`, an MCP server that lets
 Claude ask OpenAI Codex for a second opinion, `night-watch`, a live terminal board of every
 sprint and marathon in flight, and the macOS hook that stops your machine sleeping through it.
@@ -16,7 +16,8 @@ sprint and marathon in flight, and the macOS hook that stops your machine sleepi
 
 Start a new session (or `/clear`). The skills then appear as `amit-mizrachi:next-prompt`,
 `amit-mizrachi:night-sprint`, `amit-mizrachi:product-research`, `amit-mizrachi:to-spec`,
-`amit-mizrachi:to-tickets`, `amit-mizrachi:night-marathon`, and `amit-mizrachi:mywayfinder`.
+`amit-mizrachi:to-tickets`, `amit-mizrachi:night-marathon`, `amit-mizrachi:deep-review`, and
+`amit-mizrachi:mywayfinder`.
 
 ## What's in it
 
@@ -108,11 +109,12 @@ The parts that make it survive an unattended night:
 - **One tag, one session**, held at all three ways in: `launch.sh` claims a tag with an atomic
   `mkdir` so a double launch is harmless, nothing can fork a running session, and `revive.sh`
   refuses any session whose transcript is still growing.
-- **Review lanes a diff actually earns.** Correctness always; security, architecture,
-  observability, reuse and simplification only where the change gives them something to find.
-  Running all six every time is how seven tickets produced 44 specialist invocations, with review
-  plus fixes at 59% of the sprint's tokens. Reviewers are asked for demonstrable regressions and
-  unmet acceptance criteria, not elective hygiene.
+- **One deep reviewer, not a squad.** Every review runs `deep-review` (ships here): one Opus
+  reviewer at high effort reads the whole scope against the tickets' verbatim text, and the
+  finder checks each issue against the code before it queues a fix. On the team's own commits it
+  found every High the six-lane squad found plus two more, with 93% of its findings real against
+  the squad's 46%. The runner counts the reviewer's transcript as the finder's activity, so a
+  long review is never revived as a stall.
 - **Reviews are async, and the night's findings are fixed once.** A checkpoint review reads a
   frozen snapshot of the branch in its own worktree while the next ticket keeps building, writes
   a local findings manifest, posts **one** consolidated PR comment, and fixes nothing. Nothing
@@ -291,6 +293,20 @@ Two changes from upstream:
   exists; when it does not, both fall back to local markdown under `.scratch/<feature-slug>/`,
   which is exactly where `night-sprint` looks for tickets.
 
+### `deep-review`
+
+One reviewer, reading deeply, instead of a squad of narrow ones. In Claude Code it is exactly one
+`Agent` call (`general-purpose`, Opus, high effort) with a filled reviewer prompt; in Codex the
+session does the review itself. The prompt combines three public guides - the superpowers
+code-reviewer format, a 0-100 confidence score on every issue, and Google's eng-practices
+checklist - and reports every issue at confidence 50 or more, because a reproduced crash once
+scored 55. It is read-only, takes the intent verbatim from the ticket or PR (never a summary),
+and writes no review attestation.
+
+Replayed on six squad-reviewed commits, it found 3 Highs to the squad's 1 and 17 High + Medium
+to 10, with 93% of its findings real against 46%. `night-sprint` runs it for every review; it is
+also the review to use by hand. Sources and the benchmark: `skills/deep-review/references/`.
+
 ### `mywayfinder`
 
 The chart layer on top of `wayfinder`. It takes an effort's blocking graph and publishes it as
@@ -371,7 +387,7 @@ Nothing below is required. Where a skill is missing, the caller degrades and say
 |---|---|---|
 | `wayfinder` | `mywayfinder` | the map itself (**required**) |
 | `to-spec`, `to-tickets` | `night-sprint` | cutting a feature into tickets when none exist yet - ships here |
-| a review skill (e.g. `code-review`) | `night-sprint` | the FIND half of each review pair |
+| `deep-review` | `night-sprint` | the FIND half of each review pair - ships here |
 | `address-review` (or equivalent) | `night-sprint` | the FIX half of each review pair |
 | a dev-environment skill | `night-sprint` | the optional test session that boots the stack |
 | `artifact-design` | `mywayfinder` | built into Claude Code |

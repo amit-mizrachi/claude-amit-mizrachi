@@ -65,6 +65,23 @@ print(m[-1] if m else "")' "$1" 2>/dev/null)"
   if [ -n "$f" ]; then basename "$f" .jsonl; else printf '%s' "$short"; fi
 }
 
+# ---------------------------------------------------------------- when did it last write?
+#
+# transcript_last_write SID -> epoch of the newest write to the session's own transcript OR to
+# any of its subagents' (`<sid>/subagents/agent-*.jsonl`). Prints nothing if neither exists.
+#
+# A session waiting on one long subagent writes nothing to its own transcript until that agent
+# returns. A review finder hands the whole review to ONE deep-review agent, which takes 10 to 35
+# minutes on a big diff. Counted on the session's file alone, that is a 25-minute stall to the
+# watcher and a dead transcript to the reviver, and the runner would stop a review that is working.
+transcript_last_write() {
+  local f
+  f="$(ls -t "$HOME"/.claude/projects/*/"$1".jsonl \
+             "$HOME"/.claude/projects/*/"$1"/subagents/*.jsonl 2>/dev/null | head -1)"
+  [ -n "$f" ] || return 0
+  stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null
+}
+
 # ---------------------------------------------------------------- did it end its own turn?
 #
 # turn_ended SID|TRANSCRIPT -> 0 when the session's last turn CLOSED: the transcript's last

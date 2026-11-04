@@ -1,6 +1,6 @@
 ---
 name: night-sprint
-description: Delivers a whole feature overnight through autonomous sessions, run one after another by default or side by side in blitz mode (`speed: blitz`, tickets on a dependency graph, each in its own worktree, landed onto the branch one by one), and asks the user nothing once it is invoked, all on ONE branch landing as ONE pull request (or, when the feature spans several repos, one branch and one cross-linked PR per repo). A conductor session writes no code - it sets the sprint up, then a deterministic runner launches each ticket, advances the chain, revives what dies and waits out spending limits, escalating only what needs judgement. Each implementer watches its own context window and hands its ticket to a fresh session before it fills. Gets or builds a ticket breakdown first (via a spec and a ticket-splitting skill), decides whether to review once at the end or also at checkpoints, runs every checkpoint review ASYNC (it reads a snapshot while the next ticket keeps building, and nothing waits for it) and fixes every finding of the night once, at the end, with only the review lanes that diff actually earns, optionally runs a test session that boots the stack or runs evals, and ends with the PR ready for review and a CI ticket on the chain that waits for the checks and fixes what is red, so the user wakes to a ready PR with green CI or a named reason it is not. Also runs in research mode (`mode: research`), where each ticket is a research question answered from cited sources and the sprint ends in one published artifact instead of a PR. Use when the user says "night sprint", "sprint this feature", "build this overnight", "run this while I sleep", "ticket after ticket", "blitz", or wants a feature taken end to end unattended in a single PR.
+description: Delivers a whole feature overnight through autonomous sessions, run one after another by default or side by side in blitz mode (`speed: blitz`, tickets on a dependency graph, each in its own worktree, landed onto the branch one by one), and asks the user nothing once it is invoked, all on ONE branch landing as ONE pull request (or, when the feature spans several repos, one branch and one cross-linked PR per repo). A conductor session writes no code - it sets the sprint up, then a deterministic runner launches each ticket, advances the chain, revives what dies and waits out spending limits, escalating only what needs judgement. Each implementer watches its own context window and hands its ticket to a fresh session before it fills. Gets or builds a ticket breakdown first (via a spec and a ticket-splitting skill), decides whether to review once at the end or also at checkpoints, runs every checkpoint review ASYNC (it reads a snapshot while the next ticket keeps building, and nothing waits for it) and fixes every finding of the night once, at the end, with every review run by ONE deep-review reviewer (`deep-review` ships in this plugin), optionally runs a test session that boots the stack or runs evals, and ends with the PR ready for review and a CI ticket on the chain that waits for the checks and fixes what is red, so the user wakes to a ready PR with green CI or a named reason it is not. Also runs in research mode (`mode: research`), where each ticket is a research question answered from cited sources and the sprint ends in one published artifact instead of a PR. Use when the user says "night sprint", "sprint this feature", "build this overnight", "run this while I sleep", "ticket after ticket", "blitz", or wants a feature taken end to end unattended in a single PR.
 argument-hint: "<feature | spec path | ticket dir | issue URL> [speed: serial|blitz] [parallel: <n>] [test: none|dev-stack|evals|<command>] [permission: auto|<mode>] [approval: delegated] [mode: research]"
 ---
 
@@ -59,13 +59,13 @@ are changing the skill, not when you are running a sprint.
 
 ## Prerequisites - check these before kickoff, not at 3am
 
-`next-prompt`, `to-spec` and `to-tickets` ship in this plugin. The rest are named by ROLE;
+`next-prompt`, `deep-review`, `to-spec` and `to-tickets` ship in this plugin. The rest are named by ROLE;
 substitute whatever you use, and write the real names into `PLAN.md` at kickoff so the sessions
 invoke the right thing.
 
 | Role | What it does | Without it |
 |---|---|---|
-| a **code-review** skill | the review lanes the FIND step runs | nothing reviews the diff |
+| **`deep-review`** (ships here) | the one reviewer every FIND step runs | nothing reviews the diff |
 | an **address-review** skill | replies on external bot / human PR threads | external comments go unanswered |
 | **`next-prompt`** (ships here) | the conductor handing itself on | the sprint dies when the conductor fills up |
 | a **spec** skill (`to-spec` ships here) | turning a feature into a spec at kickoff | bring your own spec |
@@ -136,7 +136,8 @@ Decide that deliberately rather than discovering it in the morning.
    counting up from 0 exactly as `/context` reports it: **`WARN_AT_USED`** (`20`) the session
    starts nothing new; **`RELAY_AT_USED`** (`30`) the session hands its tag on; **`CEILING_USED`**
    (`60`) it hands off even with nothing to show. Defaults unless the user says otherwise.
-4. **Decide the review cadence AND the review lanes** (see below) and state both.
+4. **Decide the review cadence** (see below) and state it. Every review is one `deep-review` run;
+   there are no lanes to pick.
 5. **Bootstrap the workspace and the branch.** One command, and it is not optional:
 
        bash <SKILL_DIR>/references/bootstrap.sh <WS> <SKILL_DIR>/references
@@ -157,7 +158,7 @@ Decide that deliberately rather than discovering it in the morning.
    | Role | `vars-<TAG>.env` must set |
    |---|---|
    | implementer `T<NN>` | `TAG`, `NN`, `TICKET_TITLE`, `GOTCHAS`, `NEXT_TAG` (empty in blitz), `CONVENTIONS`, `TOTAL` |
-   | review finder (`REVIEW-C<n>`, `REVIEW-FINAL`) | `TAG`, `CHECKPOINT`, `SCOPE`, `REVIEW_LANES`, `FIX_TAG=FIX-FINAL`, `NEXT_AFTER_FIX=CI` |
+   | review finder (`REVIEW-C<n>`, `REVIEW-FINAL`) | `TAG`, `CHECKPOINT`, `SCOPE`, `FIX_TAG=FIX-FINAL`, `NEXT_AFTER_FIX=CI` |
    | `FIX-FINAL` | `TAG=FIX-FINAL`, `CHECKPOINT`, `FIND_TAG=REVIEW-FINAL`, `NEXT_TAG=CI` |
    | `CI` (and `CI2`) | `TAG=CI` (`TAG=CI2`), `NEXT_TAG` (`CI`: `TEST` or empty; `CI2`: empty) |
    | `TEST` | `TOTAL`, `FIND_FINAL_TAG` |
@@ -225,7 +226,7 @@ Decide that deliberately rather than discovering it in the morning.
 |---|---|---|---|
 | **Conductor** (you) | 1 at a time, hands itself on | never | set up, arm the runner, handle escalations, report. **Never interrupts a working session** |
 | **Implementer** | 1+ per ticket; **serial**, or up to `MAX_PARALLEL` at once in blitz | yes | build ONE ticket, static checks green (no tests), commit, hand off - and watch its own window. In blitz: in its own worktree, and it lands itself with `land.sh` |
-| **Review finder** | 1 per review, **async** | **never** | run the selected lanes over a snapshot, triage, write the findings manifest, post ONE PR comment. A checkpoint finder launches nothing; `REVIEW-FINAL` carries every still-true checkpoint finding forward and decides whether `FIX-FINAL` runs |
+| **Review finder** | 1 per review, **async** | **never** | run `deep-review` over a snapshot, check and triage what it reports, write the findings manifest, post ONE PR comment. A checkpoint finder launches nothing; `REVIEW-FINAL` carries every still-true checkpoint finding forward and decides whether `FIX-FINAL` runs |
 | **Review fixer** | `FIX-FINAL`, plus `FIX-TEST` if the tester routes one | yes (fixes only) | work the whole night's manifest at once, reply on external threads, check, push. Static checks plus a few targeted tests, never the suite |
 | **Tester** | 0 or 1 | no | exercise the built thing, report PASS/FAIL per step, write `GOLDEN.verdict` |
 | **CI ticket** | `CI`, plus `CI2` after a `FIX-TEST` | yes (CI fixes only) | a tag on the chain after `FIX-FINAL`: waits for the required checks at the pushed head, fixes and pushes what is red, inherited base-branch failures included (three passes at most), writes `ACCEPTANCE.verdict`, posts one PR comment. The PR is already ready for review when it starts. The runner launches, revives and closes it like any tag |
@@ -281,7 +282,7 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
 | `references/bootstrap.sh` | build the workspace: copy the scripts, derive the facts, fail on anything missing |
 | `references/plan-template.md` | the `PLAN.md` skeleton: facts, goal, ticket order, golden path, acceptance, protocol |
 | `references/implementer-prompt.md` | one ticket, one session |
-| `references/review-find-prompt.md` | the FIND step - selected lanes, triage, the manifest, the fix route |
+| `references/review-find-prompt.md` | the FIND step - one deep-review run, triage, the manifest, the fix route |
 | `references/review-fix-prompt.md` | the FIX step - work the manifest, external threads, the acceptance gate |
 | `references/test-prompt.md` | the opt-in tester - pick ONE of its three modes and delete the rest |
 | `references/continuation-prompt.md` | a relayed tag's successor - sessions fill this one themselves |
@@ -309,7 +310,7 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
 
 **There is deliberately no script for the context rungs.** A session hands its own ticket on.
 
-## Review cadence, and the lanes a diff earns
+## Review cadence, and the one reviewer
 
 **Cadence:**
 - **4 tickets or fewer, one subsystem** -> `REVIEW-FINAL` only.
@@ -330,22 +331,17 @@ tickets 4 to 9 may build on it and `FIX-FINAL` reworks them too. That is accepte
 over the finished feature is cheaper than stopping the night for every review, and a finding
 re-checked against the finished code is often already moot.
 
-**Lanes: correctness always, the rest only when the diff gives them something to find.**
+**Every review is one `deep-review` run.** One reviewer (Opus at high effort, a single `Agent`
+call) reads the scope's whole diff against the tickets' verbatim text, and the finder checks and
+triages what it reports. There are no lanes and no squad: on the team's own commits the single
+reviewer found every High the squad did plus two more, and 93% of what it reported was real
+against the squad's 46% (the deep-review skill's `references/sources.md`). The finder never runs
+`code-review` or `squad-review` beside it or as a fallback; a review that cannot finish is
+reported incomplete. Elective hygiene is a follow-up, not a finding.
 
-| Lane | Add it when the diff |
-|---|---|
-| correctness / code quality | ALWAYS |
-| security | touches authn or authz, parses untrusted input, handles a secret, crosses a network boundary, builds a query or path from user data, changes CORS or origin checks |
-| architecture | changes a contract, schema, public interface, deployment topology or cross-service call |
-| observability | adds or changes logging, spans, metrics, alerts or an error-handling path |
-| reuse / extraction | adds general-purpose logic that belongs in a shared package, reimplements what one already exports, or hand-copies a library the feature's format is built on |
-| simplification | is the FINAL review, or is large enough that its shape is in question |
-| prompt-reviewer (separate) | changes a prompt, skill, agent definition or template |
-
-**Running all six every time is the expensive habit this replaced** - one night, 44 specialist
-invocations across seven reviews, and review plus fixes at 59% of the sprint's tokens. Ask each
-lane for demonstrable regressions and unmet acceptance criteria; elective hygiene is a follow-up.
-High-risk changes stay eligible for the broad set - say so when you pick it.
+A big diff makes for a long single call (10 minutes typical, 35 for 300 files). The runner counts
+a session's subagent transcripts as its activity (`transcript_last_write` in `agents.sh`), so a
+finder waiting on its reviewer is never read as stalled.
 
 **FIND and FIX are separate steps.** The finder never edits a file, runs the verify command or
 commits. The fixer never runs a review of any kind. One window cannot do both: it pays for the
@@ -721,7 +717,7 @@ relay**:
 | T03 | `e5f6...` | ns-<slug>-T03 | implementer | DIED transient | how far it got before the API dropped it |
 | T03 | `9a8b...` | ns-<slug>-T03-r2 | implementer (resumed) | DONE | what it finished after the resume |
 | T05 | `c3d4...` | ns-<slug>-T05 | implementer | RELAYED to T05c2 at 31% used | what it landed before handing on |
-| REVIEW-C1 | `...` | ns-<slug>-REVIEW-C1 | review finder (async, beside T04) | DONE | lanes run, n findings posted, n deferred, n rejected |
+| REVIEW-C1 | `...` | ns-<slug>-REVIEW-C1 | review finder (async, beside T04) | DONE | deep-review verdict, n findings posted, n deferred, n rejected |
 | REVIEW-C2 | `...` | ns-<slug>-REVIEW-C2 | review finder | BUDGET-BLOCKED 1h59m | the wait, and what it finished afterwards |
 | REVIEW-FINAL | `...` | ns-<slug>-REVIEW-FINAL | review finder | DONE | n carried forward, n resolved by later work, n new |
 | T06 | - | - | not launched (blitz) | SKIPPED | blocker T04 BLOCKED |
@@ -746,7 +742,7 @@ The final message must contain, in this order (a multi-repo sprint reports per r
    anything not landed. Never omit a dropped ticket.
 4. **The session ledger** - the full table above.
 5. **Review + test results** - findings fixed vs rejected vs deferred; the tester's per-step
-   PASS/FAIL; which review lanes ran and which were skipped.
+   PASS/FAIL; any review that did not finish.
 6. **Time lost to things that were not the work** - budget waits, auth stalls, revivals.
 7. **Follow-ups** - `state/FOLLOWUPS.md`, verbatim, ready to become tickets. An empty file is a
    fine answer; say so.
@@ -792,9 +788,9 @@ never bypass hooks with `--no-verify`.
 | "No plan yet, I'll figure out tickets as I go." | Cut a spec and a ticket breakdown first, headless, and name the tickets in the kickoff summary. A sprint with no breakdown builds the wrong thing 9 times. |
 | "The user said frozen lockfile only, so the sprint rules say: never add a dependency." | Copy the user's rules into the sprint as written. A sprint rule beats the ticket at 3am, so a widened one costs real code: one sprint hand-copied 560 lines of the AI SDK's `useChat` because of this exact line. An install rule governs installs; the implementer prompt already says when to add a library. |
 | "I'll just check this one setting with the user before I start." | The sprint asks nothing once invoked. Take it from the invocation or the default, log it under `Decided without asking`, and go. A question at kickoff is a sprint that has not started when the user comes back. |
-| "Run all six review lanes, it is more thorough." | It is five reviewers reading the same code to report nothing. Correctness always; the rest only where the diff gives them something to find. |
+| "Add a security lane / the squad beside deep-review, it is more thorough." | The squad found less and half of what it found was not real. One deep reader covers security, design and tests in one pass; more reviewers is more noise for the 3am fixer. |
 | "The reviewer found a one-line fix, it can just make it." | Then it is not a finder, and the next fat review dies mid-triage exactly the way the split was built to stop. |
-| "The fixer should re-run the review to check nothing was missed." | That refills its window with specialist reports and puts it back in the failure mode the split removed. The manifest is the input. Reject an item in a line if it is wrong. |
+| "The fixer should re-run the review to check nothing was missed." | That refills its window with a reviewer's report and puts it back in the failure mode the split removed. The manifest is the input. Reject an item in a line if it is wrong. |
 | "Post each finding as its own inline comment so nothing is missed." | One consolidated comment, inline only for BLOCKER and HIGH. The fixer reads the LOCAL manifest; a round trip through GitHub to fetch back your own notes is not a review artefact. |
 | "Every review needs its own fixer session." | One fixer, at the end, for the whole night. Seven fresh fixers once cost 103M tokens, a quarter of a sprint. |
 | "It stalled - retry harder and poll faster." | Classify it first. A spending cap cannot be solved by a faster watchdog, and a ladder spent against one loses hours while reporting a permission problem. |

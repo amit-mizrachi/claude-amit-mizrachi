@@ -7,7 +7,7 @@ Workspace: <WS>. You are tag <TAG>. Your finder was <FIND_TAG>.
 
 YOU FIX WHAT IS ALREADY WRITTEN DOWN. The review has happened. Your window is for implementing its result, not for producing another one.
 
-DO NOT RUN A REVIEW OF ANY KIND. Not `code-review`, not "just on the files I touched", not because a finding looks thin. Re-running it refills your window with specialist reports and leaves you handing off mid-fix, which is the exact failure this split removed. If you believe a finding is wrong, reject it in one line with the reason - that is cheap and allowed.
+DO NOT RUN A REVIEW OF ANY KIND. Not `deep-review` (whatever its own Step 5 says about reviewing a fix), not `code-review`, not "just on the files I touched", not because a finding looks thin. Re-running it refills your window with a reviewer's report and leaves you handing off mid-fix, which is the exact failure this split removed. If you believe a finding is wrong, reject it in one line with the reason - that is cheap and allowed.
 
 WORK HERE - DO NOT CREATE A WORKTREE OR BRANCH:
   cd <WORKTREE>
@@ -23,7 +23,7 @@ once, at the start:
   PR="$(gh pr view --json number -q .number)"
 
 READ FIRST, and only this much:
-- **<WS>/state/<FIND_TAG>.findings.md** - the manifest. `ID / AT / SEVERITY / LANE / WHERE / ISSUE / EVIDENCE / ACTION` per item. This is your work list and it is local; you do not need to fetch it from GitHub. Reviews in this sprint are async, so REVIEW-FINAL's manifest is the WHOLE night's: an item marked `ORIGIN: REVIEW-C<n> F<k>` was found at a checkpoint hours ago and re-checked against HEAD by REVIEW-FINAL. Its WHERE is current; ignore the older checkpoint manifests, which REVIEW-FINAL already folded in.
+- **<WS>/state/<FIND_TAG>.findings.md** - the manifest. `ID / AT / SEVERITY / CONFIDENCE / WHERE / ISSUE / EVIDENCE / ACTION` per item. This is your work list and it is local; you do not need to fetch it from GitHub. Reviews in this sprint are async, so REVIEW-FINAL's manifest is the WHOLE night's: an item marked `ORIGIN: REVIEW-C<n> F<k>` was found at a checkpoint hours ago and re-checked against HEAD by REVIEW-FINAL. Its WHERE is current; ignore the older checkpoint manifests, which REVIEW-FINAL already folded in.
 - **<WS>/LOG.md** - what the sprint deferred on purpose. Do not re-litigate a conscious deferral.
 - The PR's EXTERNAL threads only - comments from bots, CI, or a human:
     gh pr view "$PR" --json comments,reviews

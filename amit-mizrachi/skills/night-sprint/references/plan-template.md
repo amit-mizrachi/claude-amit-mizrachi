@@ -24,7 +24,7 @@
 | Relay at | `<30>`% of the window USED - the session hands its tag to a fresh one |
 | Ceiling | `<60>`% used - the relay is held until a session has produced work, but never past this |
 | Review cadence | `<final only | checkpoints after T<NN>, T<NN>, plus final>` - and why. Each review is a FIND step and a FIX step |
-| Review lanes | `<correctness, plus the lanes this feature's risk actually earns>` - correctness always; security / architecture / observability / reuse / simplification only where the diff gives them something to find. Never all six by default |
+| Reviewer | `deep-review` - one reviewer per review, fed the scope's tickets verbatim. No lanes, no squad, no fallback |
 | Test session | `<none | dev-stack | evals | custom: <cmd>>` - chosen by the user |
 | How to boot the stack | `<the dev-environment skill name and/or the exact boot command>` - only for `dev-stack`; the TEST session reads it from here |
 {{#MULTI_REPO}}
@@ -81,10 +81,10 @@ may assume exactly the tickets in its "Blocked by" column have landed - nothing 
 | T01 | `01-<slug>.md` | <end-to-end behaviour this makes work> | none | T02 |
 | T02 | `02-<slug>.md` | <...> | T01 | T03 |
 | T03 | `03-<slug>.md` | <...> | T02 | T04 |
-| REVIEW-C1 | - | ASYNC checkpoint review of T01-T03 with the selected lanes, in a read-only snapshot worktree while T04 builds: findings into `state/REVIEW-C1.findings.md` plus one consolidated PR comment. Writes no code and launches no fixer. Queued, waits on T03 | T03 | nothing |
+| REVIEW-C1 | - | ASYNC checkpoint review of T01-T03 with one deep-review run, in a read-only snapshot worktree while T04 builds: findings into `state/REVIEW-C1.findings.md` plus one consolidated PR comment. Writes no code and launches no fixer. Queued, waits on T03 | T03 | nothing |
 | ... | | | | |
 | T<NN> | `<NN>-<slug>.md` | <...> | T<NN-1> | nothing (REVIEW-FINAL is queued) |
-| REVIEW-FINAL | - | carries every still-true checkpoint finding forward into one manifest, then the selected lanes over the whole PR, the ticket-by-ticket acceptance re-read, and the setup sweep. Writes no code. Queued, waits on the last ticket(s) and every checkpoint review | all of them | FIX-FINAL |
+| REVIEW-FINAL | - | carries every still-true checkpoint finding forward into one manifest, then one deep-review run over the whole PR, the ticket-by-ticket acceptance re-read, and the setup sweep. Writes no code. Queued, waits on the last ticket(s) and every checkpoint review | all of them | FIX-FINAL |
 | FIX-FINAL | - | fixes the whole night's manifest and every external comment at once, brings the PR description up to date, and takes the PR out of draft (`gh pr ready`) WITHOUT waiting on CI | REVIEW-FINAL | CI |
 | CI | - | the CI ticket: waits for the required checks at the pushed head, fixes and pushes what is red (three passes at most), writes `state/ACCEPTANCE.verdict`, posts one PR comment | FIX-FINAL | TEST, or end if no test session |
 | TEST | - | <the chosen test mode>; writes `state/GOLDEN.verdict` | CI | FIX-TEST if an in-scope step failed, else end |

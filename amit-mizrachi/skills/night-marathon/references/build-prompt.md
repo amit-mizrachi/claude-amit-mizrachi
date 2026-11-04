@@ -51,7 +51,7 @@ Read <NS_DIR>/SKILL.md and follow it as the conductor, with these settings alrea
 - **test: <BUILD_TEST>.** If it names a dev stack, find the repo's dev-environment skill and its boot command yourself and write both into PLAN.md.
 - **Workspace: <WS>/build**, not `~/.claude/night-sprint/<SLUG>/`. Claude Code guards writes under `~/.claude`, and this conductor is a background session that cannot answer that prompt.
 - **SLUG=<SLUG>**, `REPO_PATH=<REPO_PATH>`, `BASE=<BASE>`. The worktree and the branch are night-sprint's usual ones.
-- **The review cadence and lanes**: decide them yourself per the skill's rules, and say which in LOG.md.
+- **The review cadence**: decide it yourself per the skill's rules, and say which in LOG.md. Every review is one `deep-review` run; there are no lanes to pick.
 
 Then kickoff steps 3-9, the monitor loop, acceptance and the PR, exactly as the skill says. Each implementer's GOTCHAS line names that ticket's mockup files and says: "match the mockup's components, states and copy; the plan is <WS>/plan/PLAN.md".
 
