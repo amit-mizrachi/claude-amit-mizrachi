@@ -186,12 +186,10 @@ for r in rows:
 }
 GROWING_MIN=2         # a transcript written this recently belongs to a live process
 session_is_active() {
-  local sid="$1" f last now hs
+  local sid="$1" last now hs
   case "$sid" in ""|unresolved) return 1 ;; esac
 
-  f="$(ls -t "$HOME"/.claude/projects/*/"$sid".jsonl 2>/dev/null | head -1)"
-  last=""
-  [ -n "$f" ] && last="$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null)"
+  last="$(transcript_last_write "$sid")"   # a subagent's writes count: see agents.sh
   now="$(date +%s)"
 
   # NO ANSWER FROM THE HARNESS IS NO LICENCE TO ACT. This guard used to read a failed `claude

@@ -98,8 +98,9 @@ Do not queue `CI2-<key>` yourself: a queued tag whose `FIX-TEST` never runs is `
 contract. The tails of different repos then run side by side, each in its own worktree - the one
 place a serial multi-repo sprint has more than one writer, and never two in one tree.
 
-**Cadence and lanes are per repo**, by SKILL.md's rules applied to that repo's tickets. A repo
-whose diff provides or consumes a cross-repo contract earns the architecture lane.
+**Cadence is per repo**, by SKILL.md's rules applied to that repo's tickets. Each repo's finder
+runs its own deep-review, and one whose diff provides or consumes a cross-repo contract names the
+sibling worktrees in what it gives the reviewer, so both sides of the contract are read.
 
 **Render with the repo file before the tag's vars**, so its `<WORKTREE>`, `<BRANCH>`,
 `<REPO_KEY>` and the rest are that repo's:

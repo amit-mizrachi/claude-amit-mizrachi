@@ -120,11 +120,7 @@ did_once() {
   return 0
 }
 
-session_last_activity() {
-  local sid="$1" f
-  f="$(ls -t "$HOME"/.claude/projects/*/"$sid".jsonl 2>/dev/null | head -1)"
-  [ -n "$f" ] && mtime_of "$f"
-}
+session_last_activity() { transcript_last_write "$1"; }
 
 # WHAT KILLED IT, not merely THAT something did. One classifier, shared with revive.sh, so
 # the two can never disagree - and they used to. A `grep isApiErrorMessage` answers "was

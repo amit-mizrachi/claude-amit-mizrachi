@@ -19,7 +19,7 @@ fix route, Acceptance, The manual steps, The PR, and the morning report's items 
 | a git worktree of the repo, one PR | `<WS>/work`, a **local** git repo with no remote; no PR | sessions still commit, so the runner has a HEAD to diff and the reviver a log to read |
 | `VERIFY` = the repo's checks | `VERIFY` = `bash <WS>/research-check.sh <WS>` | every claim must name its source; the review checks the source says it |
 | implementer per ticket | researcher per ticket, `research-ticket-prompt.md` | writes `findings/<NN>-<slug>.md` |
-| review lanes over the diff | ONE lane, **evidence**, `research-review-find-prompt.md` | re-opens the sources behind the claims |
+| one deep-review run over the diff | ONE lane, **evidence**, `research-review-find-prompt.md` | re-opens the sources behind the claims |
 | one fixer at the end | always a fresh fixer, `research-review-fix-prompt.md`, or SKIP | the same as a code sprint: every finding is fixed once, at the end |
 | `CI` fixes red checks, then optional `TEST` | `SYNTH` builds and publishes the artifact, runs `research-check.sh --final` | there is no CI; the artifact is the thing delivered |
 | permission mode and test session from the invocation, else `auto` and none | always `auto`, no test session | research has nothing to boot or test |

@@ -35,33 +35,31 @@ READ FIRST: <WS>/PLAN.md (goal + tickets), <WS>/LOG.md (what landed, and what th
 SCOPE: <SCOPE>. Review it as one body of work.
 {{#MULTI_REPO}}
 
-THIS SPRINT SPANS SEVERAL REPOS, AND YOU REVIEW ONE: <REPO_KEY> (<REPO_SLUG>) - its branch <BRANCH>, its PR, its tickets (the ones whose <WS>/state/T<NN>.repo says <REPO_KEY>). <WS>/REPOS.md lists the others. A defect inside another repo is that repo's reviewer's. The contract BETWEEN repos is yours from this side: where this repo calls, or is called by, code another repo's tickets built, read that side in its worktree (read only) and post a mismatch here as a finding. Two names change for you below:
+THIS SPRINT SPANS SEVERAL REPOS, AND YOU REVIEW ONE: <REPO_KEY> (<REPO_SLUG>) - its branch <BRANCH>, its PR, its tickets (the ones whose <WS>/state/T<NN>.repo says <REPO_KEY>). <WS>/REPOS.md lists the others. A defect inside another repo is that repo's reviewer's. The contract BETWEEN repos is yours from this side: where this repo calls, or is called by, code another repo's tickets built, read that side in its worktree (read only) and post a mismatch here as a finding. Name those sibling worktrees, and which calls cross between them, in the DESCRIPTION you give deep-review, so its one reviewer reads both sides of the contract. Two names change for you below:
 - the checkpoint manifests REVIEW-FINAL carries forward are `<WS>/state/REVIEW-C*-<REPO_KEY>.findings.md`, never another repo's;
 - the setup verdict is `<WS>/state/SETUP-<REPO_KEY>.verdict`, never `SETUP.verdict`, and it covers the <WS>/state/*.manual blocks for this repo: `REPO: <REPO_KEY>` or `all`, or, with no REPO line, a block written by a tag whose <WS>/state/<TAG>.repo is <REPO_KEY>.
 On the SKIP route, the PR description you bring up to date carries the multi-repo sections the Repos section of <WS>/PLAN.md lists (sibling PRs, merge order, manual steps after merge).
 {{/MULTI_REPO}}
 
-## STEP 1 - REVIEW, WITH THE LANES THIS DIFF ACTUALLY NEEDS
+## STEP 1 - REVIEW WITH THE `deep-review` SKILL: ONE REVIEWER, READING DEEPLY
 
-Run the `code-review` skill. **Correctness is always on.** Then add a lane only if the diff gives it something to find:
+Run the `deep-review` skill (it ships with this plugin as `amit-mizrachi:deep-review`; a user-level `deep-review` is the same skill). It is ONE reviewer - Opus at high effort, a single `Agent` call - covering design, functionality, security and privacy, complexity, tests, naming and production readiness in one pass. Never run `code-review`, `squad-review` or a set of specialist lanes beside it or as a fallback: if deep-review cannot finish, say the review is incomplete in your summary and write the manifest from what you have.
 
-| Lane | Add it when the diff |
-|---|---|
-| correctness / code quality | ALWAYS. Bugs, races, type holes, test quality |
-| security | touches authn or authz, parses untrusted input, handles a secret or token, crosses a network or process boundary, builds a query or a path from user data, changes CORS or origin checks |
-| architecture | changes a contract, schema, public interface, deployment topology or cross-service call - anything later code has to build on |
-| observability | adds or changes logging, spans, metrics, alerts, or an error-handling path |
-| reuse / extraction | adds general-purpose logic that looks like it belongs in a shared package, reimplements something a shared package already exports, or hand-copies a library the feature's format or contract is built on (prefer that library when sprint rules permit it) |
-| simplification | is the FINAL review, or is large enough that its shape is in question |
-| prompt-reviewer (separate, not part of the squad) | changes a prompt, skill, agent definition or template |
+Feed it this sprint's inputs, not the ones its Step 1 would pick for an interactive session:
+- **BASE_SHA / HEAD_SHA** - from SCOPE above: the range's two ends, resolved to full shas. HEAD_SHA is `git rev-parse HEAD` here (the snapshot, for a checkpoint). No working-tree snapshot: a finder's tree has nothing uncommitted.
+- **REPO** - this worktree's path (the `cd` above).
+- **REQUIREMENTS** - verbatim, never summarised: the Goal section of <WS>/PLAN.md, then the full text of every ticket in <WS>/tickets/ that SCOPE covers (REVIEW-FINAL: every ticket). deep-review explains why: a summary written by someone who knows the problems steers the reviewer toward them.
+- **DESCRIPTION** - one paragraph: "night sprint <SLUG>, <TAG>, tickets <list> as landed on <BRANCH>", plus the LOG.md lines that defer something on purpose, so the reviewer does not re-raise a conscious deferral.
 
-Lanes selected at kickoff for this review: <REVIEW_LANES>. Add one the kickoff missed if the diff clearly calls for it, and say so in your summary. **Do not run the full set out of habit.** Six lanes on a two-file diff is five reviewers reading the same code to report nothing, and one night spent 44 specialist invocations across seven reviews to get there.
+A big diff takes a while (about 10 minutes typical, 35 for a 300-file one). That is expected: the runner counts the reviewer's own transcript as your activity, so wait for it and do not start a second one.
 
-ASK EACH LANE FOR DEMONSTRABLE PROBLEMS: a regression with a failure path, or an acceptance criterion this sprint did not meet. Elective hygiene is a follow-up, not a finding.
+Take its report as the raw input to STEP 2. Keep every issue it scored at confidence 50 or more - deep-review is explicit that the 50-79 band holds real bugs (a reproduced crash once scored 55) - and keep its "Declined to judge" list for your summary. deep-review's own Step 5 (fix, then review the fix) is not yours: you never fix, and <FIX_TAG> works your manifest.
 
 ## STEP 2 - TRIAGE. You are the deciding engineer, not a stenographer.
 
-Every finding goes in exactly one bucket, and be hard about it. A finding you pass on becomes work for a session at 3am, so a padded list costs real hours.
+Before you bucket an issue, open the code at the reviewed head and check it yourself: confirmed, partly, or wrong. The reviewer's confidence is its evidence, not your verdict. Then every finding goes in exactly one bucket, and be hard about it. A finding you pass on becomes work for a session at 3am, so a padded list costs real hours.
+
+Severity: a deep-review Critical is BLOCKER or HIGH, an Important is HIGH or MEDIUM, a Minor is LOW and is usually a FOLLOW-UP or a REJECT. Judge by the consequence, never by the confidence score.
 
 - **FIX** - correctness, security, data integrity, permissions, or a real bug in what this sprint built.
 - **FOLLOW-UP** - real, but out of scope. One line to <WS>/state/FOLLOWUPS.md: `<severity> | <file> | <what is wrong> | <why out of scope>`. The morning report turns it into a ticket.
@@ -82,7 +80,7 @@ One block per FIX finding, in severity order, exactly these fields:
     ID:        F<n>
     AT:        <the short sha you reviewed - `git rev-parse --short HEAD`>
     SEVERITY:  BLOCKER | HIGH | MEDIUM | LOW
-    LANE:      correctness | security | architecture | observability | reuse | simplification
+    CONFIDENCE: <deep-review's 0-100 score, after your own check - lower it if you found the evidence thinner>
     WHERE:     <file>:<line>
     ISSUE:     <what is wrong, in one sentence>
     EVIDENCE:  <the failure path, or the unmet acceptance criterion - why this is real>
@@ -106,7 +104,7 @@ Add inline anchors ONLY for BLOCKER and HIGH findings, where the exact line is t
     "event": "COMMENT",
     "comments": [
       {"path": "src/foo.ts", "line": 42, "side": "RIGHT",
-       "body": "**[HIGH] correctness** - <what is wrong>. <failure path>. Fix: <concrete change>."}
+       "body": "**[HIGH, confidence 85]** - <what is wrong>. <failure path>. Fix: <concrete change>."}
     ]
   }
   JSON
@@ -153,11 +151,11 @@ DELETE THIS WHOLE SECTION when rendering a checkpoint review. It applies only to
 
 Measure, do not estimate: `bash <WS>/context-used.sh --self <CONTEXT_WINDOW>` - percent USED, counting up.
 
-Check it after the review lanes return; that is where the number jumps. You do no fixing, so you should finish inside your window comfortably. If you somehow reach <RELAY_AT_USED>% before posting, WRITE THE MANIFEST AND POST IT FIRST - a review that dies holding un-posted findings has produced nothing - then relay per the CONTEXT RELAY section of <WS>/PLAN.md, carrying the un-triaged findings so your successor does not re-run the lanes.
+Check it after the deep-review report returns; that is where the number jumps. You do no fixing, so you should finish inside your window comfortably. If you somehow reach <RELAY_AT_USED>% before posting, WRITE THE MANIFEST AND POST IT FIRST - a review that dies holding un-posted findings has produced nothing - then relay per the CONTEXT RELAY section of <WS>/PLAN.md, carrying the un-triaged findings so your successor does not re-run the review.
 
 ## WHEN DONE - in this order, and the order matters
 
-1. `echo "<n findings, n deferred, n rejected, lanes run>" > <WS>/state/<TAG>.summary`
+1. `echo "<n findings, n deferred, n rejected, deep-review verdict>" > <WS>/state/<TAG>.summary`
 
 2. **Decide what runs next**, and write it to `<WS>/state/<TAG>.next` BEFORE you write your status. Nothing launches off your status until `.next` is correct; that ordering is the whole reason the two files are separate.
 
@@ -180,4 +178,4 @@ Check it after the review lanes return; that is where the number jumps. You do n
 
 3. `echo "DONE" > <WS>/state/<TAG>.status` (or `BLOCKED: <reason>`). LAST. Never `RELAYED` unless you actually relayed.
 
-Post a summary as your last message: findings by severity, which lanes you ran and which you skipped and why, what you deferred, what you rejected and why, what you carried forward and what later work had already resolved (REVIEW-FINAL), what runs next, and anything needing a human decision in the morning.
+Post a summary as your last message: findings by severity, deep-review's ready-to-merge verdict and its "Declined to judge" list, which of its issues you confirmed and which you found wrong, what you deferred, what you rejected and why, what you carried forward and what later work had already resolved (REVIEW-FINAL), what runs next, and anything needing a human decision in the morning.

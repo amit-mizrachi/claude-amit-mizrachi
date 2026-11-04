@@ -259,7 +259,7 @@ import glob, os, re, sys
 ref = sys.argv[1]
 facts = set(re.findall(r'"([A-Z][A-Z0-9_]*)"', open(os.path.join(ref, "bootstrap.sh")).read()))
 per_tag = {"TAG", "NN", "TICKET_TITLE", "GOTCHAS", "NEXT_TAG", "TOTAL", "CONVENTIONS",
-           "SCOPE", "REVIEW_LANES", "CHECKPOINT", "FIX_TAG", "FIND_TAG", "IMPL_TAG",
+           "SCOPE", "CHECKPOINT", "FIX_TAG", "FIND_TAG", "IMPL_TAG",
            "NEXT_AFTER_FIX", "FIND_FINAL_TAG", "PR", "CONT_TAG", "PREV_TAG", "SCRIPT_PATH",
            "FEATURE_TITLE"}
 bad = {}
@@ -276,7 +276,7 @@ import glob, os, re, sys
 ref = sys.argv[1]
 facts = set(re.findall(r'"([A-Z][A-Z0-9_]*)"', open(os.path.join(ref, "bootstrap.sh")).read()))
 per_tag = {"TAG", "NN", "TICKET_TITLE", "GOTCHAS", "NEXT_TAG", "TOTAL", "CONVENTIONS",
-           "SCOPE", "REVIEW_LANES", "CHECKPOINT", "FIX_TAG", "FIND_TAG", "IMPL_TAG",
+           "SCOPE", "CHECKPOINT", "FIX_TAG", "FIND_TAG", "IMPL_TAG",
            "NEXT_AFTER_FIX", "FIND_FINAL_TAG", "PR", "CONT_TAG", "PREV_TAG", "SCRIPT_PATH",
            "FEATURE_TITLE"}
 out = set()
@@ -907,6 +907,19 @@ te() { ( . "$REF/agents.sh"; turn_ended "$FIX/$1" ) && echo ended || echo mid-tu
 check "turn_ended: a turn closed by the harness marker" "ended"    "$(te gate-wait.jsonl)"
 check "turn_ended: stopped on a pending tool call"      "mid-turn" "$(te permission-prompt.jsonl)"
 check "turn_ended: no marker after the last message"    "mid-turn" "$(te clean.jsonl)"
+
+# --- transcript_last_write: a session waiting on its one deep-review agent is not idle.
+TH2="$(mktemp -d)"; TSID=b2b2b2b2-0000-4000-8000-000000000002
+mkdir -p "$TH2/.claude/projects/p/$TSID/subagents"
+touch -t 202601010000 "$TH2/.claude/projects/p/$TSID.jsonl"
+tlw() { ( HOME="$TH2"; . "$REF/agents.sh"; transcript_last_write "$TSID" ); }
+check "transcript_last_write: the session's own file when it has no subagent" \
+  "$(stat -f %m "$TH2/.claude/projects/p/$TSID.jsonl" 2>/dev/null || stat -c %Y "$TH2/.claude/projects/p/$TSID.jsonl")" "$(tlw)"
+touch "$TH2/.claude/projects/p/$TSID/subagents/agent-a1.jsonl"
+check "transcript_last_write: a subagent writing now makes the session active now" \
+  "$(stat -f %m "$TH2/.claude/projects/p/$TSID/subagents/agent-a1.jsonl" 2>/dev/null || stat -c %Y "$TH2/.claude/projects/p/$TSID/subagents/agent-a1.jsonl")" "$(tlw)"
+check "transcript_last_write: nothing for a session with no transcript" "" \
+  "$( ( HOME="$TH2"; . "$REF/agents.sh"; transcript_last_write nobody ) )"
 
 # --- a conductor that ended its own turn (review gate, Monitor wait, relay) is NOT dead.
 WAIT=a1a1a1a1-0000-4000-8000-000000000001
