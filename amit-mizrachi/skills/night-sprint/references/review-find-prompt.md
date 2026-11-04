@@ -51,7 +51,7 @@ Run the `code-review` skill. **Correctness is always on.** Then add a lane only 
 | security | touches authn or authz, parses untrusted input, handles a secret or token, crosses a network or process boundary, builds a query or a path from user data, changes CORS or origin checks |
 | architecture | changes a contract, schema, public interface, deployment topology or cross-service call - anything later code has to build on |
 | observability | adds or changes logging, spans, metrics, alerts, or an error-handling path |
-| reuse / extraction | adds general-purpose logic that looks like it belongs in a shared package, or reimplements something a shared package already exports |
+| reuse / extraction | adds general-purpose logic that looks like it belongs in a shared package, reimplements something a shared package already exports, or hand-copies a library the feature's format or contract is built on (prefer that library when sprint rules permit it) |
 | simplification | is the FINAL review, or is large enough that its shape is in question |
 | prompt-reviewer (separate, not part of the squad) | changes a prompt, skill, agent definition or template |
 
@@ -66,6 +66,8 @@ Every finding goes in exactly one bucket, and be hard about it. A finding you pa
 - **FIX** - correctness, security, data integrity, permissions, or a real bug in what this sprint built.
 - **FOLLOW-UP** - real, but out of scope. One line to <WS>/state/FOLLOWUPS.md: `<severity> | <file> | <what is wrong> | <why out of scope>`. The morning report turns it into a ticket.
 - **REJECT** - wrong, or a style preference fighting this repo's conventions. Record it with the reason in your summary.
+
+For a hand-copied library, check the sprint rules before choosing FIX. If adding it is explicitly forbidden, record or preserve a high FOLLOW-UP for <USER> instead of instructing the fixer to add it. Still report concrete bugs or unmet acceptance criteria in the fallback.
 
 Permissions or access-control changes always need a human (charter #9). Never queue one as a fix - it is a manual step, STEP 5.
 
