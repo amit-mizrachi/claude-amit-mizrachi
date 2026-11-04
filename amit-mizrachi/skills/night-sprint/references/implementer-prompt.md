@@ -34,6 +34,8 @@ BEFORE YOU COMMIT, run the static checks only: `<FORMAT_CHECK>`, and the repo's 
 
 **LOCAL GREEN IS NOT CI GREEN.** If you find a formatter or lint gate CI runs that `<FORMAT_CHECK>` misses, say so in your summary - that mismatch is worth more to the sprint than the ticket.
 
+**ADD THE LIBRARY YOUR FEATURE IS BUILT ON.** When your ticket's format or contract belongs to a library (the ticket names its hook or API, or the data you read is that library's format), add that library to the package that needs it and build on it. Use the version another package of the repo already pins, if one does. Add it with the package manager's one-package command (`pnpm add <pkg>@<version> --filter <package>` or the repo's equivalent), so the manifest and the lockfile change in one commit. A "frozen lockfile" rule governs installs, not this; if the lockfile cannot take the change tonight, commit the manifest entry and write the install as a `.manual` step. Justify it in one line of the PR body: the library, the contract it carries, the code it saves. A hand-written copy of a library is the expensive choice: it drifts from upstream the first time nobody ports a change. If a sprint rule forbids the library your ticket is built on, keep the copy behind one small seam, typed against the library's own shapes, and log `high | <file> | hand-written copy of <library>, a sprint rule forbids adding it | <USER> decides` to FOLLOWUPS.md.
+
 <GOTCHAS>
 
 ## Anything only a human can do, written down the moment you hit it

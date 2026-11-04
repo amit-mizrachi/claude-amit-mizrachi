@@ -51,7 +51,7 @@ Run the `code-review` skill. **Correctness is always on.** Then add a lane only 
 | security | touches authn or authz, parses untrusted input, handles a secret or token, crosses a network or process boundary, builds a query or a path from user data, changes CORS or origin checks |
 | architecture | changes a contract, schema, public interface, deployment topology or cross-service call - anything later code has to build on |
 | observability | adds or changes logging, spans, metrics, alerts, or an error-handling path |
-| reuse / extraction | adds general-purpose logic that looks like it belongs in a shared package, or reimplements something a shared package already exports |
+| reuse / extraction | adds general-purpose logic that looks like it belongs in a shared package, reimplements something a shared package already exports, or hand-copies a library the feature's format or contract is built on (adding that library is the fix) |
 | simplification | is the FINAL review, or is large enough that its shape is in question |
 | prompt-reviewer (separate, not part of the squad) | changes a prompt, skill, agent definition or template |
 

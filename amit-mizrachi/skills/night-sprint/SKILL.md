@@ -338,7 +338,7 @@ re-checked against the finished code is often already moot.
 | security | touches authn or authz, parses untrusted input, handles a secret, crosses a network boundary, builds a query or path from user data, changes CORS or origin checks |
 | architecture | changes a contract, schema, public interface, deployment topology or cross-service call |
 | observability | adds or changes logging, spans, metrics, alerts or an error-handling path |
-| reuse / extraction | adds general-purpose logic that belongs in a shared package, or reimplements what one already exports |
+| reuse / extraction | adds general-purpose logic that belongs in a shared package, reimplements what one already exports, or hand-copies a library the feature's format is built on |
 | simplification | is the FINAL review, or is large enough that its shape is in question |
 | prompt-reviewer (separate) | changes a prompt, skill, agent definition or template |
 
@@ -790,6 +790,7 @@ never bypass hooks with `--no-verify`.
 | "The blitz ticket is green on its own, mark it DONE." | DONE comes after `land.sh publish` says LANDED - the combined tree is what ships. |
 | "I'll just implement this small ticket myself." | The conductor writes no product code. Your context is the scarcest resource of the night. |
 | "No plan yet, I'll figure out tickets as I go." | Cut a spec and a ticket breakdown first, headless, and name the tickets in the kickoff summary. A sprint with no breakdown builds the wrong thing 9 times. |
+| "The user said frozen lockfile only, so the sprint rules say: never add a dependency." | Copy the user's rules into the sprint as written. A sprint rule beats the ticket at 3am, so a widened one costs real code: one sprint hand-copied 560 lines of the AI SDK's `useChat` because of this exact line. An install rule governs installs; the implementer prompt already says when to add a library. |
 | "I'll just check this one setting with the user before I start." | The sprint asks nothing once invoked. Take it from the invocation or the default, log it under `Decided without asking`, and go. A question at kickoff is a sprint that has not started when the user comes back. |
 | "Run all six review lanes, it is more thorough." | It is five reviewers reading the same code to report nothing. Correctness always; the rest only where the diff gives them something to find. |
 | "The reviewer found a one-line fix, it can just make it." | Then it is not a finder, and the next fat review dies mid-triage exactly the way the split was built to stop. |
