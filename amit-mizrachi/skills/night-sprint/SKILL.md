@@ -1,6 +1,6 @@
 ---
 name: night-sprint
-description: Delivers a whole feature overnight through autonomous sessions, run one after another by default or side by side in blitz mode (`speed: blitz`, tickets on a dependency graph, each in its own worktree, landed onto the branch one by one), and asks the user nothing once it is invoked, all on ONE branch landing as ONE pull request (or, when the feature spans several repos, one branch and one cross-linked PR per repo). A conductor session writes no code - it sets the sprint up, then a deterministic runner launches each ticket, advances the chain, revives what dies and waits out spending limits, escalating only what needs judgement. Each implementer watches its own context window and hands its ticket to a fresh session before it fills. Gets or builds a ticket breakdown first (via a spec and a ticket-splitting skill), decides whether to review once at the end or also at checkpoints, runs every checkpoint review ASYNC (it reads a snapshot while the next ticket keeps building, and nothing waits for it) and fixes every finding of the night once, at the end, with every review run by ONE deep-review reviewer (`deep-review` ships in this plugin), optionally runs a test session that boots the stack or runs evals, and ends with the PR ready for review and a CI ticket on the chain that waits for the checks and fixes what is red, so the user wakes to a ready PR with green CI or a named reason it is not. Also runs in research mode (`mode: research`), where each ticket is a research question answered from cited sources and the sprint ends in one published artifact instead of a PR. Use when the user says "night sprint", "sprint this feature", "build this overnight", "run this while I sleep", "ticket after ticket", "blitz", or wants a feature taken end to end unattended in a single PR.
+description: Delivers a whole feature overnight through autonomous sessions, run one after another by default or side by side in blitz mode (`speed: blitz`, tickets on a dependency graph, each in its own worktree, landed onto the branch one by one), and asks the user nothing once it is invoked, all on ONE branch landing as ONE pull request (or, when the feature spans several repos, one branch and one cross-linked PR per repo). A conductor session writes no code - it sets the sprint up, then a deterministic runner launches each ticket, advances the chain, revives what dies and waits out spending limits, escalating only what needs judgement. Each implementer watches its own context window and hands its ticket to a fresh session before it fills. Gets or builds a ticket breakdown first (via a spec and a ticket-splitting skill), decides whether to review once at the end or also at checkpoints, runs every checkpoint review ASYNC (it reads a snapshot while the next ticket keeps building, and nothing waits for it) and fixes every finding of the night once, at the end, with every review run by ONE deep-review reviewer (`deep-review` ships in this plugin), optionally runs a test session that boots the stack or runs evals, and ends with the PR ready for review. CI is never on the chain and nothing waits for it: it runs async on the PR, and the morning report names its state at report time from one read. Also runs in research mode (`mode: research`), where each ticket is a research question answered from cited sources and the sprint ends in one published artifact instead of a PR. Use when the user says "night sprint", "sprint this feature", "build this overnight", "run this while I sleep", "ticket after ticket", "blitz", or wants a feature taken end to end unattended in a single PR.
 argument-hint: "<feature | spec path | ticket dir | issue URL> [speed: serial|blitz] [parallel: <n>] [test: none|dev-stack|evals|<command>] [permission: auto|<mode>] [approval: delegated] [mode: research]"
 ---
 
@@ -50,7 +50,7 @@ about reviving apply unchanged. A calling skill may render `SYNTH` from its own 
 **Multi-repo.** If the tickets name more than one repo (a `**Repo:**` line, or a `[repo]` tag in
 their titles) or the invocation does, read `references/multi-repo.md` now. The sprint then ends
 with one branch and one PR per repo: each ticket names one repo, each repo has its own worktree,
-checkpoint and final reviews, `FIX-FINAL` and `CI` ticket, and every PR links the others and
+checkpoint and final reviews and `FIX-FINAL`, and every PR links the others and
 carries its own "Manual steps after merge". The chain, the runner and every rule below still
 apply; only the per-repo parts are multiplied.
 
@@ -125,7 +125,7 @@ Decide that deliberately rather than discovering it in the morning.
 
    A multi-repo sprint keeps every per-repo fact in `repos/<key>.env` instead (`multi-repo.md`).
 
-   **`VERIFY` is what PR CI runs, recorded for the `CI` ticket - never run it locally**, not even to
+   **`VERIFY` is what PR CI runs, recorded so the report can name it - never run it locally**, not even to
    check it resolves: the full suite runs only on the PR. **`FORMAT_CHECK` is the formatter or
    lint gate CI runs that the static checks would otherwise miss**; find it now, because local
    green that is not CI green is how a sprint reports 21 finished stages over a red PR.
@@ -158,11 +158,10 @@ Decide that deliberately rather than discovering it in the morning.
    | Role | `vars-<TAG>.env` must set |
    |---|---|
    | implementer `T<NN>` | `TAG`, `NN`, `TICKET_TITLE`, `GOTCHAS`, `NEXT_TAG` (empty in blitz), `CONVENTIONS`, `TOTAL` |
-   | review finder (`REVIEW-C<n>`, `REVIEW-FINAL`) | `TAG`, `CHECKPOINT`, `SCOPE`, `FIX_TAG=FIX-FINAL`, `NEXT_AFTER_FIX=CI` |
-   | `FIX-FINAL` | `TAG=FIX-FINAL`, `CHECKPOINT`, `FIND_TAG=REVIEW-FINAL`, `NEXT_TAG=CI` |
-   | `CI` (and `CI2`) | `TAG=CI` (`TAG=CI2`), `NEXT_TAG` (`CI`: `TEST` or empty; `CI2`: empty) |
+   | review finder (`REVIEW-C<n>`, `REVIEW-FINAL`) | `TAG`, `CHECKPOINT`, `SCOPE`, `FIX_TAG=FIX-FINAL`, `NEXT_AFTER_FIX` (`TEST`, or empty with no test session) |
+   | `FIX-FINAL` | `TAG=FIX-FINAL`, `CHECKPOINT`, `FIND_TAG=REVIEW-FINAL`, `NEXT_TAG` (`TEST`, or empty with no test session) |
    | `TEST` | `TOTAL`, `FIND_FINAL_TAG` |
-   | `FIX-TEST` | `TAG=FIX-TEST`, `CHECKPOINT`, `FIND_TAG=TEST`, `NEXT_TAG=CI2` |
+   | `FIX-TEST` | `TAG=FIX-TEST`, `CHECKPOINT`, `FIND_TAG=TEST`, `NEXT_TAG=` empty |
    | continuation (filled by the relaying session, not you) | `CONT_TAG`, `PREV_TAG`, `NN`, `TICKET_TITLE`, `NEXT_TAG` |
 
    **There is no `PR` slot, deliberately.** The draft PR does not exist at kickoff - it opens
@@ -178,12 +177,11 @@ Decide that deliberately rather than discovering it in the morning.
    `` git diff $(git merge-base origin/<BASE> HEAD)..HEAD ``; each later one starts where the last
    snapshot stood: `` git diff $(cat <WS>/state/REVIEW-C<n-1>.headsha)..HEAD ``.
 
-   **What to render now:** every ticket prompt, every review finder, `FIX-FINAL`, and `CI` from
-   `ci-prompt.md`. There is no checkpoint fixer. Render `TEST`
+   **What to render now:** every ticket prompt, every review finder and `FIX-FINAL`. There is no
+   checkpoint fixer and no CI tag. Render `TEST`
    only if the user opted in - and **when you do, also render `prompt-FIX-TEST.txt` from
    `review-fix-prompt.md`** with `FIND_TAG=TEST`, keeping its FIX-TEST-ONLY section and deleting
-   the FINAL-ONLY one, **and `prompt-CI2.txt` from `ci-prompt.md`** with `TAG=CI2`, which checks
-   CI again over the head `FIX-TEST` pushes. The tester routes an in-scope failure to `FIX-TEST`, and `launch.sh`
+   the FINAL-ONLY one. The tester routes an in-scope failure to `FIX-TEST`, and `launch.sh`
    refuses a tag with no prompt file, so without this the repair route dies at
    `launch: no prompt file`.
 
@@ -194,8 +192,7 @@ Decide that deliberately rather than discovering it in the morning.
    - **The chain** - `state/<TAG>.next`, one tag per file. `advance.sh` reads these; a session may
      overwrite its own before it writes its status. Serial: `T01.next` -> `T02` ... the last
      ticket's `.next` EMPTY. Both modes: `REVIEW-FINAL.next` -> `FIX-FINAL`, `FIX-FINAL.next` ->
-     `CI`, `CI.next` -> `TEST` or empty; with a test session, `FIX-TEST.next` -> `CI2` and
-     `CI2.next` empty.
+     `TEST` or empty; with a test session, `FIX-TEST.next` empty.
    - **The queue** - `touch state/<TAG>.queued`, plus its dependencies: `state/<TAG>.after` (hard:
      each must end DONE, or this tag is SKIPPED) and `state/<TAG>.waits` (soft: each must merely
      have ended). `schedule.sh`, run by the runner every sweep, starts a queued tag the moment its
@@ -229,7 +226,6 @@ Decide that deliberately rather than discovering it in the morning.
 | **Review finder** | 1 per review, **async** | **never** | run `deep-review` over a snapshot, check and triage what it reports, write the findings manifest, post ONE PR comment. A checkpoint finder launches nothing; `REVIEW-FINAL` carries every still-true checkpoint finding forward and decides whether `FIX-FINAL` runs |
 | **Review fixer** | `FIX-FINAL`, plus `FIX-TEST` if the tester routes one | yes (fixes only) | work the whole night's manifest at once, reply on external threads, check, push. Static checks plus a few targeted tests, never the suite |
 | **Tester** | 0 or 1 | no | exercise the built thing, report PASS/FAIL per step, write `GOLDEN.verdict` |
-| **CI ticket** | `CI`, plus `CI2` after a `FIX-TEST` | yes (CI fixes only) | a tag on the chain after `FIX-FINAL`: waits for the required checks at the pushed head, fixes and pushes what is red, inherited base-branch failures included (three passes at most), writes `ACCEPTANCE.verdict`, posts one PR comment. The PR is already ready for review when it starts. The runner launches, revives and closes it like any tag |
 
 ### The full suite never runs locally
 
@@ -237,9 +233,8 @@ Decide that deliberately rather than discovering it in the morning.
 continuations, finders and checkpoint fixers run only the static checks before they commit:
 `FORMAT_CHECK`, plus a typecheck or compile when the repo has one. `FIX-FINAL` and `FIX-TEST`
 may add **a few targeted test files** for the code their own fixes changed, and nothing more.
-The suite runs on the PR, in CI. `FIX-FINAL` pushes, takes the PR out of draft and hands on to
-the `CI` ticket, which fixes whatever CI finds red, whichever ticket caused it, using the failing
-test files by name.
+The suite runs on the PR, in CI, async: `FIX-FINAL` pushes, takes the PR out of draft and hands
+straight on to `TEST` (or ends the chain). No session waits for CI, reads it or fixes it.
 
 A suite run per ticket is the same suite paid for once per session, and a local run at the end
 holds the sprint (and the user) for a run CI does anyway, on the commit that actually ships.
@@ -250,8 +245,8 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
 |---|---|
 | Workspace | `~/.claude/night-sprint/<slug>/` - `facts.env`, `PLAN.md`, `tickets/`, `prompt-<TAG>.txt`, `vars-<TAG>.env`, `state/`, `LOG.md` |
 | Pinned facts | `facts.env`, plus one-value files the scripts read: `WORKTREE`, `SLUG`, `PERMISSION_MODE`, `BRANCH`, `VERIFY`, `CONTEXT_WINDOW`, `WARN_AT_USED`, `RELAY_AT_USED`, `CEILING_USED` |
-| Tags | `T01`..`TNN`, async finders `REVIEW-C1`.., then `REVIEW-FINAL` + `FIX-FINAL`, then the CI ticket `CI`, then `TEST`, `FIX-TEST` if the tester finds an in-scope failure and `CI2` after it, plus continuations `<TAG>c2`, `<TAG>c3`. Multi-repo: the review, fix and CI tags take a repo suffix, `REVIEW-FINAL-<key>` |
-| Repo of a tag | multi-repo only: `state/<TAG>.repo` = its key; a continuation inherits its ticket's. `repos.sh` resolves it for `launch.sh`, `revive.sh`, `land.sh`, `accept.sh` and the runner |
+| Tags | `T01`..`TNN`, async finders `REVIEW-C1`.., then `REVIEW-FINAL` + `FIX-FINAL`, then `TEST` and `FIX-TEST` if the tester finds an in-scope failure, plus continuations `<TAG>c2`, `<TAG>c3`. There is no CI tag. Multi-repo: the review and fix tags take a repo suffix, `REVIEW-FINAL-<key>` |
+| Repo of a tag | multi-repo only: `state/<TAG>.repo` = its key; a continuation inherits its ticket's. `repos.sh` resolves it for `launch.sh`, `revive.sh`, `land.sh` and the runner |
 | Successors | `state/<TAG>.next`, written at setup, rewritable by the session **before** its status |
 | Queue | `state/<TAG>.queued` + `.after` (hard deps) + `.waits` (soft deps), started by `schedule.sh` from the runner. A dependency whose `.after` ends BLOCKED or SKIPPED gets its dependents `SKIPPED: blocker <X>`, recursively. Finders never count toward `MAX_PARALLEL` |
 | Own worktrees | `state/<TAG>.isolate` (blitz ticket: `<WORKTREE>-<TAG>` on `<BRANCH>--<TAG>`) or `state/<TAG>.snapshot` (finder: `<WORKTREE>-<TAG>`, detached at the branch tip). `launch.sh` creates it and records `state/<TAG>.cwd`; a relay copies `.cwd` to its continuation. Left on disk after the sprint for inspection |
@@ -267,7 +262,7 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
 | Status | `state/<TAG>.status` = `DONE` / `BLOCKED: <reason>` / `RELAYED: <TAG>c2` / `SKIPPED: <why>`, written **last** |
 | Summary | `state/<TAG>.summary` - ONE line, what it actually did, for the ledger |
 | Findings | `state/<TAG>.findings.md` - the manifest. The fixer's input, and it is LOCAL |
-| Acceptance | `state/ACCEPTANCE.verdict` (CI: `PASS`/`FAIL`/`UNKNOWN` from `accept.sh`, run by the `CI` ticket) and `state/GOLDEN.verdict` (the tester) |
+| Acceptance | `state/GOLDEN.verdict` (the tester). CI has no state file: the report reads it once, at report time |
 | Manual steps | `state/<TAG>.manual` - appended the moment a session hits something only a human can do |
 | Setup verdict | `state/SETUP.verdict` = `NEEDED` or `NONE` |
 | Follow-ups | `state/FOLLOWUPS.md` - one line per real-but-out-of-scope thing |
@@ -297,8 +292,6 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
 | `references/phase-chain.sh` | one detached runner over a chain of CONDUCTORS (night-marathon's research conductor, then each build): launches each phase when the one before writes `DONE`, revives a conductor that dies |
 | `references/close.sh` | removes a finished session from the agent list (stop, then `claude rm`) once its tag is terminal, so only the conductor is left at the end |
 | `references/classify-error.sh` | what actually ended a session: transient / quota / auth / none |
-| `references/accept.sh` | are the required CI checks green **at the pushed sha**? Run by the `CI` ticket |
-| `references/ci-prompt.md` | the `CI` ticket (and `CI2`): sync to the pushed head, `accept.sh`, read the failing log, fix, push, repeat; BLOCKED after three passes |
 | `references/agents.sh` | shared: ask the harness for background sessions, with the `--cwd` fallback |
 | `references/repos.sh` | shared: the repo a tag works in, and that repo's worktree and branch. Prints nothing in a single-repo sprint |
 | `references/multi-repo.md` | **conductor, at kickoff, multi-repo only**: facts per repo, worktrees, cross-repo edges, per-repo tails, cross-linked PRs, the report |
@@ -351,7 +344,7 @@ review twice and dies mid-triage, losing the triage.
 
 | Route | When | How |
 |---|---|---|
-| **SKIP** | no finding in the whole night's manifest AND no open bot / CI / human comment | write `SKIPPED` to `state/FIX-FINAL.status`, point `.next` past it to `CI`, take the PR out of draft |
+| **SKIP** | no finding in the whole night's manifest AND no open bot / CI / human comment | write `SKIPPED` to `state/FIX-FINAL.status`, point `.next` past it to `TEST` (or leave it empty), take the PR out of draft |
 | **FIX-FINAL** | anything at all to fix | `launch.sh FIX-FINAL` - always a fresh session, because its prompt carries the acceptance gate |
 
 There is no checkpoint fixer and no handback: the session that wrote the code has moved on to
@@ -605,42 +598,34 @@ refusal ("still working") goes to `EVENTS.log` and costs nothing.
 
 ## Acceptance - what "delivered" means
 
-**Three different facts, three different files.** A sprint once reported all 21 stages complete
+**Two different facts, two different files.** A sprint once reported all 21 stages complete
 over a red PR - and every stage was telling the truth about itself.
 
 | File | Written by | Means |
 |---|---|---|
 | `state/<TAG>.status` | each session | that session finished, was blocked, or handed on |
-| `state/ACCEPTANCE.verdict` | `accept.sh`, run by the `CI` ticket | the required CI checks **at the pushed head sha**: `PASS` / `FAIL` / `UNKNOWN` |
 | `state/GOLDEN.verdict` | the `TEST` session | the golden path actually walked: `PASS` / `FAIL` / `UNKNOWN` |
 
-`DONE` has never meant "the branch is acceptable". **The headline verdict comes from the last
-two**, and a sprint whose stages all said DONE while `ACCEPTANCE.verdict` says FAIL did not
-deliver - the report says so in its first line.
+`DONE` has never meant "the branch is acceptable". **The headline verdict comes from the ticket
+outcomes and `GOLDEN.verdict`**, and a sprint whose stages all said DONE while the golden path
+FAILS did not deliver - the report says so in its first line.
 
-### The PR ends ready, and a CI ticket gets it green
+### The PR ends ready, and CI runs async
 
 The sprint ends with a PR **ready for review**, not a draft. `FIX-FINAL` (or `REVIEW-FINAL` when
-it routes SKIP) brings the PR description up to date, runs `gh pr ready`, and hands on to `CI`.
-Ready before CI is green is deliberate: some repos run their full test lanes only on a ready PR,
-and the fix for whatever comes back red is already queued.
+it routes SKIP) brings the PR description up to date, pushes, runs `gh pr ready`, and hands
+straight on to `TEST`, or ends the chain when there is no test session. Ready before CI is green
+is deliberate: some repos run their full test lanes only on a ready PR.
 
-`CI` is a tag on the chain like any other, in the shared worktree, which nothing else is writing
-by then. It runs `accept.sh` with a short timeout and loops: pending -> sync and read again;
-red -> read the failing log, fix with the static checks plus the failing test files by name, push
-(never with force); three repair passes at most; three hours of pending at most. It writes
-`state/ACCEPTANCE.verdict`, posts one PR comment, and hands on to `TEST` or ends the chain. With a
-test session, `CI2` does the same over the head `FIX-TEST` pushes.
+**CI is never on the chain, and nothing waits for it.** No tag polls checks, no session reads
+them before the report, no session fixes a red lane, and no watcher is launched. CI runs async on
+the PR, unrelated to the sprint, and the user owns what it finds. The morning report reads it
+**once**, at report time, with a plain `gh pr checks <PR>` (never `--watch`), and states what it
+saw - green, red with the lanes named, or still running - and that CI runs async.
 
-Because it is on the chain, the runner launches it, revives it when the API drops it, and closes
-it, and the sprint is not over until it has written its status. That is the point of the change:
-the detached watcher it replaced (`ci-watch.sh`) lived outside the chain, so when it did not
-start nothing noticed, and the user woke to a draft PR with red CI and nobody fixing it.
-
-`accept.sh` compares the local HEAD to the pushed head first: a green check on a commit nobody
-pushed proves nothing. **Local green is not CI green** - a formatter failure was twice read as a
-warning-only lint rule - which is why `FORMAT_CHECK` is a pinned fact, and why a session that finds
-a gate CI runs which `VERIFY` misses should say so.
+**Local green is not CI green** - a formatter failure was twice read as a warning-only lint rule -
+which is why `FORMAT_CHECK` is a pinned fact, and why a session that finds a gate CI runs which
+`FORMAT_CHECK` misses should fix the parity and say so.
 
 ## The manual steps
 
@@ -732,12 +717,12 @@ wall-clock, and it is not a failure of the work.
 The final message must contain, in this order (a multi-repo sprint reports per repo where
 `multi-repo.md` section 7 says):
 
-1. **The verdict in one line** - what the user actually has this morning, taken from
-   `state/ACCEPTANCE.verdict` and `state/GOLDEN.verdict`, **not** from "every stage said DONE".
-   The `CI` ticket ran before the report, so `ACCEPTANCE.verdict` is final: `PASS`, or `FAIL` /
-   `UNKNOWN` with the reason the `CI` ticket gave.
-2. **The PR** - URL, ready or (if something went wrong) still draft, and the CI line from
-   `state/CI.summary` (and `state/CI2.summary`): green at which sha, and every fix it pushed.
+1. **The verdict in one line** - what the user actually has this morning, taken from the ticket
+   outcomes and `state/GOLDEN.verdict`, **not** from "every stage said DONE".
+2. **The PR** - its full URL, ready or (if something went wrong) still draft, and the CI state at
+   report time: ONE `gh pr checks <PR>` read, no `--watch`, no waiting - green, red with the lanes
+   named, or still running - plus the line "CI runs async; the sprint did not wait for it or
+   fix it".
 3. **Ticket outcomes** - every ticket as landed / blocked / abandoned, with the reason for
    anything not landed. Never omit a dropped ticket.
 4. **The session ledger** - the full table above.
@@ -767,18 +752,18 @@ The final message must contain, in this order (a multi-repo sprint reports per r
 Open **one draft PR** as soon as `T01` lands - the runner raises `NEEDS-PR` for it. Early CI and
 early bot review give the checkpoint reviewers something real to address. Every later session
 pushes to the same branch, so the PR grows all night. `FIX-FINAL` (or `REVIEW-FINAL` on the SKIP
-route) takes it out of draft once the night's fixes are pushed, and the `CI` ticket gets CI green.
-No session before them marks it ready. Never a second PR (a multi-repo sprint has one per repo, and never two for one repo).
+route) takes it out of draft once the night's fixes are pushed. No session before them marks it
+ready, and no session waits for CI. Never a second PR (a multi-repo sprint has one per repo, and never two for one repo).
 
 **Never merge and never deploy** - those are the user's, always. If a required check has no
-ticket to point at, open the PR anyway and report the red check. Never fabricate a ticket id and
+ticket to point at, open the PR anyway; the report names the red check if it is still red then. Never fabricate a ticket id and
 never bypass hooks with `--no-verify`.
 
 ## Red Flags - STOP
 
 | Rationalization | Reality |
 |---|---|
-| "The tickets touch three repos; I'll route each one by hand in its prompt." | That is a multi-repo sprint. Write `state/<TAG>.repo` and `repos/<key>.env`, and the scripts run each tag in its repo and the sprint ends with one PR per repo. Hand routing leaves one branch, one PR and one CI ticket for three repos. |
+| "The tickets touch three repos; I'll route each one by hand in its prompt." | That is a multi-repo sprint. Write `state/<TAG>.repo` and `repos/<key>.env`, and the scripts run each tag in its repo and the sprint ends with one PR per repo. Hand routing leaves one branch, one PR and one fix pass for three repos. |
 | "Tickets 3 and 4 are independent, I'll run both." | In a serial sprint, serial is the contract - it is what removes conflicts and integration. Concurrency is blitz mode, and only the invocation turns it on. |
 | "This is a big sprint, I'll switch it to blitz." | Blitz spends more tokens and quota per hour; that trade is the user's. Run what they invoked. |
 | "The checkpoint found a BLOCKER - I'll launch a fixer now." | Reviews are async and fixes happen once, in `FIX-FINAL`. REVIEW-FINAL re-checks it against the finished code and carries it forward. |
@@ -797,13 +782,15 @@ never bypass hooks with `--no-verify`.
 | "T05 died on an API error, I'll relaunch the ticket." | Resume it - `revive.sh` does. The conversation is on disk; a fresh session re-reads the codebase and repeats every decision the dead one made. |
 | "I'll resume it by hand, it's one `claude --bg --resume`." | Resume mints a **new session id** and drops the name. By hand, `state/<tag>.session` points at a corpse while a real session runs unwatched. |
 | "My phase is done - I'll launch the next conductor with `claude --bg` and stop." | Nothing watches it then. One died 2.5 minutes in and the night sat dead for six hours. Write `DONE` to your phase status; the phase runner launches and watches the next one. |
-| "I'll just run the tests for this ticket before I commit." | Static checks only. The suite runs on the PR in CI, never locally; `FIX-FINAL` and `FIX-TEST` may run a few targeted files, and the `CI` ticket fixes what is red. |
-| "I'll run the whole suite once at the end, to be safe." | That is CI's job, on the pushed commit. A local full run holds the sprint for an answer CI gives anyway, and the `CI` ticket already owns red tests. |
+| "I'll just run the tests for this ticket before I commit." | Static checks only. The suite runs on the PR in CI, never locally; `FIX-FINAL` and `FIX-TEST` may run a few targeted files. |
+| "I'll run the whole suite once at the end, to be safe." | That is CI's job, on the pushed commit, async. A local full run holds the sprint for an answer CI gives anyway. |
 | "The checks are red but the ticket is basically done." | Green or `BLOCKED: <reason>`. There is no third state. |
-| "Every stage said DONE, so the sprint is delivered." | `DONE` means a session finished. Acceptance is `ACCEPTANCE.verdict` and `GOLDEN.verdict`. 21 green stages once shipped a red PR. |
-| "`VERIFY` passes, so CI will pass." | It did not, twice, on formatting read as a warning-only lint rule. Run `FORMAT_CHECK`; the `CI` ticket checks the pushed sha with `accept.sh`. |
-| "I'll just wait for CI here so the report can say green." | Only the `CI` ticket waits on CI. Any other session that polls checks is spending its window on a job that already has an owner on the chain. |
-| "CI is red - I'll leave the PR in draft until it is green." | The sprint ends with the PR ready. `FIX-FINAL` marks it ready and the `CI` ticket fixes what is red; a red lane it cannot fix is named in one PR comment, not hidden behind a draft. |
+| "Every stage said DONE, so the sprint is delivered." | `DONE` means a session finished. Acceptance is the ticket outcomes and `GOLDEN.verdict`. 21 green stages once shipped a red PR. |
+| "`VERIFY` passes, so CI will pass." | It did not, twice, on formatting read as a warning-only lint rule. Run `FORMAT_CHECK`, and fix the parity when you find a gate it misses. |
+| "I'll just wait for CI here so the report can say green." | No session waits for CI, and no tag on the chain is about CI. CI runs async, unrelated to the sprint; the report reads it once and says what it saw. |
+| "TEST should run after CI is green, so it tests what ships." | TEST runs straight after `FIX-FINAL`. It tests the pushed branch; CI says nothing TEST needs. One sprint's demo sat behind a CI tag until the user launched TEST by hand. |
+| "CI is red at report time - I'll launch a session to fix it." | Report it, lanes named. A CI fix is the user's call, outside the sprint. |
+| "CI is red - I'll leave the PR in draft until it is green." | The sprint ends with the PR ready. `FIX-FINAL` marks it ready; a red lane is named in the report, not hidden behind a draft. |
 | "T05 relayed, so T05 is finished - launch T06." | `RELAYED` is not `DONE`. The ticket is still being built under `T05c2`. `advance.sh` knows; nothing else gets to decide. |
 | "I'll launch the next tag myself off this DONE event." | `advance.sh` is the only transition owner. Two things deciding off two files is what once launched a fixer before its finder had decided there was anything to fix. |
 | "I'm at `RELAY_AT_USED` but I'll see this event through first." | Relay now. A conductor that dies mid-night strands every session it was watching. |
@@ -819,8 +806,7 @@ never bypass hooks with `--no-verify`.
 
 - **Bare `claude --bg`** during a sprint - bypasses the claim and can put two agents in one
   worktree. Always `launch.sh`, always `revive.sh`, always `advance.sh` for the chain,
-  and `schedule.sh` for the queue. The `CI` ticket is a chain tag, launched by `advance.sh` like
-  the rest.
+  and `schedule.sh` for the queue.
 - **Restarting a ticket that only needed a resume**, or retrying one that needed a human.
 - **Emitting routine events to the conductor** - a `DONE` whose only possible answer is a
   scripted `launch.sh` call is a script's job. If you find yourself adding one, add it to

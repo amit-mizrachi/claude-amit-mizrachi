@@ -177,7 +177,7 @@ Two things changed with it:
 
 The fixer still never reviews, although deep-review's own Step 5 says to review a fix diff.
 That is a known gap: `FIX-FINAL`'s commits reach the PR reviewed only by CI. Closing it means a
-review tag between `FIX-FINAL` and `CI`, not a review inside the fixer's window.
+review tag right after `FIX-FINAL`, not a review inside the fixer's window.
 
 ### Why FIND and FIX are separate, and why the fixer may be the implementer
 
@@ -826,3 +826,34 @@ and `state/<TAG>.repo` per tag. The decisions behind it:
 - **One new BLOCKED case for the CI ticket**: a lane red only because a sibling PR is not merged
   and deployed yet. It is BLOCKED only when the plan's merge order says so; otherwise the
   dependency is a bug in this repo's change.
+
+## CI left the sprint entirely (2026-11-09, side-chat-rotem-fixes, 1.22.0)
+
+The chain was `FIX-FINAL -> CI -> TEST` and `FIX-TEST -> CI2`, so the tester waited for CI to
+go green, and the morning report waited on `ACCEPTANCE.verdict`. In side-chat-rotem-fixes
+(shapes-platform PR #3557) the user asked for the demo, found `TEST` stuck behind the `CI` tag,
+and had the conductor launch `TEST` by hand beside it. The user's rule: never wait for CI
+sessions - CI always runs async and is unrelated to night-sprint. Their global instructions
+already said it ("CI runs async, never in the session that pushed"); the 1.19.0 note above asked
+such an owner to carve the `CI` ticket out of that rule, and the owner declined.
+
+**Rule.** No tag is about CI. `FIX-FINAL` (or `REVIEW-FINAL` on SKIP) pushes, marks the PR
+ready, and hands straight to `TEST`, or ends the chain. `FIX-TEST` ends the chain. No session
+polls checks, reads them, or fixes a red lane. The morning report reads CI once, at report time,
+with a plain `gh pr checks` (never `--watch`), names what it saw and says CI runs async.
+
+The decisions behind it:
+
+- **`ci-prompt.md` and `accept.sh` are deleted, not kept as a one-shot read.** The report needs
+  one `gh pr checks` call, which needs no script. `accept.sh`'s pushed-head comparison mattered
+  only to a session that vouched for green; nothing vouches now. A script left in the workspace
+  is a script some session will call.
+- **`ACCEPTANCE.verdict` is gone from code sprints.** The headline comes from the ticket outcomes
+  and `GOLDEN.verdict`. Research mode and night-marathon's research phase keep their own
+  `ACCEPTANCE.verdict`: it is the artifact check, not CI. night-watch reads it only in research
+  mode now.
+- **Multi-repo `TEST` waits SOFTLY on every `FIX-FINAL-<key>`** (`.waits`). It used to sit
+  `.after` every `CI-<key>`, which always ran. A `FIX-FINAL-<key>` that `REVIEW-FINAL-<key>`
+  routed SKIP ends `SKIPPED`, and a hard dependency would skip the tester with it.
+- **Red CI is reported, not fixed.** What the `CI` ticket did (fix inherited base-branch
+  failures, three passes, BLOCKED for missing secrets) is the user's call now, outside the sprint.

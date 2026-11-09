@@ -317,7 +317,7 @@ check "with facts.env: bootstrap succeeds" "0" "$rc"
 # agents.sh is sourced on the first line of four scripts. A workspace without it has a
 # launcher, a reviver, a runner and a closer that all fail before doing anything.
 for need in agents.sh repos.sh launch.sh advance.sh watch.sh runner.sh revive.sh classify-error.sh \
-            context-used.sh schedule.sh land.sh accept.sh ci-prompt.md render.sh continuation-prompt.md; do
+            context-used.sh schedule.sh land.sh render.sh continuation-prompt.md; do
   [ -f "$BWS/$need" ] && ok "copied $need" || no "copied $need" "absent from $BWS"
 done
 check "PERMISSION_MODE defaults to auto" "auto" "$(cat "$BWS/PERMISSION_MODE")"
@@ -412,19 +412,6 @@ print("ok" if 0 <= cool < died else "bad cool=%d died=%d" % (cool, died))
 PY
 )"
 check "F5 cooldown precedes consuming the death" "ok" "$order"
-
-# --- F6: the acceptance gate reads the PR head, not a cached tracking ref.
-# Strip comments first: accept.sh explains in prose why it no longer reads @{upstream}, and a
-# grep that cannot tell code from commentary fails on its own documentation.
-code="$(sed 's/[[:space:]]*#.*$//' "$REF/accept.sh")"
-if printf '%s' "$code" | grep -q 'headRefOid' && ! printf '%s' "$code" | grep -q 'upstream'; then
-  ok "F6 acceptance compares against the PR head, not a local tracking ref"
-else
-  no "F6 acceptance compares against the PR head, not a local tracking ref" "still reading a local ref"
-fi
-grep -q 'AFTER="\$(pr_head)"' "$REF/accept.sh" \
-  && ok "F6 the head is re-read after the wait" \
-  || no "F6 the head is re-read after the wait" "a PASS could name a commit the checks never ran on"
 
 # --- F7: a unique launch generation per revive, and pre-launch ids excluded.
 MWS="$(mktemp -d)"
@@ -1478,73 +1465,41 @@ rm "$FH/.local/bin/night-watch"; printf 'mine\n' > "$FH/.local/bin/night-watch";
 check "it leaves a real file of the same name alone" "mine" "$(command cat "$FH/.local/bin/night-watch")"
 rm -rf "$FH"
 
-# --- The PR ends ready, and a CI ticket on the chain gets it green. 2026-10-20: the detached
-# watcher (ci-watch.sh) lived outside the chain; FIX-FINAL did not start it, nothing noticed, and
-# the user woke to a draft PR with red CI and nobody fixing it.
+# --- The PR ends ready, and CI runs async, off the chain. 2026-11-09: TEST sat behind a CI tag
+# until the user launched it by hand for a demo. CI runs async and is unrelated to the sprint:
+# no tag is about CI, and no session waits for it, reads it or fixes it.
 echo
-echo "== the PR ends ready, and a CI ticket on the chain gets it green =="
-[ -f "$REF/ci-watch.sh" ] && no "the detached watcher is gone" "ci-watch.sh still ships" \
-  || ok "the detached watcher is gone"
-if grep -rl 'ci-watch' "$REF" 2>/dev/null | grep -qv 'rationale.md'; then
-  no "no template or script still calls ci-watch" "$(grep -rl 'ci-watch' "$REF" | grep -v rationale.md)"
+echo "== the PR ends ready, and CI is never on the chain =="
+for gone in ci-watch.sh ci-prompt.md accept.sh; do
+  [ -f "$REF/$gone" ] && no "$gone is gone" "it still ships" || ok "$gone is gone"
+done
+if grep -rlE 'ci-watch|ci-prompt|accept\.sh' "$REF" 2>/dev/null | grep -qv 'rationale.md'; then
+  no "no template or script still names a CI session" "$(grep -rlE 'ci-watch|ci-prompt|accept\.sh' "$REF" | grep -v rationale.md)"
 else
-  ok "no template or script still calls ci-watch"
+  ok "no template or script still names a CI session"
+fi
+if grep -lE 'gh pr checks|--watch' "$REF"/*-prompt.md 2>/dev/null | grep -q .; then
+  hits="$(grep -nE 'gh pr checks|--watch' "$REF"/*-prompt.md | grep -v 'No `gh pr checks`, no `--watch`')"
+  [ -z "$hits" ] && ok "no prompt tells a session to read or watch CI" || no "no prompt tells a session to read or watch CI" "$hits"
+else
+  ok "no prompt tells a session to read or watch CI"
 fi
 grep -q 'gh pr ready "\$PR"' "$REF/review-fix-prompt.md" \
   && ok "FIX-FINAL takes the PR out of draft" || no "FIX-FINAL takes the PR out of draft" "no gh pr ready"
-grep -q 'your `.next` is `CI`' "$REF/review-fix-prompt.md" \
-  && ok "FIX-FINAL hands on to the CI ticket" || no "FIX-FINAL hands on to the CI ticket" "no CI successor"
-grep -q '^    bash <WS>/accept.sh' "$REF/review-fix-prompt.md" \
-  && no "FIX-FINAL does not block on accept.sh" "it still runs accept.sh" \
-  || ok "FIX-FINAL does not block on accept.sh"
+grep -q 'your `.next` is `TEST` when a test session was chosen, else empty' "$REF/review-fix-prompt.md" \
+  && ok "FIX-FINAL hands straight on to TEST" || no "FIX-FINAL hands straight on to TEST" "no TEST successor"
+grep -qE 'CI2|`CI`' "$REF/review-fix-prompt.md" \
+  && no "FIX-FINAL and FIX-TEST name no CI tag" "$(grep -nE 'CI2|`CI`' "$REF/review-fix-prompt.md")" \
+  || ok "FIX-FINAL and FIX-TEST name no CI tag"
 grep -q 'gh pr ready "\$PR"' "$REF/review-find-prompt.md" \
   && ok "a FINAL review that routes SKIP takes the PR out of draft" \
   || no "a FINAL review that routes SKIP takes the PR out of draft" "no gh pr ready"
-grep -q 'accept\.sh' "$REF/review-find-prompt.md" \
-  && no "the finder never runs accept.sh" "it still does" || ok "the finder never runs accept.sh"
-grep -q 'bash <WS>/accept.sh <WS> 540$' "$REF/ci-prompt.md" \
-  && ok "the CI ticket reads CI in short waits, in the sprint worktree" \
-  || no "the CI ticket reads CI in short waits, in the sprint worktree" "no accept.sh call"
-grep -q 'bash <WS>/advance.sh <WS> <TAG>' "$REF/ci-prompt.md" \
-  && ok "the CI ticket advances the chain like any tag" || no "the CI ticket advances the chain like any tag" "no advance.sh"
-grep -q 'THE FULL SUITE NEVER RUNS LOCALLY IN THIS SPRINT' "$REF/ci-prompt.md" \
-  && ok "the CI ticket never runs the suite locally" || no "the CI ticket never runs the suite locally" "rule missing"
-
-# The CI prompt renders with nothing left over: TAG and NEXT_TAG from the vars file, the rest from facts.
-CR="$(mktemp -d)"
-cat > "$CR/facts.env" <<'ENV'
-REPO=repo
-REPO_PATH=/tmp/repo
-REPO_SLUG=owner/repo
-SLUG=cslug
-USER=Amit
-WS=/tmp/ws
-WORKTREE=/tmp/wt
-BRANCH=feat/x
-TOOLCHAIN=true
-VERIFY=pnpm test
-FORMAT_CHECK=pnpm format:check
-CONTEXT_WINDOW=1000000
-WARN_AT_USED=20
-RELAY_AT_USED=30
-ENV
-printf 'TAG=CI\nNEXT_TAG=\n' > "$CR/vars-CI.env"
-bash "$REF/render.sh" "$CR" "$REF/ci-prompt.md" "$CR/prompt-CI.txt" "$CR/vars-CI.env" >/dev/null 2>&1
-check "the CI prompt renders with no unfilled slot" "0" "$?"
-rm -rf "$CR"
-
-echo
-echo "== the CI ticket fixes red checks, inherited ones too =="
-grep -q 'red on the base branch too - gets ONE' "$REF/ci-prompt.md" \
-  && no "a base-branch failure is not a rerun-and-stop" "the old escape hatch is back" \
-  || ok "a base-branch failure is not a rerun-and-stop"
-grep -q 'That includes a check that is red on the base branch too' "$REF/ci-prompt.md" \
-  && ok "a base-branch failure goes to the fix step" || no "a base-branch failure goes to the fix step" "no such rule"
-grep -q 'BLOCKED is for exactly two cases' "$REF/ci-prompt.md" \
-  && ok "BLOCKED is narrowed to two cases" || no "BLOCKED is narrowed to two cases" "no such rule"
-grep -qF 'gh pr view ${BRANCH:+"$BRANCH"}' "$REF/accept.sh" \
-  && ok "accept.sh finds the PR by branch, so a detached worktree works" \
-  || no "accept.sh finds the PR by branch, so a detached worktree works" "bare gh pr view"
+grep -qE 'CI ticket|CI WATCHER' "$REF"/*-prompt.md \
+  && no "no prompt mentions a CI ticket or watcher" "$(grep -nE 'CI ticket|CI WATCHER' "$REF"/*-prompt.md)" \
+  || ok "no prompt mentions a CI ticket or watcher"
+grep -q 'CI2\|`CI`\|CI-<key>' "$REF/plan-template.md" "$REF/multi-repo.md" \
+  && no "the plan and multi-repo wiring have no CI tag" "$(grep -n 'CI2\|`CI`\|CI-<key>' "$REF/plan-template.md" "$REF/multi-repo.md")" \
+  || ok "the plan and multi-repo wiring have no CI tag"
 
 echo
 echo "== a failed launch is retried with launch.sh alone - nobody types rm or mv =="

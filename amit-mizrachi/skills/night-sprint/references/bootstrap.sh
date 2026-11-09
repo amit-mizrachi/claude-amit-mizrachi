@@ -30,10 +30,10 @@ mkdir -p "$WS/state" "$WS/tickets"
 
 # --- the scripts the sprint runs. agents.sh is sourced by five of them; classify-error.sh is
 #     what makes recovery correct rather than merely persistent.
-SCRIPTS="agents.sh repos.sh launch.sh advance.sh watch.sh runner.sh revive.sh close.sh classify-error.sh context-used.sh schedule.sh land.sh accept.sh render.sh research-check.sh trust.sh"
+SCRIPTS="agents.sh repos.sh launch.sh advance.sh watch.sh runner.sh revive.sh close.sh classify-error.sh context-used.sh schedule.sh land.sh render.sh research-check.sh trust.sh"
 # --- the templates. continuation-prompt.md stays a template on purpose: each session that
 #     hands off fills its own copy for its successor.
-TEMPLATES="continuation-prompt.md implementer-prompt.md review-find-prompt.md review-fix-prompt.md test-prompt.md plan-template.md ci-prompt.md"
+TEMPLATES="continuation-prompt.md implementer-prompt.md review-find-prompt.md review-fix-prompt.md test-prompt.md plan-template.md"
 # --- research mode (MODE=research in facts.env): the same runner, research templates. Copied in
 #     every mode so one list stays the truth; a code sprint simply never renders them.
 TEMPLATES="$TEMPLATES research-ticket-prompt.md research-continuation-prompt.md research-review-find-prompt.md research-review-fix-prompt.md research-synth-prompt.md research-plan-template.md"
@@ -140,7 +140,7 @@ if multi:
         fail("per-repo facts belong in repos/<key>.env, not facts.env: %s" % " ".join(stray))
     for key in keys:
         # No hyphen: the runner matches a tag's sessions by name prefix plus "-", so a key
-        # `shapes` would make CI-shapes claim the sessions of CI-shapes-internal.
+        # `shapes` would make FIX-FINAL-shapes claim the sessions of FIX-FINAL-shapes-internal.
         if not re.fullmatch(r"[a-z][a-z0-9]*", key):
             fail("repo key %r must be lower case letters and digits, starting with a letter" % key)
         path = os.path.join(ws, "repos", key + ".env")

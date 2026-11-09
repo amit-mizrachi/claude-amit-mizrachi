@@ -16,7 +16,7 @@
 | Worktree | `<WORKTREE>` - the ONLY worktree, shared by every session |
 | Workspace | `<WS>` |
 | Toolchain | `<env setup, e.g. source ~/.nvm/nvm.sh && nvm use 22>` |
-| Verify | `<VERIFY>` - the full check, tests included, as CI runs it. It is NEVER run locally, by any session: PR CI runs it and the `CI` ticket fixes what is red. Recorded so the `CI` ticket knows which lanes CI runs |
+| Verify | `<VERIFY>` - the full check, tests included, as CI runs it. It is NEVER run locally, by any session: PR CI runs it, async, and no session of this sprint waits for it or reads it. Recorded so the report can say which lanes CI runs |
 | Format / CI parity | `<FORMAT_CHECK>` - the formatter or lint gate CI runs that `Verify` does not. Every session runs this (plus a typecheck or compile if the repo has one) instead of the test suite; FIX-FINAL and FIX-TEST may add a few targeted test files. Local green is not CI green, and that gap has turned a green report into a red PR |
 | Permission mode | `<auto - the default; only something else if the user asked for it>` |
 | Context window | `<200000 | 1000000>` - the sprint model's window, pinned because it cannot be read off a transcript |
@@ -85,14 +85,12 @@ may assume exactly the tickets in its "Blocked by" column have landed - nothing 
 | ... | | | | |
 | T<NN> | `<NN>-<slug>.md` | <...> | T<NN-1> | nothing (REVIEW-FINAL is queued) |
 | REVIEW-FINAL | - | carries every still-true checkpoint finding forward into one manifest, then one deep-review run over the whole PR, the ticket-by-ticket acceptance re-read, and the setup sweep. Writes no code. Queued, waits on the last ticket(s) and every checkpoint review | all of them | FIX-FINAL |
-| FIX-FINAL | - | fixes the whole night's manifest and every external comment at once, brings the PR description up to date, and takes the PR out of draft (`gh pr ready`) WITHOUT waiting on CI | REVIEW-FINAL | CI |
-| CI | - | the CI ticket: waits for the required checks at the pushed head, fixes and pushes what is red (three passes at most), writes `state/ACCEPTANCE.verdict`, posts one PR comment | FIX-FINAL | TEST, or end if no test session |
-| TEST | - | <the chosen test mode>; writes `state/GOLDEN.verdict` | CI | FIX-TEST if an in-scope step failed, else end |
-| FIX-TEST | - | one bounded repair pass over `state/TEST.findings.md`, then re-runs the affected golden-path steps. Only rendered when a test session was chosen | TEST | CI2 |
-| CI2 | - | the CI ticket again, over the head FIX-TEST pushed. Only rendered when a test session was chosen | FIX-TEST | end |
+| FIX-FINAL | - | fixes the whole night's manifest and every external comment at once, brings the PR description up to date, and takes the PR out of draft (`gh pr ready`). Never waits for CI and never reads it: CI runs async, outside the sprint | REVIEW-FINAL | TEST, or end if no test session |
+| TEST | - | <the chosen test mode>; writes `state/GOLDEN.verdict` | FIX-FINAL | FIX-TEST if an in-scope step failed, else end |
+| FIX-TEST | - | one bounded repair pass over `state/TEST.findings.md`, then re-runs the affected golden-path steps. Only rendered when a test session was chosen | TEST | end |
 {{#MULTI_REPO}}
 
-**Multi-repo:** add a `Repo` column after `Tag`. Each repo gets its own tail in place of the shared rows above: `REVIEW-C<n>-<key>`, `REVIEW-FINAL-<key>`, `FIX-FINAL-<key>`, `CI-<key>`. Every `REVIEW-FINAL-<key>` waits on every ticket of every repo, so it reads the finished other side of each contract. `TEST`, when chosen, is queued after every `CI-<key>`; `FIX-TEST` queues `CI2-<key>` only for the repos it pushed to.
+**Multi-repo:** add a `Repo` column after `Tag`. Each repo gets its own tail in place of the shared rows above: `REVIEW-C<n>-<key>`, `REVIEW-FINAL-<key>`, `FIX-FINAL-<key>`. Every `REVIEW-FINAL-<key>` waits on every ticket of every repo, so it reads the finished other side of each contract. `TEST`, when chosen, is queued to wait on every `FIX-FINAL-<key>`; `FIX-TEST` ends the sprint.
 {{/MULTI_REPO}}
 
 ## 4. Acceptance - the golden path the tester walks
@@ -126,7 +124,7 @@ row, an eval score.>
    Every manual-step block starts with `REPO: <key | all>`.
 {{/MULTI_REPO}}
 2. Implement only your own tag's scope. **The full suite never runs locally** - PR CI runs it,
-   and the `CI` ticket fixes what is red. Run the static checks (format / lint, typecheck or
+   async, and no session waits for it. Run the static checks (format / lint, typecheck or
    compile) before each commit; FIX-FINAL and FIX-TEST may add a few targeted test files for
    their own fixes, never the suite. Never `--no-verify`.
 3. Final commit body carries `SIGNAL: <TAG>-DONE` or `SIGNAL: <TAG>-BLOCKED: <reason>`. Push.
@@ -238,24 +236,23 @@ A session that is one command from green finishes instead of relaying.
 
 ## 7. Acceptance - what "delivered" means, and what it does not
 
-Three different facts, three different files, because a sprint once reported all 21 stages
-complete over a red PR. `DONE` in `state/<TAG>.status` means one session finished its work. It
-has never meant the branch is acceptable.
+`DONE` in `state/<TAG>.status` means one session finished its work. It has never meant the branch
+is acceptable: a sprint once reported all 21 stages complete over a red PR.
 
-| File | Written by | Means |
+| What | Written by | Means |
 |---|---|---|
 | `state/<TAG>.status` | each session | that session finished, was blocked, or handed on |
-| `state/ACCEPTANCE.verdict` | `accept.sh`, run by the `CI` ticket | the required CI checks at the PUSHED head sha: `PASS` / `FAIL` / `UNKNOWN`. The `CI` ticket is on the chain, so the sprint has not ended until it wrote this |
 | `state/GOLDEN.verdict` | the TEST session | the golden path above, actually walked: `PASS` / `FAIL` / `UNKNOWN` |
+| CI at report time | the conductor, ONE read of `gh pr checks` while it writes the report | whatever CI says at that moment - green, red or still running. CI runs async and is not part of the sprint: no session waits for it, fixes it or reads it before the report |
 
 {{#MULTI_REPO}}
-Multi-repo: `state/ACCEPTANCE-<key>.verdict` and `state/SETUP-<key>.verdict` are one file per
-repo; `GOLDEN.verdict` stays one file, because the golden path crosses every repo.
+Multi-repo: CI is read once per repo's PR, and `state/SETUP-<key>.verdict` is one file per repo;
+`GOLDEN.verdict` stays one file, because the golden path crosses every repo.
 
 {{/MULTI_REPO}}
-The morning report's headline verdict comes from the last two. A sprint whose every stage said
-DONE and whose `ACCEPTANCE.verdict` says FAIL is a sprint that did not deliver, and the report
-says so in its first line.
+The morning report's headline verdict comes from the ticket outcomes and `GOLDEN.verdict`, then
+names the CI state at report time as a plain read. A sprint whose every stage said DONE while the
+golden path FAILS did not deliver, and the report says so in its first line.
 
 ## 8. The conductor, and the runner that does the routine
 

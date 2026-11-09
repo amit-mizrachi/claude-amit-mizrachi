@@ -444,8 +444,10 @@ def sprint_alerts(sprint, label=""):
             out.append((1, pre + "%s %s" % (s.name, reason)))
     if sprint.started and not sprint.finished and not sprint.runner and not sprint.paused.startswith("auth"):
         out.append((2, pre + "runner is not running, nothing advances or revives - `bash %s/runner.sh start %s`" % (short(sprint.ws), short(sprint.ws))))
-    if sprint.acceptance == "FAIL":
-        out.append((2, pre + "CI is red at the pushed sha (ACCEPTANCE.verdict FAIL)"))
+    # Only a research sprint writes ACCEPTANCE.verdict (its SYNTH artifact check). A code sprint
+    # has no CI verdict: CI runs async on the PR, outside the sprint.
+    if sprint.mode == "research" and sprint.acceptance == "FAIL":
+        out.append((2, pre + "the artifact check failed (ACCEPTANCE.verdict FAIL)"))
     return out
 
 
@@ -498,9 +500,8 @@ def verdict_text(sp, sty):
     blocked = sp.count("blocked")
     if sp.mode == "research":
         return sty("32", "finished") + (sty("31", " · %d blocked" % blocked) if blocked else "")
-    acc = sp.acceptance or "no CI verdict"
-    col = "32" if sp.acceptance == "PASS" and not blocked else ("31" if sp.acceptance == "FAIL" or blocked else "33")
-    text = "finished · CI " + acc
+    col = "31" if blocked or sp.golden == "FAIL" else ("32" if sp.golden in ("", "PASS") else "33")
+    text = "finished"
     if sp.golden:
         text += " · golden path " + sp.golden
     if blocked:
