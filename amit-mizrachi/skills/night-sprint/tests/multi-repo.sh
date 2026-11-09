@@ -6,8 +6,8 @@
 # One feature across several repos, one branch and one PR per repo (multi-repo.md). Covered:
 # bootstrap's per-repo facts and its refusals, repos.sh resolving a tag's repo (continuations
 # included), launch.sh running a tag in its repo's tree and cutting trees from its repo's branch,
-# land.sh landing on the right branch under a per-repo lock, the runner asking for one PR per
-# repo, and single-repo workspaces left unchanged.
+# land.sh landing on the right branch under a per-repo lock, accept.sh writing a per-repo
+# verdict, the runner asking for one PR per repo, and single-repo workspaces left unchanged.
 
 set -uo pipefail
 
@@ -108,8 +108,13 @@ check "a ticket prompt renders from its repo file" "0" "$?"
 grep -q "cd $T/beta-wt\$" "$W/prompt-T02.txt" && ok "and works in that repo's tree" \
   || no "and works in that repo's tree" "$(grep -n 'cd ' "$W/prompt-T02.txt")"
 grep -q 'yours is beta (o/beta)' "$W/prompt-T02.txt" && ok "and names its repo" || no "and names its repo" "no key"
-grep -q 'CI2-<key>\|CI-<REPO_KEY>' "$W/review-fix-prompt.md" && no "a repo's fixer queues no CI tag" \
-  "$(grep -n 'CI2-<key>\|CI-<REPO_KEY>' "$W/review-fix-prompt.md")" || ok "a repo's fixer queues no CI tag"
+printf 'TAG=CI-beta\n' > "$W/vars-CI-beta.env"
+bash "$W/render.sh" "$W" "$W/ci-prompt.md" "$W/prompt-CI-beta.txt" "$W/repos/beta.env" "$W/vars-CI-beta.env" >/dev/null 2>&1
+check "a repo's async CI prompt renders" "0" "$?"
+grep -q 'accept.sh .* 540 "[$]PWD" beta$' "$W/prompt-CI-beta.txt" && ok "a repo's CI ticket checks its own repo's PR, from its own tree" \
+  || no "a repo's CI ticket checks its own repo's PR, from its own tree" "$(grep -n accept.sh "$W/prompt-CI-beta.txt")"
+grep -q "pwd    # $T/beta-wt-CI-beta\$" "$W/prompt-CI-beta.txt" && ok "and works in a tree beside its repo's" \
+  || no "and works in a tree beside its repo's" "$(grep -n 'pwd' "$W/prompt-CI-beta.txt")"
 
 echo "== bootstrap.sh refuses a half-described multi-repo sprint =="
 refuse() {   # refuse <name> <word in the error> <edit command run in the ws>
@@ -194,6 +199,19 @@ check "beta's sprint branch now holds the ticket" "t02" "$(git -C "$T/beta-wt" s
 check "and beta's origin has it" "t02" "$(git -C "$T/beta-origin.git" show feat/x:t02.txt 2>/dev/null)"
 git -C "$T/alpha-wt" show feat/x:t02.txt >/dev/null 2>&1 && no "alpha is untouched" "t02.txt reached alpha" \
   || ok "alpha is untouched"
+
+echo "== accept.sh checks a repo's own PR and writes that repo's verdict =="
+git -C "$T/beta-wt" push -q origin feat/x 2>/dev/null
+: > "$GH_STATE/calls"
+out="$(bash "$W/accept.sh" "$W" 5 "" beta 2>&1)"; check "beta is green" "0" "$?"
+case "$(cat "$W/state/ACCEPTANCE-beta.verdict" 2>/dev/null)" in
+  "PASS $(git -C "$T/beta-wt" rev-parse HEAD) "*) ok "the verdict is beta's file, at beta's head" ;;
+  *) no "the verdict is beta's file, at beta's head" "$(cat "$W/state/ACCEPTANCE-beta.verdict" 2>/dev/null)" ;;
+esac
+[ ! -e "$W/state/ACCEPTANCE.verdict" ] && ok "the shared verdict file is not written" \
+  || no "the shared verdict file is not written" "ACCEPTANCE.verdict exists"
+grep -q "^$T/beta-wt | pr view feat/x --json number" "$GH_STATE/calls" && ok "asked from beta's tree, by branch name" \
+  || no "asked from beta's tree, by branch name" "$(cat "$GH_STATE/calls")"
 
 echo "== the runner asks for one draft PR per repo =="
 W="$T/ws3"; multi_ws "$W"; bash "$REF/bootstrap.sh" "$W" "$REF" >/dev/null 2>&1; reset_mock

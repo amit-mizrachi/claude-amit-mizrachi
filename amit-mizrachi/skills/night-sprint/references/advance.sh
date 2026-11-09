@@ -59,6 +59,11 @@ case "$status" in
     if [ -n "$next" ] && [ -f "$STATE/$TAG.cwd" ] && [ ! -f "$STATE/$next.cwd" ]; then
       cp "$STATE/$TAG.cwd" "$STATE/$next.cwd"
     fi
+    # An async tag's continuation is async too, or the scheduler would count it as a writer and
+    # the runner would hold the morning report for it.
+    if [ -n "$next" ] && [ -f "$STATE/$TAG.async" ]; then
+      : > "$STATE/$next.async"
+    fi
     ;;
   DONE*|SKIPPED*)
     next=""

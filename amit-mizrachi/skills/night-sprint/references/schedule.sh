@@ -8,7 +8,9 @@
 #   - an async checkpoint review (REVIEW-C<n>). It reads a snapshot of the branch while the next
 #     ticket keeps building, so nothing on the chain ever waits for it;
 #   - in blitz mode, every ticket. A ticket waits for the tickets that really block it, not for
-#     whichever ticket happened to be numbered before it.
+#     whichever ticket happened to be numbered before it;
+#   - an ASYNC tag (state/<TAG>.async, the CI ticket). Nothing waits for it, it works in its own
+#     snapshot tree, and it runs beside whatever the chain is doing.
 # Those tags are QUEUED at kickoff instead of wired, and this script starts them. The runner
 # calls it on every sweep. Sessions do not: a launch can take half a minute, and a session's own
 # shell call may time out and kill it halfway through a claim.
@@ -24,8 +26,12 @@
 #                        REVIEW-FINAL waits like this on the checkpoint reviews and the last
 #                        tickets: one blocked ticket must not stop the final review.
 #   MAX_PARALLEL       - in blitz mode, how many WRITERS may run at once. A writer is any claimed,
-#                        unfinished tag that is not a review finder (REVIEW-*). Finders only
-#                        read, each in its own snapshot worktree, so they never count.
+#                        unfinished tag that is not a review finder (REVIEW-*) and not async.
+#                        Finders only read, each in its own snapshot worktree, so they never
+#                        count. An async tag writes only in its own tree and blocks nobody, so it
+#                        never counts either: a serial sprint's cap of 1 would otherwise hold
+#                        the CI ticket until TEST ended, which is the wait async exists to remove.
+#   state/<TAG>.async  - present = this tag is async (see above). A relay copies it on.
 #   BLITZ              - `1` in blitz mode. Otherwise the cap is 1.
 #   state/PAUSED       - present: start nothing, exactly like launch.sh.
 # Writes state/EVENTS.log, one line per start and per skip. Always exits 0 after a clean run.
@@ -101,6 +107,9 @@ def natural(tag):
 def claimed(tag):
     return os.path.isdir(os.path.join(state, "claim-" + tag))
 
+def needs_slot(tag):
+    return not tag.startswith("REVIEW-") and not os.path.exists(os.path.join(state, tag + ".async"))
+
 queued = sorted((os.path.basename(p)[:-len(".queued")]
                  for p in glob.glob(os.path.join(state, "*.queued"))), key=natural)
 
@@ -125,7 +134,7 @@ while changed:
 writers = 0
 for cd in glob.glob(os.path.join(state, "claim-*")):
     tag = os.path.basename(cd)[len("claim-"):]
-    if status(tag) is None and not tag.startswith("REVIEW-"):
+    if status(tag) is None and needs_slot(tag):
         writers += 1
 
 for tag in queued:
@@ -135,7 +144,7 @@ for tag in queued:
         continue
     if any(resolve(d) == "PENDING" for d in deps(tag, "waits")):
         continue
-    if not tag.startswith("REVIEW-"):
+    if needs_slot(tag):
         if writers >= cap:
             continue
         writers += 1

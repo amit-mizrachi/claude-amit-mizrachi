@@ -6,8 +6,8 @@ linking the others and carrying its own manual steps.
 
 Everything in `SKILL.md` still holds unless this file changes it: the runner, reviving, the
 context rungs, asking nothing, the full suite never running locally, `advance.sh` owning the
-chain. A multi-repo sprint is a single-repo sprint run once per repo for worktrees, reviews and
-PRs, and once for the whole sprint for the chain, the golden path and the report.
+chain. A multi-repo sprint is a single-repo sprint run once per repo for worktrees, reviews, CI
+and PRs, and once for the whole sprint for the chain, the golden path and the report.
 
 ## 1. Each ticket names exactly one repo
 
@@ -80,19 +80,24 @@ cuts a blitz ticket's tree or a finder's snapshot from that repo's branch. A con
   between repos, each PR must be safe to merge alone (an additive contract, a flag); write how,
   and log it.
 
-## 5. Per-repo tails: checkpoints, final review, fix
+## 5. Per-repo tails: checkpoints, final review, fix, async CI
 
 | Tag | `.repo` | Started by | Wired |
 |---|---|---|---|
 | `REVIEW-C<n>-<key>` | key | queued + `.snapshot` | `.waits` = the last ticket of its scope in that repo (every one in blitz) |
 | `REVIEW-FINAL-<key>` | key | queued | `.waits` = every ticket of EVERY repo + that repo's checkpoint finders; `.next` = `FIX-FINAL-<key>` |
 | `FIX-FINAL-<key>` | key | the chain | `.next` empty |
-| `TEST` (opt-in) | none | queued | `.waits` = every `FIX-FINAL-<key>`; `.next` = `FIX-TEST` or empty, the tester decides |
-| `FIX-TEST` | none | the chain | `.next` empty: the sprint ends with it |
+| `CI-<key>` | key | queued + `.snapshot` + `.async` | `.waits` = `FIX-FINAL-<key>`; `.next` empty |
+| `TEST` (opt-in) | none | queued | `.waits` = every `FIX-FINAL-<key>`, never a CI tag; `.next` = `FIX-TEST` or empty, the tester decides |
+| `FIX-TEST` | none | the chain | `.next` empty; it `touch`es `state/CI2-<key>.queued` for each repo it pushed to |
+| `CI2-<key>` | key | queued by `FIX-TEST` | `.snapshot` + `.async` + `.waits` = `FIX-TEST CI-<key>`, written at kickoff; prompt rendered at kickoff; NOT queued at kickoff |
+
+Do not queue `CI2-<key>` yourself: a queued tag whose `FIX-TEST` never runs is `STRANDED`.
 
 `TEST` waits SOFTLY on the fixers (`.waits`, not `.after`): a repo whose `REVIEW-FINAL-<key>`
 routes SKIP writes `SKIPPED` to its `FIX-FINAL-<key>`, and a hard dependency would skip the
-tester with it. There is no CI tag in any repo: CI runs async on each PR, outside the sprint.
+tester with it. It never waits on `CI-<key>`: CI tags are async, each in its own snapshot tree of
+its repo, and run beside `TEST`.
 
 `REVIEW-FINAL-<key>` waits on every repo's tickets so it reads the finished other side of each
 contract. The tails of different repos then run side by side, each in its own worktree - the one
@@ -112,10 +117,12 @@ sibling worktrees in what it gives the reviewer, so both sides of the contract a
 | `T<NN>` | none - the repo file supplies the rest |
 | `REVIEW-C<n>-<key>` / `REVIEW-FINAL-<key>` | `FIX_TAG=FIX-FINAL-<key>`, `NEXT_AFTER_FIX=` empty; `SCOPE` runs in that repo (`git merge-base origin/<its BASE> HEAD`, then `state/REVIEW-C<n-1>-<key>.headsha`) |
 | `FIX-FINAL-<key>` | `FIND_TAG=REVIEW-FINAL-<key>`, `NEXT_TAG=` empty |
+| `CI-<key>` / `CI2-<key>` | `TAG=CI-<key>` / `TAG=CI2-<key>` |
 | `TEST` | rendered with the first repo's file; `FIND_FINAL_TAG=the REVIEW-FINAL-<key> sessions` |
 | `FIX-TEST` | rendered with the first repo's file; `FIND_TAG=TEST`, `NEXT_TAG=` empty |
 
-Verdicts per repo: `state/SETUP-<key>.verdict`. `GOLDEN.verdict` stays one file.
+Verdicts per repo: `state/ACCEPTANCE-<key>.verdict` (`accept.sh <WS> <secs> "$PWD" <key>`, which
+the CI prompt already runs) and `state/SETUP-<key>.verdict`. `GOLDEN.verdict` stays one file.
 Manual-step blocks start with `REPO: <key | all>`.
 
 ## 6. The PRs
@@ -140,9 +147,10 @@ SKILL.md's nine items, with these changes:
 
 1. **The verdict** - one line per repo from its ticket outcomes and fix pass, then
    `GOLDEN.verdict`.
-2. **The PRs** - a table, `Repo | PR | ready or draft | CI at report time | merge position`, then
-   the merge order and why. The CI column is one `gh pr checks` read per PR, with no waiting.
-   Say once that CI runs async and the sprint neither waited for it nor fixed it.
+2. **The PRs** - a table, `Repo | PR | ready or draft | CI (from ACCEPTANCE-<key>.verdict, or
+   "CI-<key> still running") | merge position`, then the merge order and why. Written at
+   CHAIN-DONE without waiting for the CI tags; at SWEEP 0 add one line per repo from
+   `CI-<key>.summary` (and `CI2-<key>.summary`).
 3. **Ticket outcomes** - grouped by repo. Name every cross-repo edge whose blocker did not land,
    and what it skipped in the other repo.
 4. **The ledger** - with a `Repo` column.

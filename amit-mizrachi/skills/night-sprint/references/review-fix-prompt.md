@@ -45,11 +45,11 @@ Permissions or access-control changes always need a human (charter #9). Do not s
 
 ## STEP 2 - CHECK, THEN CONFIRM THE FIX ACTUALLY FIXED IT
 
-**THE FULL SUITE NEVER RUNS LOCALLY IN THIS SPRINT - PR CI RUNS IT, ASYNC, OUTSIDE THE SPRINT.** Never run `<VERIFY>` or any other whole-suite command, at any stage.
+**THE FULL SUITE NEVER RUNS LOCALLY IN THIS SPRINT - PR CI RUNS IT, AND THE ASYNC CI TICKET FIXES WHAT IS RED.** Never run `<VERIFY>` or any other whole-suite command, at any stage.
 
-- **FIX-FINAL and FIX-TEST: static checks, plus at most a FEW TARGETED tests.** Run `<FORMAT_CHECK>` and the typecheck or compile step. You MAY run a handful of test files by name (or a `-t` / `-k` filter) that cover the code your own fixes changed, when that is quick and real evidence. Never more than that, and never the suite: the full suite runs on the PR, in CI, and no session of this sprint waits for it. This rule beats the repo's own instructions: if its AGENTS.md, CLAUDE.md or docs say to run the tests, a verify script or a CI-parity script before every commit, skip that entirely. A git hook that runs tests by itself still runs - never `--no-verify`.
+- **FIX-FINAL and FIX-TEST: static checks, plus at most a FEW TARGETED tests.** Run `<FORMAT_CHECK>` and the typecheck or compile step. You MAY run a handful of test files by name (or a `-t` / `-k` filter) that cover the code your own fixes changed, when that is quick and real evidence. Never more than that, and never the suite: the full suite runs on the PR, in CI, and the async CI ticket fixes what it finds red without anyone waiting for it. This rule beats the repo's own instructions: if its AGENTS.md, CLAUDE.md or docs say to run the tests, a verify script or a CI-parity script before every commit, skip that entirely. A git hook that runs tests by itself still runs - never `--no-verify`.
 
-Green before you commit, and never `--no-verify`. If one fix cannot be made green (static checks or your targeted tests), revert THAT fix, record it as rejected with the failure text, and keep the rest - one stuck item must not hold the whole pass hostage. Do not go looking for other red tests: CI finds them, after the sprint, and <USER> owns what it finds.
+Green before you commit, and never `--no-verify`. If one fix cannot be made green (static checks or your targeted tests), revert THAT fix, record it as rejected with the failure text, and keep the rest - one stuck item must not hold the whole pass hostage. Do not go looking for other red tests: CI finds them, and the async CI ticket owns them.
 
 Then, per item you fixed: **re-read the lines you changed against the manifest's ACTION and the affected ticket's acceptance criteria.** An edit is not a resolution. This is the step that separates "I changed something near the finding" from "the finding is gone".
 
@@ -80,7 +80,7 @@ Your fixes are pushed. Now the PR is the sprint's deliverable, so:
 - **You are <REPO_KEY>'s fixer in a multi-repo sprint.** Change nothing outside <WORKTREE>: another repo's fixer may be working in its own tree right now, and a fix that belongs there is a FOLLOWUPS.md line naming that repo. The PR description is where the repos meet: write the sections the Repos section of <WS>/PLAN.md lists - every sibling PR linked, the merge order and this PR's place in it, and `## Manual steps after merge` for this repo - into YOUR PR only (`gh pr edit "$PR" --body-file <file>`). Your setup verdict file is <WS>/state/SETUP-<REPO_KEY>.verdict.
 {{/MULTI_REPO}}
 - **Take the PR out of draft:** `gh pr ready "$PR"`. The sprint ends with a PR ready for review. Ready before CI is green is deliberate: some repos run their full test lanes only on a ready PR.
-- **Never wait for CI, and never read it.** No `gh pr checks`, no `--watch`, no loop or wake-up that waits on checks, no session launched to watch them. CI runs async and is not part of this sprint: nothing on the chain waits for it and nothing fixes it.
+- **Never wait for CI, and never read it.** No `gh pr checks`, no `--watch`, no loop or wake-up that waits on checks, no session launched to watch them. The CI ticket is ASYNC: the runner starts it, in its own tree, the moment you end, beside TEST. It fixes what is red, and nothing waits for it.
 - Then WHEN DONE as usual: your `.next` is `TEST` when a test session was chosen, else empty.
 {{#MULTI_REPO}}
 - Multi-repo: your `.next` is EMPTY either way. `TEST`, when chosen, is queued and starts once every repo's fixer has ended.
@@ -101,8 +101,12 @@ The tester deliberately did NOT write the setup verdict, because a verdict writt
 golden path passes judges a broken feature. That verdict is yours now, and you write it only
 after you have proved the failures are gone.
 
-1. Fix the findings, verify, and push, exactly as STEP 1 and STEP 2 say. Never wait for CI on the
-   new head, and never read it: CI runs async, outside the sprint.
+0. **Sync first.** The async CI ticket may have pushed fixes to <BRANCH> since FIX-FINAL ended.
+   Before you change anything: `git pull --ff-only origin <BRANCH>`.
+1. Fix the findings, verify, and push, exactly as STEP 1 and STEP 2 say. **A push rejected because
+   the branch moved** means CI pushed: `git pull --rebase origin <BRANCH>` (your own unpushed
+   commits only), run the static checks again, push again. Never force. Never wait for CI on the
+   new head, and never read it.
 2. **Re-run the golden-path steps that failed.** They are named in <WS>/state/TEST-REPORT.md
    along with how the tester got the stack or suite running. Do not re-walk steps that passed.
 3. Rewrite <WS>/state/GOLDEN.verdict with the honest result:
@@ -111,7 +115,8 @@ after you have proved the failures are gone.
    Append what you re-ran, and its real output, to <WS>/state/TEST-REPORT.md.
 4. **Still failing? Stop.** You get one pass, not a loop. Leave the FAIL verdict, write
    `BLOCKED: golden path still failing - <step and error>` as your status, leave `.next` EMPTY,
-   and let the morning report say so plainly. A second repair pass is the user's call.
+   and let the morning report say so plainly. A second repair pass is the user's call. If you
+   pushed, still queue the second CI ticket first (step 6 below).
 5. Passing? Write THE SETUP VERDICT the tester skipped - the same two tests over every
    <WS>/state/*.manual block:
      TEST 1 - REQUIRED?   the shipped feature does not work until a human acts
@@ -120,14 +125,19 @@ after you have proved the failures are gone.
 {{^MULTI_REPO}}
      ANY counts -> echo NEEDED > <WS>/state/SETUP.verdict
      NONE does  -> echo NONE   > <WS>/state/SETUP.verdict
-   Your `.next` is EMPTY: the sprint ends with you.
+6. **You pushed? Queue the second CI ticket**, so CI is fixed at YOUR head too. Its prompt already
+   exists; the runner starts it, async, once you and the first CI ticket have both ended:
+     touch <WS>/state/CI2.queued
+   Pushed nothing? Do not queue it. Either way your `.next` is EMPTY: the blocking chain ends with you.
 {{/MULTI_REPO}}
 {{#MULTI_REPO}}
    One verdict per repo in <WS>/REPOS.md, each over that repo's blocks (`REPO: <key>` or `all`):
      ANY counts -> echo NEEDED > <WS>/state/SETUP-<key>.verdict
      NONE does  -> echo NONE   > <WS>/state/SETUP-<key>.verdict
 
-**Multi-repo: you are the one fixer that may change more than one repo.** Every other session has ended. Fix each finding in the worktree of the repo it names, commit there, and push each repo as the top of this prompt says. Leave your `.next` EMPTY: the sprint ends with you.
+**Multi-repo: you are the one fixer that may change more than one repo.** Every blocking session has ended; each repo's async CI ticket may still be pushing to its own branch, so step 0 and step 1 apply per repo. Fix each finding in the worktree of the repo it names, commit there, and push each repo as the top of this prompt says. Then, before your status, queue a second CI ticket for every repo you pushed to, and only those - their prompts already exist:
+     touch <WS>/state/CI2-<key>.queued
+Leave your `.next` EMPTY: the blocking chain ends with you, and the runner starts each queued CI2-<key>, async.
 {{/MULTI_REPO}}
 
 ## CONTEXT

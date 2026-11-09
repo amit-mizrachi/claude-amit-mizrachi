@@ -827,33 +827,45 @@ and `state/<TAG>.repo` per tag. The decisions behind it:
   and deployed yet. It is BLOCKED only when the plan's merge order says so; otherwise the
   dependency is a bug in this repo's change.
 
-## CI left the sprint entirely (2026-11-09, side-chat-rotem-fixes, 1.22.0)
+## CI became an async ticket (2026-11-09, side-chat-rotem-fixes, 1.22.0)
 
 The chain was `FIX-FINAL -> CI -> TEST` and `FIX-TEST -> CI2`, so the tester waited for CI to
 go green, and the morning report waited on `ACCEPTANCE.verdict`. In side-chat-rotem-fixes
 (shapes-platform PR #3557) the user asked for the demo, found `TEST` stuck behind the `CI` tag,
 and had the conductor launch `TEST` by hand beside it. The user's rule: never wait for CI
-sessions - CI always runs async and is unrelated to night-sprint. Their global instructions
-already said it ("CI runs async, never in the session that pushed"); the 1.19.0 note above asked
-such an owner to carve the `CI` ticket out of that rule, and the owner declined.
+sessions - CI runs async. But they still wanted a CI session that fixes red checks, run, revived
+and closed by the runner like any other.
 
-**Rule.** No tag is about CI. `FIX-FINAL` (or `REVIEW-FINAL` on SKIP) pushes, marks the PR
-ready, and hands straight to `TEST`, or ends the chain. `FIX-TEST` ends the chain. No session
-polls checks, reads them, or fixes a red lane. The morning report reads CI once, at report time,
-with a plain `gh pr checks` (never `--watch`), names what it saw and says CI runs async.
+**Rule.** A new kind of tag, the **async** tag (`state/<TAG>.async`). `CI` is one: queued at
+kickoff with `.waits` = `FIX-FINAL` and a `.snapshot` tree of its own, so the scheduler starts it
+the moment `FIX-FINAL` ends, beside `TEST`. Nothing waits for it. `FIX-FINAL` hands straight to
+`TEST`; `FIX-TEST` ends the blocking chain and queues `CI2` only if it pushed. When only async
+tags are left the runner says `CHAIN-DONE` and the conductor writes the morning report then; the
+runner keeps reviving the CI ticket, closes its session when it ends, and only then says
+`SWEEP 0`, at which the conductor adds the final CI line.
 
 The decisions behind it:
 
-- **`ci-prompt.md` and `accept.sh` are deleted, not kept as a one-shot read.** The report needs
-  one `gh pr checks` call, which needs no script. `accept.sh`'s pushed-head comparison mattered
-  only to a session that vouched for green; nothing vouches now. A script left in the workspace
-  is a script some session will call.
-- **`ACCEPTANCE.verdict` is gone from code sprints.** The headline comes from the ticket outcomes
-  and `GOLDEN.verdict`. Research mode and night-marathon's research phase keep their own
-  `ACCEPTANCE.verdict`: it is the artifact check, not CI. night-watch reads it only in research
-  mode now.
-- **Multi-repo `TEST` waits SOFTLY on every `FIX-FINAL-<key>`** (`.waits`). It used to sit
-  `.after` every `CI-<key>`, which always ran. A `FIX-FINAL-<key>` that `REVIEW-FINAL-<key>`
-  routed SKIP ends `SKIPPED`, and a hard dependency would skip the tester with it.
-- **Red CI is reported, not fixed.** What the `CI` ticket did (fix inherited base-branch
-  failures, three passes, BLOCKED for missing secrets) is the user's call now, outside the sprint.
+- **Queued, not chained.** The chain is for what others must wait on. A queued tag is launched,
+  revived and closed by the same runner, and the runner does not exit while one is owed, so the
+  1.19.0 failure (a watcher outside the runner that nobody noticed was missing) cannot recur.
+- **Its own tree.** `TEST` boots the stack from the shared worktree and `FIX-TEST` edits it. A CI
+  fix landing there mid-test would change the code under a running stack. `.snapshot` already
+  gave finders a detached tree; the CI ticket takes the same one, syncs it to `origin/<BRANCH>`
+  every loop, and `accept.sh` checks ITS head (`"$PWD"`), not the shared tree's.
+- **Two writers on one branch, so no force and only local rebases.** The CI ticket and
+  `FIX-TEST` can both push. Each syncs first; a push rejected because the other moved the branch
+  rebases only its own unpushed commits; a rebase conflict means the CI ticket drops its commit
+  and reads CI again on FIX-TEST's head. The CI ticket also leaves alone a lane FIX-TEST is
+  fixing right now.
+- **No writer slot.** A serial sprint's cap is 1, and `TEST` holds it. Counted as a writer, the CI
+  ticket would wait for `TEST` - the exact wait this removes. Async tags work in their own tree,
+  so `schedule.sh` exempts them as it exempts finders. A relay copies `.async` to the
+  continuation, or `CIc2` would take a slot and hold the report.
+- **`CHAIN-DONE` is durable.** The runner's seen-file is emptied on every restart; a
+  `state/.chain-done` marker keeps a restarted runner from asking for a second report.
+- **`CI2` is still its own tag**, queued by `FIX-TEST` with `.waits` = `FIX-TEST CI`, so two CI
+  tickets never push side by side. If `CI` is still running when FIX-TEST pushes, it sees the new
+  head on its next loop and `CI2` only confirms it.
+- **Multi-repo `TEST` waits SOFTLY on every `FIX-FINAL-<key>`** (`.waits`), never on `CI-<key>`.
+  A `FIX-FINAL-<key>` routed SKIP ends `SKIPPED`, and a hard dependency would skip the tester.

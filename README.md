@@ -53,7 +53,7 @@ PR. It buys wall-clock with tokens and quota, so it is never the default.
 
 **Multi-repo.** When a feature spans several repos, each ticket names one repo (a `**Repo:**`
 line, or a `[repo]` tag in its title) and the sprint ends with **one branch and one PR per
-repo**. Every repo gets its own worktree, final review and fix pass; blocking edges
+repo**. Every repo gets its own worktree, final review, fix pass and async CI ticket; blocking edges
 cross repos freely; and every PR links its siblings, gives the merge order, and lists its own
 "Manual steps after merge". Single-repo sprints are unchanged.
 
@@ -134,20 +134,24 @@ The parts that make it survive an unattended night:
   finished its work; it has never meant the branch is acceptable. A sprint once reported all 21
   stages complete over a red PR, and every stage was telling the truth about itself - the local
   check and CI simply did not check the same things, and a formatter failure was twice read as a
-  warning-only lint rule. So `FORMAT_CHECK` is a pinned fact every session runs, and the tester
-  writes `state/GOLDEN.verdict`. The morning report's headline comes from the ticket outcomes and
-  that file.
-- **The PR ends ready for review, and CI runs async.** `FIX-FINAL` takes the PR out of draft after
-  its fixes are pushed and hands straight on to `TEST`, or ends the chain. CI is never on the
-  chain: no session waits for it, reads it or fixes it. The morning report reads it once, at
-  report time, and says what it saw.
+  warning-only lint rule. So `accept.sh` compares the **pushed** head with what it checks and then
+  reads the required checks GitHub actually ran, writing `state/ACCEPTANCE.verdict`; the tester
+  writes `state/GOLDEN.verdict` separately.
+- **The PR ends ready for review, and an async CI ticket gets it green.** `FIX-FINAL` takes the PR
+  out of draft after its fixes are pushed and hands straight on to `TEST`. Beside it, the `CI`
+  ticket starts in its own tree: an **async** tag (`state/CI.async`) that waits for the required
+  checks, fixes and pushes what is red (three passes at most) and writes
+  `state/ACCEPTANCE.verdict`. Nothing waits for it: when only async tags are left the runner says
+  `CHAIN-DONE` and the morning report is written then. The runner still revives the CI ticket if
+  it dies and closes its session when it ends.
 - **Finished sessions are removed.** Once a tag is terminal and the chain has moved past it, the
   runner stops its session and takes it off the agent list with `claude rm`. The shared worktree
   and the transcript are kept, so `claude --resume <sessionId>` still reopens it. At the end only
   the conductor, with the morning report, is left on the list.
 - **The full suite never runs locally.** Every session runs the static checks (format / lint,
   typecheck or compile); `FIX-FINAL` and `FIX-TEST` may add a few targeted test files for their
-  own fixes. The suite runs on the PR in CI, async, after the sprint.
+  own fixes. The suite runs on the PR in CI, and the async `CI` ticket fixes whatever is red, whichever
+  ticket caused it.
 - **Prompts are rendered, not retyped.** `bootstrap.sh` assembles the workspace and fails loudly
   on a missing script or fact; `render.sh` fills each prompt from one `facts.env` and **refuses a
   template with an unfilled slot**, because an unfilled verify command is a session that wakes at
