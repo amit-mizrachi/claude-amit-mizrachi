@@ -3,9 +3,9 @@
 #
 #   accept.sh <WORKSPACE> [TIMEOUT_SECONDS] [WORKTREE] [REPO]
 #
-# WORKTREE defaults to the sprint's own (`<WS>/WORKTREE`), which is where the `CI` ticket runs it.
-# Pass another to check a different checkout of the same branch. An empty WORKTREE means the
-# default.
+# WORKTREE defaults to the sprint's own (`<WS>/WORKTREE`). The async `CI` ticket passes its own
+# snapshot tree (`"$PWD"`), because the shared tree belongs to TEST and FIX-TEST and may sit
+# behind the pushed head. An empty WORKTREE means the default.
 #
 # REPO is a multi-repo sprint's repo key (a `CI-<key>` ticket passes its own). The worktree and
 # branch then default to that repo's (repos/<key>/), and the verdict goes to

@@ -116,6 +116,21 @@ bash "$W2/schedule.sh" "$W2" >/dev/null
 check "the checkpoint finder starts while T04 is writing" "REVIEW-C1" "$(launched)"
 
 echo
+echo "== an async tag (the CI ticket) runs beside the chain and takes no writer slot =="
+W4="$T/ws4"; new_ws "$W4" 0; reset_mock
+prompt "$W4" CI T09
+mkdir "$W4/state/claim-TEST"                      # the tester holds the serial sprint's one slot
+echo DONE > "$W4/state/FIX-FINAL.status"
+queue "$W4" CI; : > "$W4/state/CI.async"; : > "$W4/state/CI.snapshot"; echo FIX-FINAL > "$W4/state/CI.waits"
+bash "$W4/schedule.sh" "$W4" >/dev/null
+check "CI starts while TEST holds the only slot" "CI" "$(launched)"
+check "in a detached tree of its own" "HEAD" "$(git -C "$T/wt-CI" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+rmdir "$W4/state/claim-TEST"; echo DONE > "$W4/state/TEST.status"
+queue "$W4" T09; reset_mock
+bash "$W4/schedule.sh" "$W4" >/dev/null
+check "a running async tag holds no slot either" "T09" "$(launched)"
+
+echo
 echo "== advance.sh keeps a continuation in its ticket's tree =="
 W3="$T/ws3"; new_ws "$W3" 1; reset_mock
 prompt "$W3" T08c2
@@ -126,6 +141,13 @@ bash "$W3/advance.sh" "$W3" T08 >/dev/null 2>&1
 check "the relay copies the tree" "$T/wt-T08" "$(cat "$W3/state/T08c2.cwd" 2>/dev/null)"
 grep -q "ns-bz-T08c2 .* $T/wt-T08\$" "$MOCK_STATE/launches" && ok "and the continuation starts there" \
   || no "and the continuation starts there" "$(cat "$MOCK_STATE/launches")"
+prompt "$W3" CIc2; : > "$W3/state/CI.async"
+echo "RELAYED: CIc2" > "$W3/state/CI.status"
+bash "$W3/advance.sh" "$W3" CI >/dev/null 2>&1
+[ -f "$W3/state/CIc2.async" ] && ok "an async tag's continuation is async too" \
+  || no "an async tag's continuation is async too" "no CIc2.async"
+[ -f "$W3/state/T08c2.async" ] && no "a plain ticket's continuation is not async" "T08c2.async exists" \
+  || ok "a plain ticket's continuation is not async"
 
 echo
 echo "== land.sh: merge under a lock, fix the combined tree, fast-forward, push =="
@@ -227,7 +249,8 @@ grep -q 'land.sh' "$B0/implementer-prompt.md" && no "a serial implementer never 
 echo
 echo "== night-watch draws queued tags as heads =="
 S="$T/board/state"; mkdir -p "$S"
-for t in T02 T01 REVIEW-C1 REVIEW-FINAL; do : > "$S/$t.queued"; done
+for t in T02 T01 REVIEW-C1 REVIEW-FINAL CI; do : > "$S/$t.queued"; done
+: > "$S/CI.async"
 printf 'FIX-FINAL\n' > "$S/REVIEW-FINAL.next"
 printf 'T01c2\n' > "$S/T01.next"; echo "RELAYED: T01c2" > "$S/T01.status"
 got="$(PYTHONDONTWRITEBYTECODE=1 python3 - "$BIN/night-watch" "$S" <<'PY'
@@ -238,7 +261,7 @@ nw = importlib.util.module_from_spec(spec); loader.exec_module(nw)
 print(" ".join(nw.walk_chain(sys.argv[2])))
 PY
 )"
-check "tickets, then checkpoints, then the final chain" "T01 T01c2 T02 REVIEW-C1 REVIEW-FINAL FIX-FINAL" "$got"
+check "tickets, then checkpoints, then the final chain, then async tags" "T01 T01c2 T02 REVIEW-C1 REVIEW-FINAL FIX-FINAL CI" "$got"
 
 echo
 echo "== $pass passed, $fail failed =="

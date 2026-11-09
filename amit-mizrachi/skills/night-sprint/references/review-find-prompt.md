@@ -5,7 +5,7 @@ AUTONOMOUS NIGHT RUN. <USER> is ASLEEP and will NOT answer. Never ask a question
 Repo: <REPO_PATH> (<REPO_SLUG>). Toolchain: <TOOLCHAIN>.
 Workspace: <WS>. You are tag <TAG>. Every finding of this sprint is fixed once, at the end, by <FIX_TAG>.
 
-DO NOT RUN TESTS. THE FULL SUITE NEVER RUNS LOCALLY IN THIS SPRINT - PR CI RUNS IT, AND THE CI WATCHER FIXES WHAT IS RED. A finder never runs any test, at any checkpoint. Find by reading the diff.
+DO NOT RUN TESTS. THE FULL SUITE NEVER RUNS LOCALLY IN THIS SPRINT - PR CI RUNS IT, AND THE ASYNC CI TICKET FIXES WHAT IS RED. A finder never runs any test, at any checkpoint. Find by reading the diff.
 
 YOU FIND. YOU DO NOT FIX - not one file, not the verify command, not a commit, even when a fix looks like a one-liner. The fixing is a separate step because a session that consolidates reviews AND edits code spends its window twice and dies mid-triage, losing the triage.
 
@@ -137,7 +137,7 @@ DELETE THIS WHOLE SECTION when rendering a checkpoint review. It applies only to
 
 - **CARRY THE CHECKPOINT FINDINGS FORWARD - this comes first.** The checkpoint reviews were async, so nobody fixed what they found: by design, every finding of the night is fixed once, by <FIX_TAG>, from YOUR manifest alone. Read every `<WS>/state/REVIEW-C*.findings.md`. Check each finding against HEAD now; later tickets may have fixed it, moved it or made it moot. Still real: copy it into your manifest with a new ID, today's WHERE and AT, and one more field, `ORIGIN: REVIEW-C<n> F<k>`. Gone: one line in your summary, `REVIEW-C<n> F<k> resolved by later work (<sha or ticket>)`. Do not post carried findings to the PR again; they were posted when they were found.
 - **Re-read every ticket in <WS>/tickets/ against what actually landed.** Post any UNMET acceptance criterion as a finding like any other. This is the last honest check before <USER> sees it.
-- **Do NOT take the PR out of draft** unless you route SKIP below. <FIX_TAG> does it after its fixes are pushed, and the CI ticket after it fixes whatever CI finds red.
+- **Do NOT take the PR out of draft** unless you route SKIP below. <FIX_TAG> does it after its fixes are pushed.
 - **SWEEP THE DIFF FOR SETUP AND WRITE THE VERDICT.** You already have the whole diff loaded, so this is nearly free here. Over `git diff <BASE>...HEAD`: new env or config reads and whether `.env.example` documents them; new `secrets.*` or `vars.*` in `.github/workflows/*`; new terraform / terragrunt units; new migrations; new infrastructure a deploy will not create; a new third-party integration or OAuth client; anything a ticket's acceptance criteria assume exists but no code creates. Then check what is ALREADY set: `gh secret list`, `gh variable list`, `.env.example`, the repo's own store. **A FAILED READ IS NOT AN EMPTY ANSWER** - if a listing errors, say the read failed; never record it as "not configured".
 
   Apply BOTH TESTS from STEP 5 to every <WS>/state/*.manual block and to everything the sweep turned up, then write one word:
@@ -170,7 +170,7 @@ Check it after the deep-review report returns; that is where the number jumps. Y
        echo "<TAG> posted no findings and the PR has no open comments" > <WS>/state/<FIX_TAG>.summary
        echo "<NEXT_AFTER_FIX>" > <WS>/state/<FIX_TAG>.next
        echo "<NEXT_AFTER_FIX>" > <WS>/state/<TAG>.next
-     No fixer will take the PR out of draft, so you do it: make sure the PR description reflects everything the sprint delivered, then `gh pr ready "$PR"`. Do not wait for CI: <NEXT_AFTER_FIX> is the CI ticket, and it runs next.
+     No fixer will take the PR out of draft, so you do it: make sure the PR description reflects everything the sprint delivered, then `gh pr ready "$PR"`. Never wait for CI and never read it: the async CI ticket starts by itself once <FIX_TAG> has a status, and nothing waits for it. <NEXT_AFTER_FIX> is the tester, or empty when no test session was chosen.
 
    - **Anything to fix** - always a fresh fixer, because its rendered prompt carries the acceptance gate:
        echo "<FIX_TAG>" > <WS>/state/<TAG>.next

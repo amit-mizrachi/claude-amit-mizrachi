@@ -140,7 +140,7 @@ if multi:
         fail("per-repo facts belong in repos/<key>.env, not facts.env: %s" % " ".join(stray))
     for key in keys:
         # No hyphen: the runner matches a tag's sessions by name prefix plus "-", so a key
-        # `shapes` would make CI-shapes claim the sessions of CI-shapes-internal.
+        # `shapes` would make FIX-FINAL-shapes claim the sessions of FIX-FINAL-shapes-internal.
         if not re.fullmatch(r"[a-z][a-z0-9]*", key):
             fail("repo key %r must be lower case letters and digits, starting with a letter" % key)
         path = os.path.join(ws, "repos", key + ".env")

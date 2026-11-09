@@ -108,10 +108,13 @@ check "a ticket prompt renders from its repo file" "0" "$?"
 grep -q "cd $T/beta-wt\$" "$W/prompt-T02.txt" && ok "and works in that repo's tree" \
   || no "and works in that repo's tree" "$(grep -n 'cd ' "$W/prompt-T02.txt")"
 grep -q 'yours is beta (o/beta)' "$W/prompt-T02.txt" && ok "and names its repo" || no "and names its repo" "no key"
-printf 'TAG=CI-beta\nNEXT_TAG=\n' > "$W/vars-CI-beta.env"
+printf 'TAG=CI-beta\n' > "$W/vars-CI-beta.env"
 bash "$W/render.sh" "$W" "$W/ci-prompt.md" "$W/prompt-CI-beta.txt" "$W/repos/beta.env" "$W/vars-CI-beta.env" >/dev/null 2>&1
-grep -q 'accept.sh .* 540 "" beta$' "$W/prompt-CI-beta.txt" && ok "a repo's CI ticket checks its own repo's PR" \
-  || no "a repo's CI ticket checks its own repo's PR" "$(grep -n accept.sh "$W/prompt-CI-beta.txt")"
+check "a repo's async CI prompt renders" "0" "$?"
+grep -q 'accept.sh .* 540 "[$]PWD" beta$' "$W/prompt-CI-beta.txt" && ok "a repo's CI ticket checks its own repo's PR, from its own tree" \
+  || no "a repo's CI ticket checks its own repo's PR, from its own tree" "$(grep -n accept.sh "$W/prompt-CI-beta.txt")"
+grep -q "pwd    # $T/beta-wt-CI-beta\$" "$W/prompt-CI-beta.txt" && ok "and works in a tree beside its repo's" \
+  || no "and works in a tree beside its repo's" "$(grep -n 'pwd' "$W/prompt-CI-beta.txt")"
 
 echo "== bootstrap.sh refuses a half-described multi-repo sprint =="
 refuse() {   # refuse <name> <word in the error> <edit command run in the ws>
@@ -153,13 +156,13 @@ hits="$(grep -l 'SEVERAL REPOS\|REPOS.md\|REPO_KEY' "$S"/*.md 2>/dev/null | tr '
 
 echo "== repos.sh: a tag's repo, and a continuation's =="
 R="$T/ws-r"; mkdir -p "$R/state"; cp "$REF/repos.sh" "$R/"
-echo beta > "$R/state/T03.repo"; echo alpha > "$R/state/CI-alpha.repo"
+echo beta > "$R/state/T03.repo"; echo alpha > "$R/state/FIX-FINAL-alpha.repo"
 ro() { ( . "$R/repos.sh"; repo_of "$R" "$1" ); }
 check "a tag reads its own .repo" "beta" "$(ro T03)"
 check "a continuation inherits its ticket's" "beta" "$(ro T03c2)"
 check "and a continuation of a continuation" "beta" "$(ro T03c2c3)"
 check "a tag with no repo prints nothing" "" "$(ro TEST)"
-check "a key that ends in c<n> is read whole" "alpha" "$(ro CI-alpha)"
+check "a key that ends in c<n> is read whole" "alpha" "$(ro FIX-FINAL-alpha)"
 check "repo_fact without a key reads the sprint's file" "$T/alpha-wt" \
   "$( cd "$S" && . "$S/repos.sh"; repo_fact "$S" "" WORKTREE )"
 

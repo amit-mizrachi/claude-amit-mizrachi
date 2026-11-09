@@ -1478,11 +1478,13 @@ rm "$FH/.local/bin/night-watch"; printf 'mine\n' > "$FH/.local/bin/night-watch";
 check "it leaves a real file of the same name alone" "mine" "$(command cat "$FH/.local/bin/night-watch")"
 rm -rf "$FH"
 
-# --- The PR ends ready, and a CI ticket on the chain gets it green. 2026-10-20: the detached
-# watcher (ci-watch.sh) lived outside the chain; FIX-FINAL did not start it, nothing noticed, and
-# the user woke to a draft PR with red CI and nobody fixing it.
+# --- The PR ends ready, and an ASYNC CI ticket gets it green. 2026-10-20: a detached watcher
+# (ci-watch.sh) lived outside the runner; nothing noticed it never started, and the user woke to a
+# draft PR with red CI. 2026-11-09: the CI ticket that replaced it sat ON the chain, so TEST waited
+# for CI and the user launched TEST by hand for a demo. Now CI is a queued async tag: the runner
+# launches, revives and closes it, and nothing waits for it.
 echo
-echo "== the PR ends ready, and a CI ticket on the chain gets it green =="
+echo "== the PR ends ready, and an async CI ticket gets it green =="
 [ -f "$REF/ci-watch.sh" ] && no "the detached watcher is gone" "ci-watch.sh still ships" \
   || ok "the detached watcher is gone"
 if grep -rl 'ci-watch' "$REF" 2>/dev/null | grep -qv 'rationale.md'; then
@@ -1492,25 +1494,37 @@ else
 fi
 grep -q 'gh pr ready "\$PR"' "$REF/review-fix-prompt.md" \
   && ok "FIX-FINAL takes the PR out of draft" || no "FIX-FINAL takes the PR out of draft" "no gh pr ready"
-grep -q 'your `.next` is `CI`' "$REF/review-fix-prompt.md" \
-  && ok "FIX-FINAL hands on to the CI ticket" || no "FIX-FINAL hands on to the CI ticket" "no CI successor"
-grep -q '^    bash <WS>/accept.sh' "$REF/review-fix-prompt.md" \
-  && no "FIX-FINAL does not block on accept.sh" "it still runs accept.sh" \
-  || ok "FIX-FINAL does not block on accept.sh"
+grep -q 'your `.next` is `TEST` when a test session was chosen, else empty' "$REF/review-fix-prompt.md" \
+  && ok "FIX-FINAL hands straight on to TEST, not to CI" || no "FIX-FINAL hands straight on to TEST, not to CI" "no TEST successor"
+grep -qE 'accept\.sh|`\.next` is `CI' "$REF/review-fix-prompt.md" \
+  && no "no fixer waits on CI or chains to it" "$(grep -nE 'accept\.sh|`\.next` is `CI' "$REF/review-fix-prompt.md")" \
+  || ok "no fixer waits on CI or chains to it"
+grep -q 'touch <WS>/state/CI2.queued' "$REF/review-fix-prompt.md" \
+  && ok "FIX-TEST queues CI2 when it pushed" || no "FIX-TEST queues CI2 when it pushed" "no queue line"
+grep -q 'git pull --ff-only origin <BRANCH>' "$REF/review-fix-prompt.md" \
+  && ok "FIX-TEST syncs first, since CI may have pushed" || no "FIX-TEST syncs first, since CI may have pushed" "no sync"
 grep -q 'gh pr ready "\$PR"' "$REF/review-find-prompt.md" \
   && ok "a FINAL review that routes SKIP takes the PR out of draft" \
   || no "a FINAL review that routes SKIP takes the PR out of draft" "no gh pr ready"
 grep -q 'accept\.sh' "$REF/review-find-prompt.md" \
   && no "the finder never runs accept.sh" "it still does" || ok "the finder never runs accept.sh"
-grep -q 'bash <WS>/accept.sh <WS> 540$' "$REF/ci-prompt.md" \
-  && ok "the CI ticket reads CI in short waits, in the sprint worktree" \
-  || no "the CI ticket reads CI in short waits, in the sprint worktree" "no accept.sh call"
+grep -q 'bash <WS>/accept.sh <WS> 540 "[$]PWD"$' "$REF/ci-prompt.md" \
+  && ok "the CI ticket reads CI in short waits, from its own tree" \
+  || no "the CI ticket reads CI in short waits, from its own tree" "no accept.sh call on \$PWD"
+grep -q 'Never `cd <WORKTREE>`' "$REF/ci-prompt.md" \
+  && ok "the CI ticket stays out of the shared tree" || no "the CI ticket stays out of the shared tree" "no rule"
+grep -q 'YOU ARE ASYNC. NOTHING WAITS FOR YOU' "$REF/ci-prompt.md" \
+  && ok "the CI ticket knows it is async" || no "the CI ticket knows it is async" "no rule"
+grep -q '^4\. `: > <WS>/state/<TAG>.next`' "$REF/ci-prompt.md" \
+  && ok "the CI ticket has no successor" || no "the CI ticket has no successor" "a .next is wired"
 grep -q 'bash <WS>/advance.sh <WS> <TAG>' "$REF/ci-prompt.md" \
-  && ok "the CI ticket advances the chain like any tag" || no "the CI ticket advances the chain like any tag" "no advance.sh"
+  && ok "the CI ticket ends through advance.sh like any tag" || no "the CI ticket ends through advance.sh like any tag" "no advance.sh"
 grep -q 'THE FULL SUITE NEVER RUNS LOCALLY IN THIS SPRINT' "$REF/ci-prompt.md" \
   && ok "the CI ticket never runs the suite locally" || no "the CI ticket never runs the suite locally" "rule missing"
+grep -q 'touch state/CI.queued state/CI.async state/CI.snapshot' "$HERE/../SKILL.md" \
+  && ok "the kickoff queues CI async, in its own tree" || no "the kickoff queues CI async, in its own tree" "no queue line"
 
-# The CI prompt renders with nothing left over: TAG and NEXT_TAG from the vars file, the rest from facts.
+# The CI prompt renders with nothing left over: TAG from the vars file, the rest from facts.
 CR="$(mktemp -d)"
 cat > "$CR/facts.env" <<'ENV'
 REPO=repo
@@ -1528,9 +1542,11 @@ CONTEXT_WINDOW=1000000
 WARN_AT_USED=20
 RELAY_AT_USED=30
 ENV
-printf 'TAG=CI\nNEXT_TAG=\n' > "$CR/vars-CI.env"
+printf 'TAG=CI\n' > "$CR/vars-CI.env"
 bash "$REF/render.sh" "$CR" "$REF/ci-prompt.md" "$CR/prompt-CI.txt" "$CR/vars-CI.env" >/dev/null 2>&1
 check "the CI prompt renders with no unfilled slot" "0" "$?"
+grep -q 'pwd    # /tmp/wt-CI$' "$CR/prompt-CI.txt" \
+  && ok "and names the CI ticket's own tree" || no "and names the CI ticket's own tree" "$(grep -n 'pwd' "$CR/prompt-CI.txt")"
 rm -rf "$CR"
 
 echo
@@ -1545,6 +1561,37 @@ grep -q 'BLOCKED is for exactly two cases' "$REF/ci-prompt.md" \
 grep -qF 'gh pr view ${BRANCH:+"$BRANCH"}' "$REF/accept.sh" \
   && ok "accept.sh finds the PR by branch, so a detached worktree works" \
   || no "accept.sh finds the PR by branch, so a detached worktree works" "bare gh pr view"
+
+echo
+echo "== the runner says CHAIN-DONE when only async tags are left =="
+AW="$(mktemp -d)"; ABIN="$AW/bin"; mkdir -p "$ABIN" "$AW/mock"
+cp "$HERE/mock-claude.sh" "$ABIN/claude"; chmod +x "$ABIN/claude"
+printf '[]' > "$AW/mock/agents.json"
+aws() {   # aws <dir>: a workspace whose FIX-FINAL ended, with an async CI queued
+  mkdir -p "$1/state"
+  for f in agents.sh repos.sh watch.sh; do cp "$REF/$f" "$1/"; done
+  echo aslug > "$1/SLUG"
+  echo 11111111-0000-4000-8000-000000000001 > "$1/state/FIX-FINAL.session"
+  echo DONE > "$1/state/FIX-FINAL.status"; : > "$1/state/.pr-asked"
+  : > "$1/state/CI.queued"; : > "$1/state/CI.async"; echo FIX-FINAL > "$1/state/CI.waits"
+}
+awatch() { MOCK_STATE="$AW/mock" PATH="$ABIN:$PATH" bash "$1/watch.sh" "$1" 0 25 --observe --once >/dev/null 2>&1; }
+A1="$AW/blocking"; aws "$A1"; echo TEST > "$A1/state/FIX-FINAL.next"
+awatch "$A1"
+grep -q 'CHAIN-DONE' "$A1/state/EVENTS.log" 2>/dev/null \
+  && no "TEST still owed: no CHAIN-DONE" "$(grep CHAIN-DONE "$A1/state/EVENTS.log")" \
+  || ok "TEST still owed: no CHAIN-DONE"
+A2="$AW/async-only"; aws "$A2"; : > "$A2/state/FIX-FINAL.next"
+awatch "$A2"
+grep -q 'EMIT CHAIN-DONE async=CI ' "$A2/state/EVENTS.log" 2>/dev/null \
+  && ok "only the async CI left: CHAIN-DONE, naming it" \
+  || no "only the async CI left: CHAIN-DONE, naming it" "$(tail -3 "$A2/state/EVENTS.log" 2>/dev/null)"
+awatch "$A2"
+check "said once, even across a runner restart" "1" "$(grep -c 'EMIT CHAIN-DONE' "$A2/state/EVENTS.log")"
+grep -q 'all-sessions-terminal' "$A2/state/EVENTS.log" \
+  && no "the runner does not exit while the async tag is owed" "it said SWEEP 0" \
+  || ok "the runner does not exit while the async tag is owed"
+rm -rf "$AW"
 
 echo
 echo "== a failed launch is retried with launch.sh alone - nobody types rm or mv =="

@@ -21,7 +21,8 @@
 #               revive a dead or stalled session (via revive.sh, whose ladder bounds it)
 #               pause the sprint on a quota failure, wait out the limit, resume afterwards
 #   it reports  a real blocker, two agents on one tag, an auth failure, a budget that never
-#               came back, the first PR that needs opening, and the end of the sprint
+#               came back, the first PR that needs opening, the end of the blocking chain while
+#               async tags still run (CHAIN-DONE), and the end of the sprint
 #
 # EVERYTHING it does lands in state/EVENTS.log, timestamped. That file is the ledger the
 # morning report is built from, and it costs the conductor nothing until it reads it once at
@@ -44,8 +45,12 @@
 #   <tag>.status   - the session's own terminal word: DONE | BLOCKED: r | RELAYED: t | SKIPPED: r
 #   <tag>.next     - its successor, wired at setup, and rewritable by the session BEFORE it
 #                    writes its status. advance.sh is the only thing that reads the pair.
+#   <tag>.async    - present = nothing waits for this tag (the CI ticket). The runner still
+#                    launches, revives and closes it, and does not exit while it runs; but once
+#                    only async tags are left it says CHAIN-DONE, so the report does not wait.
 #
-# Exits 0 when every tag with a .session also has a .status - nothing is left running.
+# Exits 0 when every tag with a .session also has a .status - nothing is left running, async
+# tags included.
 
 set -uo pipefail
 
@@ -571,6 +576,26 @@ PYOUT
     [ "$stranded" -ge 5 ] && emit_once "stranded:$pending" "STRANDED $pending - wired, claimed or queued, no session and no status; launch, unclaim or unqueue it"
   else
     stranded=0
+  fi
+
+  # ASYNC TAGS DO NOT HOLD THE REPORT. Once every tag still running or owed is async (the CI
+  # ticket), the work the user waits on has ended: say so once, so the conductor writes the
+  # morning report now. The runner itself keeps going - it still revives the async tags, closes
+  # their sessions when they end, and only then says SWEEP 0.
+  async_left="" blocking_left=""
+  for t in $open_tags $pending; do
+    if [ -f "$STATE/$t.async" ]; then
+      case " $async_left " in *" $t "*) ;; *) async_left="$async_left $t" ;; esac
+    else
+      blocking_left="$blocking_left $t"
+    fi
+  done
+  # Durable, not emit_once: the seen-file is emptied when a runner restarts, and a second
+  # CHAIN-DONE would ask for a second report.
+  if [ -z "$blocking_left" ] && [ -n "$async_left" ] && [ ! -f "$STATE/.chain-done" ] \
+     && ls "$STATE"/*.session >/dev/null 2>&1; then
+    : > "$STATE/.chain-done"
+    say "CHAIN-DONE async=${async_left# } - every blocking tag has ended; write the morning report now. The runner keeps the async tags going and closes them"
   fi
 
   if [ "$open_n" -eq 0 ] && [ -z "$pending" ] && ls "$STATE"/*.session >/dev/null 2>&1; then
