@@ -36,6 +36,12 @@ ORIGIN_TO_API = {
 
 HTTP_TIMEOUT = 60
 
+# a shapes_graphql answer longer than this is cut, so one call cannot fill Claude's context
+MAX_RESULT_CHARS = 100_000
+
+# io-server masks some auth failures as GraphQL errors; these codes end the session like a 401
+SESSION_ENDING_CODES = ("UNAUTHENTICATED", "REFRESH_TOKEN_INVALID")
+
 CONNECT_QUERY = """query ShapesSessionConnect {
   me { id email }
   fetchAppConfig { currentAccount { id name isInternal } }
@@ -171,6 +177,16 @@ def graphql_error_summary(parsed) -> str:
     return f"{message} ({code})" if code else message
 
 
+def session_ending_code(parsed) -> str | None:
+    """The first GraphQL error code that means io-server no longer accepts the token, or None."""
+    errors = parsed.get("errors") if isinstance(parsed, dict) else None
+    for error in errors if isinstance(errors, list) else []:
+        code = ((error.get("extensions") or {}).get("code")) if isinstance(error, dict) else None
+        if code in SESSION_ENDING_CODES:
+            return code
+    return None
+
+
 # --------------------------------------------------------------------------- #
 # the session
 # --------------------------------------------------------------------------- #
@@ -207,6 +223,23 @@ def not_connected_text() -> str:
 def expired_text(session: dict) -> str:
     return (f"expired - the session for account {session['account_name']} "
             f"(id {session['account_id']}) ended at {clock(session['exp'])}. {NEW_LINK_HINT}")
+
+
+def live_session() -> dict:
+    """The open session, or a ValueError (nothing sent) when there is none or it has expired."""
+    state = session_state()
+    if state == "none":
+        raise ValueError(f"Refused: {not_connected_text()} Nothing was sent.")
+    if state == "expired":
+        raise ValueError(f"Refused: {expired_text(SESSION)} Nothing was sent.")
+    return SESSION
+
+
+def cut(text: str) -> str:
+    if len(text) <= MAX_RESULT_CHARS:
+        return text
+    return (f"{text[:MAX_RESULT_CHARS]}\n\n[cut: the full answer was {len(text)} characters; "
+            f"only the first {MAX_RESULT_CHARS} are shown. Ask for fewer fields or a smaller page.]")
 
 
 # --------------------------------------------------------------------------- #
@@ -255,6 +288,31 @@ TOOLS = [
             f"{SESSION_NOTE}"
         ),
         "inputSchema": {"type": "object", "additionalProperties": False, "properties": {}},
+    },
+    {
+        "name": "shapes_graphql",
+        "description": (
+            "Run any GraphQL query or mutation in the connected account, as the user of the "
+            "login-as link (a super admin of that account). Answers with io-server's "
+            "`{data, errors}` as JSON text: read `errors` even when `data` is there, a partial "
+            "failure shows up only there. A request is sent once and never retried, so check a "
+            "mutation's answer before you run it again. An answer longer than "
+            f"{MAX_RESULT_CHARS} characters is cut, and the result says so and gives the full "
+            "length; ask for fewer fields or a smaller page then. If the tool says the session "
+            "expired or was rejected, ask the user for a new login-as link and do not retry. "
+            f"{SESSION_NOTE}"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["query"],
+            "additionalProperties": False,
+            "properties": {
+                "query": {"type": "string",
+                          "description": "The GraphQL document: one query or mutation."},
+                "variables": {"type": "object",
+                              "description": "Values for the document's variables, if it has any."},
+            },
+        },
     },
 ]
 
@@ -344,10 +402,44 @@ def tool_disconnect(args: dict) -> str:
             f"(id {closed['account_id']}) is closed and its token is forgotten.")
 
 
+def tool_graphql(args: dict) -> str:
+    global SESSION
+    query = args.get("query")
+    if not isinstance(query, str) or not query.strip():
+        raise ValueError("Refused: pass the GraphQL document as `query`. Nothing was sent.")
+    variables = args.get("variables")
+    if isinstance(variables, str) and variables.strip():
+        try:
+            variables = json.loads(variables)
+        except ValueError:
+            pass  # refused just below
+    if variables in (None, ""):
+        variables = None
+    elif not isinstance(variables, dict):
+        raise ValueError("Refused: `variables` must be a JSON object. Nothing was sent.")
+    session = live_session()
+
+    url = session["graphql_url"]
+    status, parsed, text = post_graphql(url, session["token"], query, variables)
+    ending = "HTTP 401" if status == 401 else session_ending_code(parsed)
+    if ending:
+        SESSION = None
+        log(f"session for account {session['account_id']} ended: io-server answered {ending}")
+        raise ValueError(f"session expired or rejected - io-server at {host_of(url)} answered "
+                         f"{ending}, so the session is closed. Paste a new login-as link and "
+                         "call shapes_connect; do not retry this call.")
+    if not isinstance(parsed, dict) or not ("data" in parsed or "errors" in parsed):
+        raise ValueError(f"io-server at {host_of(url)} answered HTTP {status} without a GraphQL "
+                         f"body: {text[:300]!r}")
+    return cut(json.dumps({"data": parsed.get("data"), "errors": parsed.get("errors")},
+                          ensure_ascii=False))
+
+
 HANDLERS = {
     "shapes_connect": tool_connect,
     "shapes_whoami": tool_whoami,
     "shapes_disconnect": tool_disconnect,
+    "shapes_graphql": tool_graphql,
 }
 
 
@@ -382,7 +474,8 @@ def handle(req: dict):
             "instructions": (
                 "Works inside one internal Shapes account as the user of a pasted Scale "
                 "\"login as\" link. shapes_connect(link) opens the session, shapes_whoami shows it "
-                "and its minutes left, shapes_disconnect closes it. A session lasts 1 hour and "
+                "and its minutes left, shapes_graphql runs any query or mutation in the account, "
+                "shapes_disconnect closes it. A session lasts 1 hour and "
                 "cannot be refreshed; when a tool says `not connected` or `expired`, ask the user "
                 "for a new login-as link. Never repeat the link or its token."
             ),
