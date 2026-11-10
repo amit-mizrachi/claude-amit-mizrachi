@@ -841,5 +841,54 @@ class SchemaWithoutSessionTests(ShapesSessionTestCase):
         self.assertNoLeak(token)
 
 
+# --------------------------------------------------------------------------- #
+# ticket 04: the token never leaks
+# --------------------------------------------------------------------------- #
+
+
+def bearer_of(request: dict) -> str:
+    return request["headers"].get("authorization", "").replace("Bearer ", "", 1)
+
+
+class TokenLeakTests(ShapesSessionTestCase):
+    def test_token_never_appears_in_a_result_or_on_stderr(self):
+        """A hostile io-server echoes the bearer token back in every answer it can. Across a
+        connect, failing calls and a refused connect, no tool result and no stderr line may
+        carry a token."""
+        live, refused = make_token(), make_token()
+
+        # 1. a connect that works
+        text, is_error = self.connect(live)
+        self.assertFalse(is_error, text)
+
+        # 2. failing calls whose answers carry the token: a non-GraphQL 502 body (the token
+        # comes first, so it sits inside the excerpt the error quotes) and GraphQL errors
+        self.fake.on("departments", 200, lambda request: (502, f"{bearer_of(request)} rejected"))
+        text, is_error = self.mcp.call("shapes_graphql", {"query": DEPARTMENTS_QUERY})
+        self.assertTrue(is_error, text)
+        self.assertIn("502", text)
+        self.fake.on("departments", 200, lambda request: (200, {
+            "data": None, "errors": [{"message": f"bad token {bearer_of(request)}"}]}))
+        text, is_error = self.mcp.call("shapes_graphql", {"query": DEPARTMENTS_QUERY})
+        self.assertFalse(is_error, text)
+        self.assertIn("bad token", text)
+
+        # 3. a refused connect for a customer account whose name echoes the token
+        self.fake.on("fetchAppConfig", 200, lambda request: (200, connect_answer(
+            dict(CUSTOMER_ACCOUNT, name=f"Customer {bearer_of(request)}"))))
+        text, is_error = self.connect(refused)
+        self.assertTrue(is_error, text)
+        self.assertIn("not an internal account", text)
+        text, _ = self.mcp.call("shapes_whoami")
+        self.assertTrue(text.startswith("not connected"), text)
+
+        # the fake really got both tokens, so the echoes above really carried them
+        sent = [bearer_of(request) for request in self.fake.requests]
+        self.assertIn(live, sent)
+        self.assertIn(refused, sent)
+        for token in (live, refused):
+            self.assertNoLeak(token)
+
+
 if __name__ == "__main__":
     unittest.main()

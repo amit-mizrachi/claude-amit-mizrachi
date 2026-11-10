@@ -4,7 +4,8 @@ Eight [Claude Code](https://claude.com/claude-code) skills for running work you 
 sitting and watching - handing a session off, turning a feature into a spec and tickets, taking
 it through the night, reviewing it with one deep reviewer, researching a product question end to end, taking a feature from idea to
 plan to PR, and keeping a big effort's map legible - plus `codex-bridge`, an MCP server that lets
-Claude ask OpenAI Codex for a second opinion, `night-watch`, a live terminal board of every
+Claude ask OpenAI Codex for a second opinion, `shapes-session`, an MCP server that lets Claude work
+inside one internal Shapes account from a pasted Scale "login as" link, `night-watch`, a live terminal board of every
 sprint and marathon in flight, and the macOS hook that stops your machine sleeping through it.
 
 ## Install
@@ -269,6 +270,23 @@ Claude Code's `PATH` misses them. Nothing else to set up: no key, no config. If 
 the bridge by hand before, remove that copy so the tools do not show up twice:
 `claude mcp remove codex-bridge --scope user`. Details in
 [`amit-mizrachi/mcp/codex-bridge/README.md`](amit-mizrachi/mcp/codex-bridge/README.md).
+
+### `shapes-session` (MCP server)
+
+A local stdio MCP server that lets Claude Code work inside one **internal** Shapes account, as the
+user of a Scale "login as" link you paste - for filling accounts that Forge or Scale created
+with realistic data. `shapes_connect` opens a session from the link and refuses any account whose
+`isInternal` is not `true`, `shapes_whoami` shows the session and its minutes left,
+`shapes_graphql` runs any query or mutation in the account, `shapes_schema` looks up the schema
+one type at a time, and `shapes_disconnect` forgets the token. A session lasts the hour the link
+lives and cannot be refreshed; paste a new link after that. It registers itself from the
+plugin's `.mcp.json` as `plugin:amit-mizrachi:shapes-session`.
+
+Needs `python3` 3.9+ (no packages). No key and no config: the token comes from the link, lives
+in memory only and never shows in a tool result or on stderr. The io-server endpoint comes from
+the link's origin (production or local `make dev`); set `SHAPES_SESSION_API_URL` to reach any
+other stack. Details in
+[`amit-mizrachi/mcp/shapes-session/README.md`](amit-mizrachi/mcp/shapes-session/README.md).
 
 ### `to-spec` and `to-tickets`
 
