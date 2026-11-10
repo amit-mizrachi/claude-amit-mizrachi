@@ -14,6 +14,7 @@ Zero dependencies. Python 3.9+.
 from __future__ import annotations
 
 import base64
+import difflib
 import json
 import os
 import sys
@@ -47,10 +48,42 @@ CONNECT_QUERY = """query ShapesSessionConnect {
   fetchAppConfig { currentAccount { id name isInternal } }
 }"""
 
+# One standard introspection query (no descriptions, no directives). io-server keeps
+# introspection on in production and exempts an introspection-only query from its depth limit.
+INTROSPECTION_QUERY = """query ShapesSessionSchema {
+  __schema {
+    queryType { name }
+    mutationType { name }
+    types {
+      kind
+      name
+      fields(includeDeprecated: true) {
+        name
+        isDeprecated
+        args { name defaultValue type { ...TypeRef } }
+        type { ...TypeRef }
+      }
+      inputFields { name defaultValue type { ...TypeRef } }
+      interfaces { ...TypeRef }
+      enumValues(includeDeprecated: true) { name isDeprecated }
+      possibleTypes { ...TypeRef }
+    }
+  }
+}
+
+fragment TypeRef on __Type {
+  kind
+  name
+  ofType { kind name ofType { kind name ofType { kind name ofType { kind name
+    ofType { kind name ofType { kind name ofType { kind name } } } } } } }
+}"""
+
 NEW_LINK_HINT = "Paste a new Scale \"login as\" link and call shapes_connect."
 
 # The one open session, or None. Keys: token, graphql_url, account_id, account_name,
-# user_id, user_email, is_internal, exp. The token is set to None once it expires.
+# user_id, user_email, is_internal, exp, schema_cache. The token is set to None once it
+# expires. schema_cache is filled by the first shapes_schema call and lives and dies with
+# the session, so a new connect or a disconnect drops it.
 SESSION = None
 
 
@@ -235,6 +268,25 @@ def live_session() -> dict:
     return SESSION
 
 
+def post_in_session(session: dict, query: str, variables: dict | None = None):
+    """POST as the session's user. Returns (status, parsed, text).
+
+    An HTTP 401, or a GraphQL error code that means io-server no longer takes the token,
+    closes the session and raises a ValueError that asks for a new link.
+    """
+    global SESSION
+    url = session["graphql_url"]
+    status, parsed, text = post_graphql(url, session["token"], query, variables)
+    ending = "HTTP 401" if status == 401 else session_ending_code(parsed)
+    if ending:
+        SESSION = None
+        log(f"session for account {session['account_id']} ended: io-server answered {ending}")
+        raise ValueError(f"session expired or rejected - io-server at {host_of(url)} answered "
+                         f"{ending}, so the session is closed. Paste a new login-as link and "
+                         "call shapes_connect; do not retry this call.")
+    return status, parsed, text
+
+
 def cut(text: str) -> str:
     if len(text) <= MAX_RESULT_CHARS:
         return text
@@ -311,6 +363,29 @@ TOOLS = [
                           "description": "The GraphQL document: one query or mutation."},
                 "variables": {"type": "object",
                               "description": "Values for the document's variables, if it has any."},
+            },
+        },
+    },
+    {
+        "name": "shapes_schema",
+        "description": (
+            "Look up the account's GraphQL schema one type at a time, before writing a "
+            "shapes_graphql query or mutation. With no argument it lists the root Query and "
+            "Mutation fields, each with its argument names and return type. With `type_name` "
+            "it shows that type: fields with argument and return types for an object type, "
+            "input fields for an input type, values for an enum. Types are written the GraphQL "
+            "way (`[Employee!]!`). An unknown name answers `no such type` with close names. "
+            "The schema is read once per session and cached; a new connect or a disconnect "
+            f"drops it. {SESSION_NOTE}"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "type_name": {"type": "string",
+                              "description": "One type name, such as \"Employee\" or "
+                                             "\"CreateDepartmentInput\". Leave it out to list "
+                                             "the root fields."},
             },
         },
     },
@@ -403,7 +478,6 @@ def tool_disconnect(args: dict) -> str:
 
 
 def tool_graphql(args: dict) -> str:
-    global SESSION
     query = args.get("query")
     if not isinstance(query, str) or not query.strip():
         raise ValueError("Refused: pass the GraphQL document as `query`. Nothing was sent.")
@@ -419,20 +493,138 @@ def tool_graphql(args: dict) -> str:
         raise ValueError("Refused: `variables` must be a JSON object. Nothing was sent.")
     session = live_session()
 
-    url = session["graphql_url"]
-    status, parsed, text = post_graphql(url, session["token"], query, variables)
-    ending = "HTTP 401" if status == 401 else session_ending_code(parsed)
-    if ending:
-        SESSION = None
-        log(f"session for account {session['account_id']} ended: io-server answered {ending}")
-        raise ValueError(f"session expired or rejected - io-server at {host_of(url)} answered "
-                         f"{ending}, so the session is closed. Paste a new login-as link and "
-                         "call shapes_connect; do not retry this call.")
+    status, parsed, text = post_in_session(session, query, variables)
     if not isinstance(parsed, dict) or not ("data" in parsed or "errors" in parsed):
-        raise ValueError(f"io-server at {host_of(url)} answered HTTP {status} without a GraphQL "
-                         f"body: {text[:300]!r}")
+        raise ValueError(f"io-server at {host_of(session['graphql_url'])} answered HTTP {status} "
+                         f"without a GraphQL body: {text[:300]!r}")
     return cut(json.dumps({"data": parsed.get("data"), "errors": parsed.get("errors")},
                           ensure_ascii=False))
+
+
+def session_schema(session: dict) -> dict:
+    """The session's cached schema, sending the one introspection query on first use.
+
+    Returns {"query": root query type name, "mutation": root mutation type name or None,
+    "types": {name: introspected type}}. A failed introspection is not cached.
+    """
+    if session.get("schema_cache"):
+        return session["schema_cache"]
+    status, parsed, text = post_in_session(session, INTROSPECTION_QUERY)
+    schema = ((parsed.get("data") if isinstance(parsed, dict) else None) or {}).get("__schema")
+    if not isinstance(schema, dict) or not isinstance(schema.get("types"), list):
+        detail = (graphql_error_summary(parsed) if isinstance(parsed, dict)
+                  else f"no GraphQL body: {text[:300]!r}") or "no __schema in the answer"
+        raise ValueError(f"io-server at {host_of(session['graphql_url'])} did not answer the "
+                         f"schema introspection (HTTP {status}): {detail}")
+    session["schema_cache"] = {
+        "query": (schema.get("queryType") or {}).get("name"),
+        "mutation": (schema.get("mutationType") or {}).get("name"),
+        "types": {t["name"]: t for t in schema["types"] if isinstance(t, dict) and t.get("name")},
+    }
+    log(f"cached the schema for account {session['account_id']} "
+        f"({len(session['schema_cache']['types'])} types)")
+    return session["schema_cache"]
+
+
+def type_ref(ref) -> str:
+    """A type reference written the GraphQL way, for example [Employee!]!"""
+    if not isinstance(ref, dict):
+        return "?"
+    if ref.get("kind") == "NON_NULL":
+        return f"{type_ref(ref.get('ofType'))}!"
+    if ref.get("kind") == "LIST":
+        return f"[{type_ref(ref.get('ofType'))}]"
+    return str(ref.get("name") or "?")
+
+
+def value_sdl(value: dict) -> str:
+    """An argument or input field: `name: Type` or `name: Type = default`."""
+    text = f"{value.get('name')}: {type_ref(value.get('type'))}"
+    if value.get("defaultValue") is not None:
+        text += f" = {value['defaultValue']}"
+    return text
+
+
+def deprecated(item: dict) -> str:
+    return " (deprecated)" if item.get("isDeprecated") else ""
+
+
+def root_fields_text(schema: dict) -> str:
+    lines = []
+    for label, name in (("Query", schema["query"]), ("Mutation", schema["mutation"])):
+        fields = (schema["types"].get(name) or {}).get("fields") or []
+        if not name or not fields:
+            lines += [f"{label}: none in this schema.", ""]
+            continue
+        lines.append(f"{label} ({name}, {len(fields)} fields):")
+        for field in fields:
+            arg_names = ", ".join(str(a.get("name")) for a in field.get("args") or [])
+            call = f"{field.get('name')}({arg_names})" if arg_names else str(field.get("name"))
+            lines.append(f"  {call}: {type_ref(field.get('type'))}{deprecated(field)}")
+        lines.append("")
+    lines.append("Call shapes_schema with a type name (a return type, an input type, or "
+                 f"\"{schema['query']}\" itself) to see its fields with argument types.")
+    return "\n".join(lines)
+
+
+def type_text(t: dict) -> str:
+    kind, name = t.get("kind"), t.get("name")
+    if kind in ("OBJECT", "INTERFACE"):
+        interfaces = [type_ref(i) for i in t.get("interfaces") or []]
+        header = f"{'type' if kind == 'OBJECT' else 'interface'} {name}"
+        if interfaces:
+            header += f" implements {' & '.join(interfaces)}"
+        fields = t.get("fields") or []
+        lines = [header, f"fields ({len(fields)}):"]
+        for field in fields:
+            args = ", ".join(value_sdl(a) for a in field.get("args") or [])
+            call = f"{field.get('name')}({args})" if args else str(field.get("name"))
+            lines.append(f"  {call}: {type_ref(field.get('type'))}{deprecated(field)}")
+        if kind == "INTERFACE" and t.get("possibleTypes"):
+            lines.append(f"implemented by: {', '.join(type_ref(p) for p in t['possibleTypes'])}")
+        return "\n".join(lines)
+    if kind == "INPUT_OBJECT":
+        input_fields = t.get("inputFields") or []
+        return "\n".join([f"input {name}", f"input fields ({len(input_fields)}):"]
+                         + [f"  {value_sdl(f)}" for f in input_fields])
+    if kind == "ENUM":
+        values = t.get("enumValues") or []
+        return "\n".join([f"enum {name}", f"values ({len(values)}):"]
+                         + [f"  {v.get('name')}{deprecated(v)}" for v in values])
+    if kind == "UNION":
+        return f"union {name} = {' | '.join(type_ref(p) for p in t.get('possibleTypes') or [])}"
+    return f"scalar {name}"
+
+
+def close_names(name: str, types: dict) -> list:
+    """Up to five schema type names that look like `name`: same name in another case,
+    then spelling neighbours, then names that contain it."""
+    names = [n for n in types if not n.startswith("__")]
+    lower = name.lower()
+    found = [n for n in names if n.lower() == lower]
+    found += [n for n in difflib.get_close_matches(name, names, n=5, cutoff=0.6) if n not in found]
+    found += sorted((n for n in names if lower in n.lower() and n not in found), key=len)
+    return found[:5]
+
+
+def tool_schema(args: dict) -> str:
+    type_name = args.get("type_name")
+    if type_name is not None and not isinstance(type_name, str):
+        raise ValueError("Refused: `type_name` must be a string, such as \"Employee\". "
+                         "Nothing was sent.")
+    session = live_session()
+    schema = session_schema(session)
+
+    name = (type_name or "").strip().strip("[]!").strip()  # "[Employee!]!" -> "Employee"
+    if not name:
+        return cut(root_fields_text(schema))
+    found = schema["types"].get(name)
+    if found is None:
+        near = close_names(name, schema["types"])
+        hint = f" Close names: {', '.join(near)}." if near else ""
+        raise ValueError(f"no such type {name!r} in this account's schema.{hint} Call "
+                         "shapes_schema with no argument to list the root fields.")
+    return cut(type_text(found))
 
 
 HANDLERS = {
@@ -440,6 +632,7 @@ HANDLERS = {
     "shapes_whoami": tool_whoami,
     "shapes_disconnect": tool_disconnect,
     "shapes_graphql": tool_graphql,
+    "shapes_schema": tool_schema,
 }
 
 
@@ -475,6 +668,7 @@ def handle(req: dict):
                 "Works inside one internal Shapes account as the user of a pasted Scale "
                 "\"login as\" link. shapes_connect(link) opens the session, shapes_whoami shows it "
                 "and its minutes left, shapes_graphql runs any query or mutation in the account, "
+                "shapes_schema looks up the schema one type at a time, "
                 "shapes_disconnect closes it. A session lasts 1 hour and "
                 "cannot be refreshed; when a tool says `not connected` or `expired`, ask the user "
                 "for a new login-as link. Never repeat the link or its token."

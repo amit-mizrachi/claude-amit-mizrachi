@@ -61,6 +61,78 @@ def connect_answer(account: dict = INTERNAL_ACCOUNT, user: dict = USER) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# a small fixed schema, as io-server's introspection answer gives it
+# --------------------------------------------------------------------------- #
+
+
+def named(kind: str, name: str) -> dict:
+    return {"kind": kind, "name": name, "ofType": None}
+
+
+def non_null(ref: dict) -> dict:
+    return {"kind": "NON_NULL", "name": None, "ofType": ref}
+
+
+def list_of(ref: dict) -> dict:
+    return {"kind": "LIST", "name": None, "ofType": ref}
+
+
+def value(name: str, ref: dict, default: str | None = None) -> dict:
+    return {"name": name, "defaultValue": default, "type": ref}
+
+
+def field(name: str, ref: dict, args=(), deprecated: bool = False) -> dict:
+    return {"name": name, "isDeprecated": deprecated, "args": list(args), "type": ref}
+
+
+def schema_type(kind: str, name: str, fields=None, input_fields=None, enum_values=None) -> dict:
+    return {"kind": kind, "name": name, "fields": fields, "inputFields": input_fields,
+            "interfaces": [] if kind == "OBJECT" else None, "enumValues": enum_values,
+            "possibleTypes": None}
+
+
+ID, STRING, INT = named("SCALAR", "ID"), named("SCALAR", "String"), named("SCALAR", "Int")
+DEPARTMENT = named("OBJECT", "Department")
+DEPARTMENT_KIND = named("ENUM", "DepartmentKind")
+
+SCHEMA_ANSWER = {"data": {"__schema": {
+    "queryType": {"name": "Query"},
+    "mutationType": {"name": "Mutation"},
+    "types": [
+        schema_type("OBJECT", "Query", fields=[
+            field("departments", non_null(list_of(non_null(DEPARTMENT))),
+                  args=[value("kind", DEPARTMENT_KIND), value("first", INT, "50")]),
+            field("department", DEPARTMENT, args=[value("id", non_null(ID))]),
+        ]),
+        schema_type("OBJECT", "Mutation", fields=[
+            field("createDepartment", non_null(DEPARTMENT),
+                  args=[value("input", non_null(named("INPUT_OBJECT", "CreateDepartmentInput")))]),
+        ]),
+        schema_type("OBJECT", "Department", fields=[
+            field("id", non_null(ID)),
+            field("name", non_null(STRING)),
+            field("kind", non_null(DEPARTMENT_KIND)),
+            field("tags", list_of(non_null(STRING))),
+            field("legacyCode", STRING, deprecated=True),
+        ]),
+        schema_type("INPUT_OBJECT", "CreateDepartmentInput", input_fields=[
+            value("name", non_null(STRING)),
+            value("kind", DEPARTMENT_KIND, "TEAM"),
+        ]),
+        schema_type("ENUM", "DepartmentKind", enum_values=[
+            {"name": "TEAM", "isDeprecated": False},
+            {"name": "DIVISION", "isDeprecated": False},
+            {"name": "OLD", "isDeprecated": True},
+        ]),
+        schema_type("SCALAR", "ID"),
+        schema_type("SCALAR", "String"),
+        schema_type("SCALAR", "Int"),
+        schema_type("OBJECT", "__Type", fields=[field("name", STRING)]),
+    ],
+}}}
+
+
+# --------------------------------------------------------------------------- #
 # fake io-server
 # --------------------------------------------------------------------------- #
 
@@ -79,6 +151,7 @@ class FakeIoServer:
         self.requests = []
         self.rules = []
         self.on("fetchAppConfig", 200, connect_answer())
+        self.on("__schema", 200, SCHEMA_ANSWER)
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -281,7 +354,8 @@ class ProtocolTests(ShapesSessionTestCase):
 
     def test_tools_list_has_session_tools_with_one_hour_internal_account_descriptions(self):
         tools = {t["name"]: t for t in self.mcp.request("tools/list")["result"]["tools"]}
-        for name in ("shapes_connect", "shapes_whoami", "shapes_disconnect", "shapes_graphql"):
+        for name in ("shapes_connect", "shapes_whoami", "shapes_disconnect", "shapes_graphql",
+                     "shapes_schema"):
             self.assertIn(name, tools)
             description = tools[name]["description"]
             self.assertIn("1 hour", description, name)
@@ -602,6 +676,164 @@ class GraphqlWithoutSessionTests(ShapesSessionTestCase):
         self.assertFalse(is_error, text)
         time.sleep(4)
         text, is_error = self.mcp.call("shapes_graphql", {"query": DEPARTMENTS_QUERY})
+        self.assertTrue(is_error, text)
+        self.assertIn("expired", text)
+        self.assertIn("Paste a new", text)
+        self.assertEqual(len(self.fake.requests), 1)  # the connect only
+        self.assertNoLeak(token)
+
+
+# --------------------------------------------------------------------------- #
+# ticket 03: shapes_schema
+# --------------------------------------------------------------------------- #
+
+
+class SchemaTests(ShapesSessionTestCase):
+    def setUp(self):
+        super().setUp()
+        self.token = make_token()
+        text, is_error = self.connect(self.token)
+        self.assertFalse(is_error, text)
+
+    def schema(self, type_name: str | None = None):
+        return self.mcp.call("shapes_schema", {} if type_name is None else {"type_name": type_name})
+
+    def introspections(self) -> list:
+        return [r for r in self.fake.requests
+                if isinstance(r["body"], dict) and "__schema" in r["body"].get("query", "")]
+
+    def test_no_argument_lists_root_query_and_mutation_fields_with_argument_names(self):
+        text, is_error = self.schema()
+        self.assertFalse(is_error, text)
+        self.assertIn("Query (Query, 2 fields):", text)
+        self.assertIn("  departments(kind, first): [Department!]!", text)
+        self.assertIn("  department(id): Department", text)
+        self.assertIn("Mutation (Mutation, 1 fields):", text)
+        self.assertIn("  createDepartment(input): Department!", text)
+        self.assertNotIn("legacyCode", text)  # root list only, no type bodies
+
+        [sent] = self.introspections()
+        self.assertEqual((sent["method"], sent["path"]), ("POST", "/api"))
+        self.assertEqual(sent["headers"]["authorization"], f"Bearer {self.token}")
+        for part in ("queryType", "mutationType", "fields", "args", "inputFields", "enumValues",
+                     "ofType"):
+            self.assertIn(part, sent["body"]["query"])
+        self.assertNoLeak(self.token)
+
+    def test_object_type_shows_fields_with_graphql_type_refs(self):
+        text, is_error = self.schema("Department")
+        self.assertFalse(is_error, text)
+        self.assertTrue(text.startswith("type Department"), text)
+        for line in ("  id: ID!", "  name: String!", "  kind: DepartmentKind!",
+                     "  tags: [String!]", "  legacyCode: String (deprecated)"):
+            self.assertIn(line, text)
+
+    def test_root_type_lookup_shows_argument_types_and_defaults(self):
+        text, is_error = self.schema("Query")
+        self.assertFalse(is_error, text)
+        self.assertIn("  departments(kind: DepartmentKind, first: Int = 50): [Department!]!", text)
+        self.assertIn("  department(id: ID!): Department", text)
+
+    def test_input_type_shows_input_fields(self):
+        text, is_error = self.schema("CreateDepartmentInput")
+        self.assertFalse(is_error, text)
+        self.assertTrue(text.startswith("input CreateDepartmentInput"), text)
+        self.assertIn("  name: String!", text)
+        self.assertIn("  kind: DepartmentKind = TEAM", text)
+
+    def test_enum_type_shows_values(self):
+        text, is_error = self.schema("DepartmentKind")
+        self.assertFalse(is_error, text)
+        self.assertTrue(text.startswith("enum DepartmentKind"), text)
+        for line in ("  TEAM", "  DIVISION", "  OLD (deprecated)"):
+            self.assertIn(line, text)
+
+    def test_wrapped_type_name_is_looked_up_by_its_named_type(self):
+        text, is_error = self.schema("[Department!]!")
+        self.assertFalse(is_error, text)
+        self.assertTrue(text.startswith("type Department"), text)
+
+    def test_schema_is_introspected_once_per_session(self):
+        for type_name in (None, "Department", "DepartmentKind", "Nope"):
+            self.schema(type_name)
+        self.assertEqual(len(self.introspections()), 1)
+
+    def test_reconnect_drops_the_cache(self):
+        self.schema()
+        second = make_token()
+        self.connect(second)
+        text, is_error = self.schema("Department")
+        self.assertFalse(is_error, text)
+        self.assertEqual(len(self.introspections()), 2)
+        self.assertEqual(self.introspections()[-1]["headers"]["authorization"], f"Bearer {second}")
+        self.assertNoLeak(second)
+
+    def test_disconnect_drops_the_cache(self):
+        self.schema()
+        self.mcp.call("shapes_disconnect")
+        text, is_error = self.schema()
+        self.assertTrue(is_error, text)
+        self.assertIn("not connected", text)
+        self.assertEqual(len(self.introspections()), 1)  # no session, nothing sent
+
+        self.connect(make_token())
+        self.schema()
+        self.assertEqual(len(self.introspections()), 2)
+
+    def test_unknown_type_answers_no_such_type_with_close_names(self):
+        text, is_error = self.schema("Departmnt")
+        self.assertTrue(is_error, text)
+        self.assertIn("no such type", text)
+        self.assertIn("Departmnt", text)
+        self.assertIn("Close names: Department", text)
+        self.assertNotIn("__Type", text)
+
+        text, is_error = self.schema("departmentkind")
+        self.assertTrue(is_error, text)
+        self.assertIn("DepartmentKind", text)
+
+    def test_failed_introspection_is_an_error_and_is_not_cached(self):
+        self.fake.on("__schema", 200, {"data": None, "errors": [
+            {"message": "introspection broke", "extensions": {"code": "INTERNAL_SERVER_ERROR"}}]})
+        text, is_error = self.schema()
+        self.assertTrue(is_error, text)
+        self.assertIn("introspection broke", text)
+
+        self.fake.on("__schema", 200, SCHEMA_ANSWER)
+        text, is_error = self.schema()
+        self.assertFalse(is_error, text)
+        self.assertEqual(len(self.introspections()), 2)
+
+    def test_http_401_on_introspection_ends_the_session(self):
+        self.fake.on("__schema", 401, {"errors": [{"message": "Unauthorized"}]})
+        text, is_error = self.schema()
+        self.assertTrue(is_error, text)
+        self.assertIn("session expired or rejected", text)
+        text, _ = self.mcp.call("shapes_whoami")
+        self.assertTrue(text.startswith("not connected"), text)
+        self.assertNoLeak(self.token)
+
+    def test_type_name_that_is_not_a_string_is_refused_without_a_request(self):
+        requests_before = len(self.fake.requests)
+        text, is_error = self.mcp.call("shapes_schema", {"type_name": 7})
+        self.assertTrue(is_error, text)
+        self.assertIn("type_name", text)
+        self.assertEqual(len(self.fake.requests), requests_before)
+
+
+class SchemaWithoutSessionTests(ShapesSessionTestCase):
+    def test_no_session_is_refused_without_a_request(self):
+        text, is_error = self.mcp.call("shapes_schema", {"type_name": "Department"})
+        self.assertTrue(is_error, text)
+        self.assertIn("not connected", text)
+        self.assertEqual(self.fake.requests, [])
+
+    def test_expired_token_is_refused_without_a_request(self):
+        token = make_token(expires_in=3)
+        text, is_error = self.connect(token)
+        self.assertFalse(is_error, text)
+        time.sleep(4)
+        text, is_error = self.mcp.call("shapes_schema")
         self.assertTrue(is_error, text)
         self.assertIn("expired", text)
         self.assertIn("Paste a new", text)
