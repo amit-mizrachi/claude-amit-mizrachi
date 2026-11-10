@@ -3,6 +3,10 @@
     "codex-bridge": {
       "command": "python3",
       "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/codex-bridge/server.py"]
+    },
+    "shapes-session": {
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/shapes-session/server.py"]
     }
   }
 }
