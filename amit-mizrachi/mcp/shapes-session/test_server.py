@@ -228,12 +228,13 @@ class McpClient:
     `stdout_lines` and `stderr_lines` keep everything the server wrote, for leak checks.
     """
 
-    def __init__(self, api_url: str | None):
+    def __init__(self, api_url: str | None, extra_env: dict | None = None):
         env = {k: v for k, v in os.environ.items()
                if k != API_URL_ENV and k.lower() not in ("http_proxy", "https_proxy", "all_proxy")}
         env["NO_PROXY"] = env["no_proxy"] = "127.0.0.1,localhost"
         if api_url is not None:
             env[API_URL_ENV] = api_url
+        env.update(extra_env or {})
         self.proc = subprocess.Popen([sys.executable, str(SERVER)], env=env, text=True, bufsize=1,
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                      stderr=subprocess.PIPE)
@@ -326,8 +327,8 @@ class ShapesSessionTestCase(unittest.TestCase):
         self.addCleanup(self.fake.stop)
         self.mcp = self.start_mcp(self.fake.url)
 
-    def start_mcp(self, api_url: str | None) -> McpClient:
-        client = McpClient(api_url)
+    def start_mcp(self, api_url: str | None, extra_env: dict | None = None) -> McpClient:
+        client = McpClient(api_url, extra_env)
         self.addCleanup(client.close)
         client.initialize()
         return client
@@ -602,21 +603,66 @@ class GraphqlTests(ShapesSessionTestCase):
         self.assertEqual(len(self.fake.requests), requests_before)
         self.assertNoLeak(self.token)
 
-    def test_graphql_auth_error_code_ends_the_session(self):
-        for code in ("UNAUTHENTICATED", "REFRESH_TOKEN_INVALID"):
-            with self.subTest(code=code):
-                if code != "UNAUTHENTICATED":
-                    self.connect(make_token())
-                self.fake.on("departments", 200,
-                             {"data": None, "errors": [{"message": "Something went wrong",
-                                                        "extensions": {"code": code}}]})
-                text, is_error = self.graphql(DEPARTMENTS_QUERY)
-                self.assertTrue(is_error, text)
-                self.assertIn("session expired or rejected", text)
-                self.assertIn(code, text)
-                text, _ = self.mcp.call("shapes_whoami")
-                self.assertTrue(text.startswith("not connected"), text)
+    def assertSessionEnded(self, text: str, is_error: bool) -> None:
+        self.assertTrue(is_error, text)
+        self.assertIn("session expired or rejected", text)
+        self.assertIn("new login-as link", text)
+        text, _ = self.mcp.call("shapes_whoami")
+        self.assertTrue(text.startswith("not connected"), text)
+
+    def test_not_authenticated_error_ends_the_session(self):
+        # io-server in dev: the shield's NotAuthenticatedError, sent with HTTP 200
+        self.fake.on("departments", 200,
+                     {"data": None, "errors": [{"message": "Not Authenticated",
+                                                "extensions": {"code": 401}}]})
+        text, is_error = self.graphql(DEPARTMENTS_QUERY)
+        self.assertSessionEnded(text, is_error)
+        self.assertNotIn("ShapesSessionProbe", json.dumps([r["body"] for r in self.fake.requests]))
         self.assertNoLeak(self.token)
+
+    def test_not_authorized_error_keeps_the_session(self):
+        answer = {"data": None, "errors": [{"message": "Not Authorized",
+                                            "extensions": {"code": 401}}]}
+        self.fake.on("departments", 200, answer)
+        text, is_error = self.graphql(DEPARTMENTS_QUERY)
+        self.assertFalse(is_error, text)
+        self.assertEqual(json.loads(text), answer)
+        text, _ = self.mcp.call("shapes_whoami")
+        self.assertTrue(text.startswith("connected"), text)
+
+    def test_unauthenticated_code_from_a_login_mutation_keeps_the_session(self):
+        answer = {"data": None, "errors": [{"message": "Wrong password",
+                                            "extensions": {"code": "UNAUTHENTICATED"}}]}
+        self.fake.on("login", 200, answer)
+        text, is_error = self.graphql('mutation { login(email: "a", password: "b") { id } }')
+        self.assertFalse(is_error, text)
+        text, _ = self.mcp.call("shapes_whoami")
+        self.assertTrue(text.startswith("connected"), text)
+
+    def test_masked_error_and_failed_probe_ends_the_session(self):
+        # io-server in production masks NotAuthenticatedError to a bare internal error
+        masked = {"data": None, "errors": [{"message": "Internal server error"}]}
+        self.fake.on("departments", 200, masked)
+        self.fake.on("ShapesSessionProbe", 200, masked)
+        requests_before = len(self.fake.requests)
+        text, is_error = self.graphql(DEPARTMENTS_QUERY)
+        self.assertSessionEnded(text, is_error)
+        sent = [r["body"]["query"] for r in self.fake.requests[requests_before:]]
+        self.assertEqual(sent, [DEPARTMENTS_QUERY, "query ShapesSessionProbe { me { id } }"])
+        self.assertNoLeak(self.token)
+
+    def test_masked_error_and_working_probe_keeps_the_session(self):
+        masked = {"data": None, "errors": [{"message": "Internal server error"}]}
+        self.fake.on("departments", 200, masked)
+        self.fake.on("ShapesSessionProbe", 200, {"data": {"me": {"id": USER["id"]}}})
+        requests_before = len(self.fake.requests)
+        text, is_error = self.graphql(DEPARTMENTS_QUERY)
+        self.assertFalse(is_error, text)
+        self.assertEqual(json.loads(text), masked)
+        sent = [r["body"]["query"] for r in self.fake.requests[requests_before:]]
+        self.assertEqual(sent, [DEPARTMENTS_QUERY, "query ShapesSessionProbe { me { id } }"])
+        text, _ = self.mcp.call("shapes_whoami")
+        self.assertTrue(text.startswith("connected"), text)
 
     def test_non_graphql_answer_is_an_error_and_keeps_the_session(self):
         self.fake.on("departments", 502, "<html>Bad Gateway</html>")
@@ -652,6 +698,31 @@ class GraphqlTests(ShapesSessionTestCase):
         self.assertTrue(is_error, text)
         self.assertIn("variables", text)
         self.assertEqual(len(self.fake.requests), requests_before)
+
+
+class GraphqlTimeoutTests(ShapesSessionTestCase):
+    def setUp(self):
+        super().setUp()
+        self.mcp = self.start_mcp(self.fake.url, {"SHAPES_SESSION_TEST_HTTP_TIMEOUT": "0.5"})
+        self.token = make_token()
+        text, is_error = self.connect(self.token)
+        self.assertFalse(is_error, text)
+
+    def test_timeout_says_the_request_may_have_run(self):
+        def slow(request):
+            time.sleep(2)
+            return 200, {"data": {"createDepartment": {"id": "dep-9"}}}
+
+        self.fake.on("createDepartment", 200, slow)
+        text, is_error = self.mcp.call("shapes_graphql", {
+            "query": CREATE_DEPARTMENT, "variables": {"input": {"name": "Ops"}}})
+        self.assertTrue(is_error, text)
+        self.assertIn("no answer from io-server", text)
+        self.assertIn("the request may have run", text)
+        self.assertNotIn("could not reach", text)
+        text, _ = self.mcp.call("shapes_whoami")
+        self.assertTrue(text.startswith("connected"), text)
+        self.assertNoLeak(self.token)
 
 
 class GraphqlWithoutSessionTests(ShapesSessionTestCase):

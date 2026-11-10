@@ -17,6 +17,7 @@ import base64
 import difflib
 import json
 import os
+import socket
 import sys
 import time
 import urllib.error
@@ -35,13 +36,24 @@ ORIGIN_TO_API = {
     "http://localhost:8000": "http://localhost:4000/api",
 }
 
-HTTP_TIMEOUT = 60
+# seconds; SHAPES_SESSION_TEST_HTTP_TIMEOUT exists only so the tests can wait less
+try:
+    HTTP_TIMEOUT = float(os.environ.get("SHAPES_SESSION_TEST_HTTP_TIMEOUT", "")) or 60.0
+except ValueError:
+    HTTP_TIMEOUT = 60.0
 
 # a shapes_graphql answer longer than this is cut, so one call cannot fill Claude's context
 MAX_RESULT_CHARS = 100_000
 
-# io-server masks some auth failures as GraphQL errors; these codes end the session like a 401
-SESSION_ENDING_CODES = ("UNAUTHENTICATED", "REFRESH_TOKEN_INVALID")
+# io-server answers a rejected bearer token with HTTP 200, not 401: its graphql-shield
+# fallback returns NotAuthenticatedError ("Not Authenticated", extensions.code 401), and in
+# production format-error masks it to a bare "Internal server error" with no code.
+# "Not Authorized" shares code 401 but is a permission denial, so it keeps the session.
+NOT_AUTHENTICATED_MESSAGE = "Not Authenticated"
+MASKED_ERROR_MESSAGE = "Internal server error"
+
+# sent once after a masked error with no data, to tell a dead token from a failed query
+PROBE_QUERY = "query ShapesSessionProbe { me { id } }"
 
 CONNECT_QUERY = """query ShapesSessionConnect {
   me { id email }
@@ -49,7 +61,7 @@ CONNECT_QUERY = """query ShapesSessionConnect {
 }"""
 
 # One standard introspection query (no descriptions, no directives). io-server keeps
-# introspection on in production and exempts an introspection-only query from its depth limit.
+# introspection on in production, and the private /api server has no query depth limit.
 INTROSPECTION_QUERY = """query ShapesSessionSchema {
   __schema {
     queryType { name }
@@ -191,7 +203,14 @@ def post_graphql(url: str, token: str, query: str, variables: dict | None = None
             raw = b""
     except (urllib.error.URLError, OSError) as exc:
         reason = getattr(exc, "reason", exc)
-        raise ValueError(f"could not reach io-server at {host_of(url)}: {reason}") from None
+        if isinstance(reason, (socket.timeout, TimeoutError)):
+            lost = f"no answer from io-server at {host_of(url)} within {HTTP_TIMEOUT:g} s"
+        elif isinstance(reason, ConnectionResetError):
+            lost = f"io-server at {host_of(url)} dropped the connection without an answer"
+        else:
+            raise ValueError(f"could not reach io-server at {host_of(url)}: {reason}") from None
+        raise ValueError(f"{lost} - the request may have run; check its effect (for example "
+                         "with a query) before you send a mutation again.") from None
     text = raw.decode("utf-8", errors="replace")
     try:
         parsed = json.loads(text)
@@ -210,13 +229,51 @@ def graphql_error_summary(parsed) -> str:
     return f"{message} ({code})" if code else message
 
 
-def session_ending_code(parsed) -> str | None:
-    """The first GraphQL error code that means io-server no longer accepts the token, or None."""
+def graphql_errors(parsed) -> list:
     errors = parsed.get("errors") if isinstance(parsed, dict) else None
-    for error in errors if isinstance(errors, list) else []:
-        code = ((error.get("extensions") or {}).get("code")) if isinstance(error, dict) else None
-        if code in SESSION_ENDING_CODES:
-            return code
+    return errors if isinstance(errors, list) else []
+
+
+def is_not_authenticated(parsed) -> bool:
+    """True when an error is io-server's unmasked NotAuthenticatedError (as dev sends it)."""
+    for error in graphql_errors(parsed):
+        if not isinstance(error, dict):
+            continue
+        code = (error.get("extensions") or {}).get("code")
+        if str(code) == "401" and error.get("message") == NOT_AUTHENTICATED_MESSAGE:
+            return True
+    return False
+
+
+def is_masked_failure(parsed) -> bool:
+    """True when there is no data and every error is production's masked "Internal server error"."""
+    errors = graphql_errors(parsed)
+    if not errors or parsed.get("data") is not None:
+        return False
+    return all(isinstance(error, dict) and error.get("message") == MASKED_ERROR_MESSAGE
+               and not (error.get("extensions") or {}).get("code") for error in errors)
+
+
+def token_rejection(url: str, token: str, status: int, parsed) -> str | None:
+    """How io-server showed it no longer takes the token, or None.
+
+    A masked failure could be a dead token or a query that broke, so it sends one
+    PROBE_QUERY: a GraphQL answer without data.me means the token is dead. An
+    unreachable or non-GraphQL probe answer proves nothing and keeps the session.
+    """
+    if status == 401:
+        return "answered HTTP 401"
+    if is_not_authenticated(parsed):
+        return f"answered {NOT_AUTHENTICATED_MESSAGE} (401)"
+    if not is_masked_failure(parsed):
+        return None
+    try:
+        probe_status, probe, _ = post_graphql(url, token, PROBE_QUERY)
+    except ValueError:
+        return None
+    me = ((probe.get("data") if isinstance(probe, dict) else None) or {}).get("me")
+    if probe_status == 401 or (isinstance(probe, dict) and not me):
+        return f"answered {MASKED_ERROR_MESSAGE}, and a `me` probe got no user"
     return None
 
 
@@ -271,17 +328,18 @@ def live_session() -> dict:
 def post_in_session(session: dict, query: str, variables: dict | None = None):
     """POST as the session's user. Returns (status, parsed, text).
 
-    An HTTP 401, or a GraphQL error code that means io-server no longer takes the token,
-    closes the session and raises a ValueError that asks for a new link.
+    An answer that shows io-server no longer takes the token (see token_rejection)
+    closes the session and raises a ValueError that asks for a new link. The request
+    itself is never sent again.
     """
     global SESSION
     url = session["graphql_url"]
     status, parsed, text = post_graphql(url, session["token"], query, variables)
-    ending = "HTTP 401" if status == 401 else session_ending_code(parsed)
+    ending = token_rejection(url, session["token"], status, parsed)
     if ending:
         SESSION = None
-        log(f"session for account {session['account_id']} ended: io-server answered {ending}")
-        raise ValueError(f"session expired or rejected - io-server at {host_of(url)} answered "
+        log(f"session for account {session['account_id']} ended: io-server {ending}")
+        raise ValueError(f"session expired or rejected - io-server at {host_of(url)} "
                          f"{ending}, so the session is closed. Paste a new login-as link and "
                          "call shapes_connect; do not retry this call.")
     return status, parsed, text

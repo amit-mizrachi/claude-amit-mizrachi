@@ -58,11 +58,16 @@ accounts, so those cannot be reached this way at all.
 - **No refresh.** A login-as token comes without a refresh token (io-server refreshes only from
   its refresh cookie, which the link does not carry), and the Shapes web app itself ends a
   login-as session after 60 minutes. When the hour is up, paste a new link.
-- **A 401 ends the session.** An HTTP 401, or a GraphQL `UNAUTHENTICATED` /
-  `REFRESH_TOKEN_INVALID` code, closes the session at once and the tool says
-  `session expired or rejected`. Claude does not retry it.
+- **A rejected token ends the session.** io-server answers a revoked or rejected token with
+  HTTP 200 and a GraphQL error, not a 401. The session closes, and the tool says
+  `session expired or rejected`, when io-server answers HTTP 401, or a `Not Authenticated`
+  error with code 401 (as in dev), or, in production, an answer with no data whose only
+  errors are the masked `Internal server error` and a one-time `me { id }` probe then gets
+  no user. A `Not Authorized` error (also code 401) is a permission denial and keeps the
+  session. Claude does not retry the call, and the original request is never sent twice.
 - **No retries.** Every request is sent once. A mutation that timed out may still have run, so
-  check before running it again.
+  check before running it again. The tool says so: a timeout or a dropped connection answers
+  `no answer from io-server ... the request may have run`, not `could not reach io-server`.
 - **Answers are cut at 100 000 characters.** A longer `shapes_graphql` answer is cut, and the
   result says so and gives the full length. Ask for fewer fields or a smaller page.
 - **The schema is read once per session** (one introspection query, on the first
