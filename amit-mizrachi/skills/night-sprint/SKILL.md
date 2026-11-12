@@ -1,6 +1,26 @@
 ---
 name: night-sprint
-description: Delivers a whole feature overnight through autonomous sessions, run one after another by default or side by side in blitz mode (`speed: blitz`, tickets on a dependency graph, each in its own worktree, landed onto the branch one by one), and asks the user nothing once it is invoked, all on ONE branch landing as ONE pull request (or, when the feature spans several repos, one branch and one cross-linked PR per repo). A conductor session writes no code - it sets the sprint up, then a deterministic runner launches each ticket, advances the chain, revives what dies and waits out spending limits, escalating only what needs judgement. Each implementer watches its own context window and hands its ticket to a fresh session before it fills. Gets or builds a ticket breakdown first (via a spec and a ticket-splitting skill), decides whether to review once at the end or also at checkpoints, runs every checkpoint review ASYNC (it reads a snapshot while the next ticket keeps building, and nothing waits for it) and fixes every finding of the night once, at the end, with every review run by ONE deep-review reviewer (`deep-review` ships in this plugin), optionally runs a test session that boots the stack or runs evals, and ends with the PR ready for review plus an ASYNC CI ticket: a session the runner launches, revives and closes like any other, that fixes what CI finds red in its own tree while the tester runs beside it and the morning report is written without waiting for it. Also runs in research mode (`mode: research`), where each ticket is a research question answered from cited sources and the sprint ends in one published artifact instead of a PR. Use when the user says "night sprint", "sprint this feature", "build this overnight", "run this while I sleep", "ticket after ticket", "blitz", or wants a feature taken end to end unattended in a single PR.
+description: >-
+  Delivers a whole feature overnight through autonomous sessions, run one after another by default
+  or side by side in blitz mode (`speed: blitz`, tickets on a dependency graph, each in its own
+  worktree, landed onto the branch one by one), and asks the user nothing once it is invoked, all on
+  ONE branch landing as ONE pull request (or, when the feature spans several repos, one branch and
+  one cross-linked PR per repo). A conductor session writes no code - it sets the sprint up, then a
+  deterministic runner launches each ticket, advances the chain, revives what dies and waits out
+  spending limits, escalating only what needs judgement. Each implementer watches its own context
+  window and hands its ticket to a fresh session before it fills. Gets or builds a ticket breakdown
+  first (via a spec and a ticket-splitting skill), decides whether to review once at the end or also
+  at checkpoints, runs every checkpoint review ASYNC (it reads a snapshot while the next ticket
+  keeps building, and nothing waits for it) and fixes every finding of the night once, at the end,
+  with every review run by ONE deep-review reviewer (`deep-review` ships in this plugin), optionally
+  runs a test session that boots the stack or runs evals, and ends with the PR ready for review plus
+  an ASYNC CI ticket: a session the runner launches, revives and closes like any other, that fixes
+  what CI finds red in its own tree while the tester runs beside it and the morning report is
+  written without waiting for it. Also runs in research mode (`mode: research`), where each ticket
+  is a research question answered from cited sources and the sprint ends in one published artifact
+  instead of a PR. Use when the user says "night sprint", "sprint this feature", "build this
+  overnight", "run this while I sleep", "ticket after ticket", "blitz", or wants a feature taken end
+  to end unattended in a single PR.
 argument-hint: "<feature | spec path | ticket dir | issue URL> [speed: serial|blitz] [parallel: <n>] [test: none|dev-stack|evals|<command>] [permission: auto|<mode>] [approval: delegated] [mode: research]"
 ---
 
