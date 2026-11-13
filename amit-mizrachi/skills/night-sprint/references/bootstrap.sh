@@ -221,6 +221,22 @@ if [ "$(tr -d '[:space:]' < "$WS/MODE")" = "research" ]; then
   : > "$WS/state/.pr-asked"
 fi
 
+# --- the reviewer roster every FIND step runs. The conductor writes REVIEWERS.md before this
+#     script when the invocation or an AGENTS.md line names reviewers (SKILL.md, "The reviewer
+#     roster"). With none, every review runs the one default reviewer, so a sprint that names no
+#     reviewers behaves exactly as it always has. A roster the conductor wrote is never touched.
+if [ ! -s "$WS/REVIEWERS.md" ]; then
+  cat > "$WS/REVIEWERS.md" <<'MD'
+# Reviewers
+
+Source: default - no reviewer line in the invocation or in any AGENTS.md / CLAUDE.md.
+
+| ID | ENGINE | MODEL | EFFORT | SKILL |
+|---|---|---|---|---|
+| R1 | claude | opus | high | deep-review |
+MD
+fi
+
 : > "$WS/state/EVENTS.log"
 printf '%s bootstrap workspace ready\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$WS/state/EVENTS.log"
 echo "bootstrap: $WS ready - $(printf '%s\n' $SCRIPTS | wc -l | tr -d ' ') scripts, $(printf '%s\n' $TEMPLATES | wc -l | tr -d ' ') templates"

@@ -115,6 +115,12 @@ The parts that make it survive an unattended night:
   found every High the six-lane squad found plus two more, with 93% of its findings real against
   the squad's 46%. The runner counts the reviewer's transcript as the finder's activity, so a
   long review is never revived as a stall.
+- **Your reviewers, from one line.** Put a line such as `night-sprint reviewers: fable 5.2, astra
+  medium` in your `~/AGENTS.md` (or a repo's `AGENTS.md`, or the invocation as `reviewers:`) and
+  every review runs those reviewers side by side instead: each one an agent (a Claude model
+  through `Agent`, or a Codex model through the codex-bridge MCP) plus a skill, `deep-review`
+  unless the line names another. "also" / "add" keeps the default Opus reviewer. The finder
+  merges their reports and triages the union. No line: one Opus `deep-review`, as before.
 - **Reviews are async, and the night's findings are fixed once.** A checkpoint review reads a
   frozen snapshot of the branch in its own worktree while the next ticket keeps building, writes
   a local findings manifest, posts **one** consolidated PR comment, and fixes nothing. Nothing

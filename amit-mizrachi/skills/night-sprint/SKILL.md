@@ -12,7 +12,8 @@ description: >-
   first (via a spec and a ticket-splitting skill), decides whether to review once at the end or also
   at checkpoints, runs every checkpoint review ASYNC (it reads a snapshot while the next ticket
   keeps building, and nothing waits for it) and fixes every finding of the night once, at the end,
-  with every review run by ONE deep-review reviewer (`deep-review` ships in this plugin), optionally
+  with every review run by ONE deep-review reviewer (`deep-review` ships in this plugin) unless the
+  invocation or an AGENTS.md line names a roster of reviewers to run side by side, optionally
   runs a test session that boots the stack or runs evals, and ends with the PR ready for review plus
   an ASYNC CI ticket: a session the runner launches, revives and closes like any other, that fixes
   what CI finds red in its own tree while the tester runs beside it and the morning report is
@@ -85,7 +86,8 @@ invoke the right thing.
 
 | Role | What it does | Without it |
 |---|---|---|
-| **`deep-review`** (ships here) | the one reviewer every FIND step runs | nothing reviews the diff |
+| **`deep-review`** (ships here) | the default reviewer every FIND step runs | nothing reviews the diff |
+| **codex-bridge** MCP (ships here) | runs a `codex` reviewer, only when the roster names one | kickoff drops that reviewer and logs it |
 | an **address-review** skill | replies on external bot / human PR threads | external comments go unanswered |
 | **`next-prompt`** (ships here) | the conductor handing itself on | the sprint dies when the conductor fills up |
 | a **spec** skill (`to-spec` ships here) | turning a feature into a spec at kickoff | bring your own spec |
@@ -156,8 +158,10 @@ Decide that deliberately rather than discovering it in the morning.
    counting up from 0 exactly as `/context` reports it: **`WARN_AT_USED`** (`20`) the session
    starts nothing new; **`RELAY_AT_USED`** (`30`) the session hands its tag on; **`CEILING_USED`**
    (`60`) it hands off even with nothing to show. Defaults unless the user says otherwise.
-4. **Decide the review cadence** (see below) and state it. Every review is one `deep-review` run;
-   there are no lanes to pick.
+4. **Decide the review cadence and settle the reviewer roster** (both below) and state them. By
+   default every review is one `deep-review` run. Look for a reviewer line in the invocation and in
+   the AGENTS.md / CLAUDE.md files BEFORE you bootstrap, and write `<WS>/REVIEWERS.md` when you find
+   one; with none, write nothing and `bootstrap.sh` writes the default roster.
 5. **Bootstrap the workspace and the branch.** One command, and it is not optional:
 
        bash <SKILL_DIR>/references/bootstrap.sh <WS> <SKILL_DIR>/references
@@ -249,7 +253,7 @@ Decide that deliberately rather than discovering it in the morning.
 |---|---|---|---|
 | **Conductor** (you) | 1 at a time, hands itself on | never | set up, arm the runner, handle escalations, report. **Never interrupts a working session** |
 | **Implementer** | 1+ per ticket; **serial**, or up to `MAX_PARALLEL` at once in blitz | yes | build ONE ticket, static checks green (no tests), commit, hand off - and watch its own window. In blitz: in its own worktree, and it lands itself with `land.sh` |
-| **Review finder** | 1 per review, **async** | **never** | run `deep-review` over a snapshot, check and triage what it reports, write the findings manifest, post ONE PR comment. A checkpoint finder launches nothing; `REVIEW-FINAL` carries every still-true checkpoint finding forward and decides whether `FIX-FINAL` runs |
+| **Review finder** | 1 per review, **async** | **never** | run the reviewer roster over a snapshot (default: one `deep-review`), every reviewer at once, merge, check and triage what they report, write the findings manifest, post ONE PR comment. A checkpoint finder launches nothing; `REVIEW-FINAL` carries every still-true checkpoint finding forward and decides whether `FIX-FINAL` runs |
 | **Review fixer** | `FIX-FINAL`, plus `FIX-TEST` if the tester routes one | yes (fixes only) | work the whole night's manifest at once, reply on external threads, check, push. Static checks plus a few targeted tests, never the suite |
 | **Tester** | 0 or 1 | no | exercise the built thing, report PASS/FAIL per step, write `GOLDEN.verdict` |
 | **CI ticket** | `CI`, plus `CI2` if `FIX-TEST` pushed | yes (CI fixes only) | **async**: queued to start when `FIX-FINAL` ends, in its own detached snapshot tree, beside `TEST`. Loops on the required checks at the pushed head, fixes and pushes what is red, inherited base-branch failures included (three passes at most), writes `ACCEPTANCE.verdict`, posts one PR comment. Nothing waits for it; the runner launches, revives and closes it like any tag |
@@ -307,7 +311,7 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
 | `references/bootstrap.sh` | build the workspace: copy the scripts, derive the facts, fail on anything missing |
 | `references/plan-template.md` | the `PLAN.md` skeleton: facts, goal, ticket order, golden path, acceptance, protocol |
 | `references/implementer-prompt.md` | one ticket, one session |
-| `references/review-find-prompt.md` | the FIND step - one deep-review run, triage, the manifest, the fix route |
+| `references/review-find-prompt.md` | the FIND step - the roster's reviewers at once (default one deep-review), merge, triage, the manifest, the fix route |
 | `references/review-fix-prompt.md` | the FIX step - work the manifest, external threads, the acceptance gate |
 | `references/test-prompt.md` | the opt-in tester - pick ONE of its three modes and delete the rest |
 | `references/continuation-prompt.md` | a relayed tag's successor - sessions fill this one themselves |
@@ -335,7 +339,7 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
 
 **There is deliberately no script for the context rungs.** A session hands its own ticket on.
 
-## Review cadence, and the one reviewer
+## Review cadence, and the reviewer roster
 
 **Cadence:**
 - **4 tickets or fewer, one subsystem** -> `REVIEW-FINAL` only.
@@ -356,7 +360,7 @@ tickets 4 to 9 may build on it and `FIX-FINAL` reworks them too. That is accepte
 over the finished feature is cheaper than stopping the night for every review, and a finding
 re-checked against the finished code is often already moot.
 
-**Every review is one `deep-review` run.** One reviewer (Opus at high effort, a single `Agent`
+**By default every review is one `deep-review` run.** One reviewer (Opus at high effort, a single `Agent`
 call) reads the scope's whole diff against the tickets' verbatim text, and the finder checks and
 triages what it reports. There are no lanes and no squad: on the team's own commits the single
 reviewer found every High the squad did plus two more, and 93% of what it reported was real
@@ -367,6 +371,63 @@ reported incomplete. Elective hygiene is a follow-up, not a finding.
 A big diff makes for a long single call (10 minutes typical, 35 for 300 files). The runner counts
 a session's subagent transcripts as its activity (`transcript_last_write` in `agents.sh`), so a
 finder waiting on its reviewer is never read as stalled.
+
+### The reviewer roster
+
+A user can swap or add reviewers for every review of the night with one line, in the invocation
+or in an instruction file. A reviewer is an **agent** (an engine, a model and an effort) plus a
+**skill**. The roster lives in `<WS>/REVIEWERS.md`, one table row per reviewer, and every FIND
+step runs all its rows at the same time, merges their reports and triages the union
+(`review-find-prompt.md` STEP 1). With no line anywhere the roster is one row, and the sprint
+behaves exactly as above:
+
+    | ID | ENGINE | MODEL | EFFORT | SKILL       |
+    | R1 | claude | opus  | high   | deep-review |
+
+**Where to look, at kickoff step 4, first match wins:**
+1. the invocation: `reviewers: <...>`;
+2. the user's own instruction files: `~/AGENTS.md`, `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`;
+3. the repo's `AGENTS.md`, then `CLAUDE.md`, at the root of `REPO_PATH` (multi-repo: each repo in
+   `REPOS` order; the first one with a line sets the roster for the whole sprint).
+
+The user's own files beat the repo's because the reviewers spend the user's own model quota and
+Codex login. Find the line with `grep -n -i -E 'night[- ]?sprint' <file>` and read the lines
+around each hit: only a line about night-sprint REVIEWS counts. A file that does not exist is
+not an error.
+
+**How to read the line.** It is free text; you turn it into rows. The suggested form is
+
+    night-sprint reviewers: fable 5.2, astra medium
+
+- **Each model named is one reviewer.** A Claude family name (`opus`, `fable`, `sonnet`, `haiku`,
+  with or without a version) is ENGINE `claude`, and MODEL is the family alias the `Agent` tool
+  takes; the alias resolves to the current model of that family, so log any version the line named.
+  A Codex name (`astra`, `luna`, `terra`, a `gpt-*` slug) is ENGINE `codex`, and MODEL is the slug
+  `codex_start` takes: `astra` is `gpt-6-astra`; any other name, the slug the codex-bridge tool
+  description lists for it, else the name as written.
+- **Effort** as written (`minimal` to `max`). Not written: `high` for `claude`, `medium` for `codex`.
+- **Skill** as written next to a reviewer (`fable with /my-review`), or once for the whole line.
+  Not written: `deep-review`.
+- **Replace or add.** A line that names reviewers IS the roster ("review just with fable 5.2 and
+  astra" is two rows and no Opus). Only "also", "add" or "plus" keeps the default Opus row and
+  adds the named ones to it.
+
+**Check every row before you write it.** A `codex` row needs the codex-bridge MCP: its
+`codex_status` must say Codex is installed and logged in, or drop the row. A SKILL other than
+`deep-review` must be installed for its engine (in your skill list for `claude`; under
+`~/.agents/skills/` or `~/.codex/skills/` for `codex`), or swap it for `deep-review`. Rows left
+empty after the drops: the default row. Every drop and swap is a line under
+`## Decided without asking` in `LOG.md`.
+
+**Write it** as `<WS>/REVIEWERS.md`: a `Source:` line quoting the line and naming its file, then
+the table with IDs `R1`, `R2`, ... in the order the line names them. Name the roster in the kickoff
+summary and in `PLAN.md`. `bootstrap.sh` never overwrites a roster you wrote.
+
+**The cost is the user's choice, and you state it.** Every reviewer runs at every checkpoint, so
+a two-reviewer roster is about two reviews' spend per FIND step, and the finder's window takes one
+report per reviewer. A `codex` reviewer runs on the user's Codex plan, not the Claude quota. A
+finder never adds a reviewer the roster does not name, and the conductor never adds one the line
+does not name. Research mode (`mode: research`) keeps its own review lane and ignores the roster.
 
 **FIND and FIX are separate steps.** The finder never edits a file, runs the verify command or
 commits. The fixer never runs a review of any kind. One window cannot do both: it pays for the
@@ -820,7 +881,7 @@ never bypass hooks with `--no-verify`.
 | "No plan yet, I'll figure out tickets as I go." | Cut a spec and a ticket breakdown first, headless, and name the tickets in the kickoff summary. A sprint with no breakdown builds the wrong thing 9 times. |
 | "The user said frozen lockfile only, so the sprint rules say: never add a dependency." | Copy the user's rules into the sprint as written. A sprint rule beats the ticket at 3am, so a widened one costs real code: one sprint hand-copied 560 lines of the AI SDK's `useChat` because of this exact line. An install rule governs installs; the implementer prompt already says when to add a library. |
 | "I'll just check this one setting with the user before I start." | The sprint asks nothing once invoked. Take it from the invocation or the default, log it under `Decided without asking`, and go. A question at kickoff is a sprint that has not started when the user comes back. |
-| "Add a security lane / the squad beside deep-review, it is more thorough." | The squad found less and half of what it found was not real. One deep reader covers security, design and tests in one pass; more reviewers is more noise for the 3am fixer. |
+| "Add a security lane / the squad beside deep-review, it is more thorough." | The squad found less and half of what it found was not real. One deep reader covers security, design and tests in one pass; more reviewers is more noise for the 3am fixer. A second whole reviewer on another model is the user's call, made once in the roster - never the finder's. |
 | "The reviewer found a one-line fix, it can just make it." | Then it is not a finder, and the next fat review dies mid-triage exactly the way the split was built to stop. |
 | "The fixer should re-run the review to check nothing was missed." | That refills its window with a reviewer's report and puts it back in the failure mode the split removed. The manifest is the input. Reject an item in a line if it is wrong. |
 | "Post each finding as its own inline comment so nothing is missed." | One consolidated comment, inline only for BLOCKER and HIGH. The fixer reads the LOCAL manifest; a round trip through GitHub to fetch back your own notes is not a review artefact. |
