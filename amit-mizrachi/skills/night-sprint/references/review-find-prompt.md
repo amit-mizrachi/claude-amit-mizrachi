@@ -41,25 +41,38 @@ THIS SPRINT SPANS SEVERAL REPOS, AND YOU REVIEW ONE: <REPO_KEY> (<REPO_SLUG>) - 
 On the SKIP route, the PR description you bring up to date carries the multi-repo sections the Repos section of <WS>/PLAN.md lists (sibling PRs, merge order, manual steps after merge).
 {{/MULTI_REPO}}
 
-## STEP 1 - REVIEW WITH THE `deep-review` SKILL: ONE REVIEWER, READING DEEPLY
+## STEP 1 - REVIEW WITH THE ROSTER IN <WS>/REVIEWERS.md
 
-Run the `deep-review` skill (it ships with this plugin as `amit-mizrachi:deep-review`; a user-level `deep-review` is the same skill). It is ONE reviewer - Opus at high effort, a single `Agent` call - covering design, functionality, security and privacy, complexity, tests, naming and production readiness in one pass. Never run `code-review`, `squad-review` or a set of specialist lanes beside it or as a fallback: if deep-review cannot finish, say the review is incomplete in your summary and write the manifest from what you have.
+Read <WS>/REVIEWERS.md first. Each table row is one reviewer: an ID, an ENGINE (`claude` or `codex`), a MODEL, an EFFORT and a SKILL. Most sprints have the default roster, one row - `R1 | claude | opus | high | deep-review` - and then this step is exactly one `deep-review` run, as it always was.
 
-Feed it this sprint's inputs, not the ones its Step 1 would pick for an interactive session:
+The roster is the user's choice, made at kickoff from the invocation or an AGENTS.md line. Run every row, and only the rows: never add, drop or swap a reviewer yourself, and never run `code-review`, `squad-review` or a set of specialist lanes beside the roster or as a fallback. If no reviewer can finish, say the review is incomplete in your summary and write the manifest from what you have.
+
+Run the `deep-review` skill (it ships with this plugin as `amit-mizrachi:deep-review`; a user-level `deep-review` is the same skill) for its Steps 1 and 2 and to fill its reviewer prompt. Its reviewer covers design, functionality, security and privacy, complexity, tests, naming and production readiness in one pass. Feed it this sprint's inputs, not the ones its Step 1 would pick for an interactive session:
 - **BASE_SHA / HEAD_SHA** - from SCOPE above: the range's two ends, resolved to full shas. HEAD_SHA is `git rev-parse HEAD` here (the snapshot, for a checkpoint). No working-tree snapshot: a finder's tree has nothing uncommitted.
 - **REPO** - this worktree's path (the `cd` above).
 - **REQUIREMENTS** - verbatim, never summarised: the Goal section of <WS>/PLAN.md, then the full text of every ticket in <WS>/tickets/ that SCOPE covers (REVIEW-FINAL: every ticket). deep-review explains why: a summary written by someone who knows the problems steers the reviewer toward them.
 - **DESCRIPTION** - one paragraph: "night sprint <SLUG>, <TAG>, tickets <list> as landed on <BRANCH>", plus the LOG.md lines that defer something on purpose, so the reviewer does not re-raise a conscious deferral.
 
-A big diff takes a while (about 10 minutes typical, 35 for a 300-file one). That is expected: the runner counts the reviewer's own transcript as your activity, so wait for it and do not start a second one.
+**deep-review's Step 3 is where the roster comes in.** In place of its single `Agent` call, start one reviewer per row, ALL IN ONE MESSAGE, so they run at the same time. deep-review's "exactly one reviewer" rule is there to stop a review being split into lanes; a roster is the user's explicit choice of whole reviewers, and it wins. Every reviewer gets the same filled reviewer prompt and reviews the same BASE_SHA..HEAD_SHA:
 
-Take its report as the raw input to STEP 2. Keep every issue it scored at confidence 50 or more - deep-review is explicit that the 50-79 band holds real bugs (a reproduced crash once scored 55) - and keep its "Declined to judge" list for your summary. deep-review's own Step 5 (fix, then review the fix) is not yours: you never fix, and <FIX_TAG> works your manifest.
+- **A `claude` row** - one `Agent` call: `subagent_type: general-purpose`, `model` = MODEL (an Agent model alias: `opus`, `fable`, `sonnet` or `haiku`), `effort` = EFFORT. SKILL `deep-review`: the prompt is the filled reviewer prompt. Any other SKILL: tell the agent to invoke that skill through the Skill tool on BASE_SHA..HEAD_SHA in REPO, give it REQUIREMENTS and DESCRIPTION verbatim, tell it it is read-only (no edits, commits, pushes, posted comments or network calls), and ask for the skill's full report back.
+- **A `codex` row** - one `codex_start` call on the codex-bridge MCP (`amit-mizrachi` plugin): `model` = MODEL (a Codex slug such as `gpt-6-astra`), `effort` = EFFORT, `sandbox: read-only`, `approval: never`, `cwd` = this worktree, `label: ns-<TAG>-<row ID>`. SKILL `deep-review`: the prompt is the filled reviewer prompt. Any other SKILL: the same read-only instruction a claude row gets, naming the skill for Codex to use. It returns at once with a `run_id`; keep it. Put every `codex_start` FIRST in the message, so the Codex runs are already going while the `Agent` calls block.
+
+**Wait for Codex in ten-minute checks, never one long wait.** After the `Agent` calls return, call `codex_check` with the `run_id` and `wait_seconds: 600`, again and again until the run ends. The runner reads only Claude transcripts as your activity, and a call that sits silent for 25 minutes reads as a stall and gets revived; each check that returns writes to your transcript. Take the reviewer's report from the final answer (`verbose: true` if the answer is cut off).
+
+A big diff takes a while (about 10 minutes typical, 35 for a 300-file one) for every reviewer. That is expected: the runner counts your subagents' transcripts as your activity, so wait for them and never start a second copy of a reviewer.
+
+**A reviewer that fails does not stop the review.** The codex-bridge tools are missing, Codex is not logged in, the model is refused, the run errors or never ends: write `<row ID> did not finish: <why>` in your summary and go on with the reports you have. If EVERY row failed and none of them was the default (`claude | opus | high | deep-review`), run that default once so the scope is not left unreviewed, and say so in your summary.
+
+**More than one report: merge them before STEP 2.** One issue per defect: two reports that name the same file, the same lines and the same failure are one issue. Record which rows raised it (`RAISED BY: R1, R2`) and keep the higher confidence. Two different models finding the same defect is strong evidence; an issue only one reviewer found is not weaker for that, because catching what the other misses is why the roster has more than one row. Keep each reviewer's ready-to-merge verdict and "Declined to judge" list, by row, for your summary.
+
+Take the merged list as the raw input to STEP 2. Keep every issue scored at confidence 50 or more - deep-review is explicit that the 50-79 band holds real bugs (a reproduced crash once scored 55). A skill that gives no confidence score: give each issue your own after you check it in STEP 2. deep-review's own Step 5 (fix, then review the fix) is not yours: you never fix, and <FIX_TAG> works your manifest.
 
 ## STEP 2 - TRIAGE. You are the deciding engineer, not a stenographer.
 
 Before you bucket an issue, open the code at the reviewed head and check it yourself: confirmed, partly, or wrong. The reviewer's confidence is its evidence, not your verdict. Then every finding goes in exactly one bucket, and be hard about it. A finding you pass on becomes work for a session at 3am, so a padded list costs real hours.
 
-Severity: a deep-review Critical is BLOCKER or HIGH, an Important is HIGH or MEDIUM, a Minor is LOW and is usually a FOLLOW-UP or a REJECT. Judge by the consequence, never by the confidence score.
+Severity: a deep-review Critical is BLOCKER or HIGH, an Important is HIGH or MEDIUM, a Minor is LOW and is usually a FOLLOW-UP or a REJECT. Map another skill's scale onto the same buckets. Judge by the consequence, never by the confidence score.
 
 - **FIX** - correctness, security, data integrity, permissions, or a real bug in what this sprint built.
 - **FOLLOW-UP** - real, but out of scope. One line to <WS>/state/FOLLOWUPS.md: `<severity> | <file> | <what is wrong> | <why out of scope>`. The morning report turns it into a ticket.
@@ -80,7 +93,8 @@ One block per FIX finding, in severity order, exactly these fields:
     ID:        F<n>
     AT:        <the short sha you reviewed - `git rev-parse --short HEAD`>
     SEVERITY:  BLOCKER | HIGH | MEDIUM | LOW
-    CONFIDENCE: <deep-review's 0-100 score, after your own check - lower it if you found the evidence thinner>
+    CONFIDENCE: <the reviewer's 0-100 score, after your own check - lower it if you found the evidence thinner>
+    RAISED BY: <the roster row IDs that reported it, e.g. R1, R2 - only when the roster has more than one row>
     WHERE:     <file>:<line>
     ISSUE:     <what is wrong, in one sentence>
     EVIDENCE:  <the failure path, or the unmet acceptance criterion - why this is real>
@@ -151,11 +165,11 @@ DELETE THIS WHOLE SECTION when rendering a checkpoint review. It applies only to
 
 Measure, do not estimate: `bash <WS>/context-used.sh --self <CONTEXT_WINDOW>` - percent USED, counting up.
 
-Check it after the deep-review report returns; that is where the number jumps. You do no fixing, so you should finish inside your window comfortably. If you somehow reach <RELAY_AT_USED>% before posting, WRITE THE MANIFEST AND POST IT FIRST - a review that dies holding un-posted findings has produced nothing - then relay per the CONTEXT RELAY section of <WS>/PLAN.md, carrying the un-triaged findings so your successor does not re-run the review.
+Check it after the reviewers' reports return; that is where the number jumps, once per report. You do no fixing, so you should finish inside your window comfortably. If you somehow reach <RELAY_AT_USED>% before posting, WRITE THE MANIFEST AND POST IT FIRST - a review that dies holding un-posted findings has produced nothing - then relay per the CONTEXT RELAY section of <WS>/PLAN.md, carrying the un-triaged findings so your successor does not re-run the review.
 
 ## WHEN DONE - in this order, and the order matters
 
-1. `echo "<n findings, n deferred, n rejected, deep-review verdict>" > <WS>/state/<TAG>.summary`
+1. `echo "<n findings, n deferred, n rejected, each reviewer's verdict by row>" > <WS>/state/<TAG>.summary`
 
 2. **Decide what runs next**, and write it to `<WS>/state/<TAG>.next` BEFORE you write your status. Nothing launches off your status until `.next` is correct; that ordering is the whole reason the two files are separate.
 
@@ -178,4 +192,4 @@ Check it after the deep-review report returns; that is where the number jumps. Y
 
 3. `echo "DONE" > <WS>/state/<TAG>.status` (or `BLOCKED: <reason>`). LAST. Never `RELAYED` unless you actually relayed.
 
-Post a summary as your last message: findings by severity, deep-review's ready-to-merge verdict and its "Declined to judge" list, which of its issues you confirmed and which you found wrong, what you deferred, what you rejected and why, what you carried forward and what later work had already resolved (REVIEW-FINAL), what runs next, and anything needing a human decision in the morning.
+Post a summary as your last message: findings by severity, each reviewer's ready-to-merge verdict and "Declined to judge" list by roster row, any reviewer that did not finish, which issues you confirmed and which you found wrong, what you deferred, what you rejected and why, what you carried forward and what later work had already resolved (REVIEW-FINAL), what runs next, and anything needing a human decision in the morning.

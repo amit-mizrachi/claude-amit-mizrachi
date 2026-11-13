@@ -104,7 +104,7 @@ contract. The tails of different repos then run side by side, each in its own wo
 place a serial multi-repo sprint has more than one writer, and never two in one tree.
 
 **Cadence is per repo**, by SKILL.md's rules applied to that repo's tickets. Each repo's finder
-runs its own deep-review, and one whose diff provides or consumes a cross-repo contract names the
+runs its own review with the sprint's one reviewer roster (`<WS>/REVIEWERS.md`), and one whose diff provides or consumes a cross-repo contract names the
 sibling worktrees in what it gives the reviewer, so both sides of the contract are read.
 
 **Render with the repo file before the tag's vars**, so its `<WORKTREE>`, `<BRANCH>`,

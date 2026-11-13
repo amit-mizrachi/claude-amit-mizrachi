@@ -24,7 +24,7 @@
 | Relay at | `<30>`% of the window USED - the session hands its tag to a fresh one |
 | Ceiling | `<60>`% used - the relay is held until a session has produced work, but never past this |
 | Review cadence | `<final only | checkpoints after T<NN>, T<NN>, plus final>` - and why. Each review is a FIND step and a FIX step |
-| Reviewer | `deep-review` - one reviewer per review, fed the scope's tickets verbatim. No lanes, no squad, no fallback |
+| Reviewers | the roster in `<WS>/REVIEWERS.md`: `<R1 engine/model/effort/skill, R2 ...>`, from `<the source line and file, or "default">`. Default: one `deep-review` on Opus at high effort. Every row runs at once in each FIND step, fed the scope's tickets verbatim. No lanes, no squad, no fallback |
 | Test session | `<none | dev-stack | evals | custom: <cmd>>` - chosen by the user |
 | How to boot the stack | `<the dev-environment skill name and/or the exact boot command>` - only for `dev-stack`; the TEST session reads it from here |
 {{#MULTI_REPO}}
