@@ -19,6 +19,158 @@ Start a new session (or `/clear`). The skills then appear as `amit-mizrachi:next
 `amit-mizrachi:to-tickets`, `amit-mizrachi:night-marathon`, `amit-mizrachi:deep-review`, and
 `amit-mizrachi:mywayfinder`.
 
+## How to use night-sprint and night-marathon
+
+The two skills do long work while you are away. Both **ask nothing once you invoke them**: every
+setting comes from what you type, or from a default. So the one moment you control the run is
+the invocation. Put everything you care about in it.
+
+### Which one do I use?
+
+| You have | Run | You get |
+|---|---|---|
+| A clear feature: a spec, tickets, an issue, or a conversation that already settled the design | `night-sprint` | one PR, ready for review |
+| An idea, but no plan yet. You want the code read, the UI mocked up and the decisions laid out first | `night-marathon` | a plan page with mockups and decisions, then one PR |
+| A question, not code ("should we...", "how do others...") | `product-research` | one page of cited findings |
+| A change one session can finish in an hour | none of them | do it in a normal session |
+
+A rule of thumb: if you could write the tickets yourself right now, use `night-sprint`. If you
+would first need a day of reading code and talking to people, use `night-marathon`.
+
+### Before the first run
+
+- **Claude Code with the `claude` command**, on an account where `auto` permission mode is
+  available. Both skills start background sessions with `claude --bg`. A claude.ai chat cannot
+  run them.
+- **Start from the repo.** Invoke from a session whose working directory is inside the repo, or
+  name it (`repo: <path>` for `night-marathon`).
+- **Optional: Codex.** `npm install -g @openai/codex && codex login` once. Then `night-marathon`
+  gets a second opinion on its plan, and you can name Codex reviewers for `night-sprint`.
+- **Optional: your reviewers.** One line in `~/AGENTS.md` (or the repo's `AGENTS.md`) sets who
+  reviews every sprint, for example `night-sprint reviewers: fable 5.2, astra medium`. With no
+  line, one Opus `deep-review` reviews.
+- **Your Mac stays awake by itself.** The `caffeinate` hook ships in this plugin. Keep the lid
+  open and the power cable in.
+
+### `night-sprint`: build a known feature overnight
+
+```
+/amit-mizrachi:night-sprint <feature | spec path | ticket dir | issue URL> [options]
+```
+
+| Option | Values | Default | When to change it |
+|---|---|---|---|
+| `speed:` | `serial`, `blitz` | `serial` | `blitz` when the tickets are truly independent and you want it done sooner. It costs more tokens and quota per hour |
+| `parallel:` | a number | `3` | only with `blitz`: how many tickets build at once |
+| `test:` | `none`, `dev-stack`, `evals`, or a command | `none` | when a session should boot the stack or run evals and walk the golden path at the end |
+| `permission:` | a Claude Code permission mode | `auto` | almost never. `acceptEdits` stalls on the first shell prompt |
+| `reviewers:` | a roster, same form as the AGENTS.md line | the AGENTS.md line, else one `deep-review` | for one sprint that needs other reviewers |
+
+Examples:
+
+```
+# Tickets already exist (one markdown file per ticket)
+/amit-mizrachi:night-sprint .scratch/bulk-export/issues/
+
+# A spec file. The sprint cuts it into tickets itself with to-spec and to-tickets
+/amit-mizrachi:night-sprint docs/specs/bulk-export.md test: dev-stack
+
+# A GitHub issue, with independent tickets built side by side
+/amit-mizrachi:night-sprint https://github.com/acme/app/issues/412 speed: blitz parallel: 4
+
+# After you talked the design through in this session
+/amit-mizrachi:night-sprint the CSV export we just agreed on
+```
+
+What happens: the session you invoked from becomes the **conductor**. It gets or cuts the
+tickets, writes a workspace at `~/.claude/night-sprint/<slug>/`, launches ticket 01 and starts
+a runner, then writes no code itself. Tickets land one after another on one branch. Reviews read
+snapshots while the next ticket keeps building. At the end one session fixes every review finding,
+the PR leaves draft, and an async CI session fixes red checks.
+
+In the morning, read in this order:
+
+1. The **PR**. Its body has "Manual steps after merge" when there are any.
+2. **`LOG.md`** in the workspace, `## Decided without asking`: every call the sprint made for
+   you. If one is wrong, that is the first thing to fix.
+3. The **morning report**, the conductor's last message (`claude attach <short id>` to the
+   conductor). Its session ledger, one row per session with revived and relayed ones too, is
+   also in `LOG.md`.
+
+Good practice:
+
+- **The night is as good as the tickets.** Before you invoke, put the gotchas, the files to
+  avoid and the acceptance criteria in the tickets or the conversation. The sessions cannot ask
+  you.
+- **For `blitz`, the "Blocked by" edges must be real.** Edges that only follow the numbering
+  turn blitz back into serial at a higher price.
+- **Stay serial when in doubt.** Serial has no merge conflicts and no contracts to freeze.
+- The sprint **never merges or deploys**. You review and merge the PR.
+
+### `night-marathon`: from an idea to a PR
+
+```
+/amit-mizrachi:night-marathon <feature description> [options]
+```
+
+| Option | Values | Default | When to change it |
+|---|---|---|---|
+| `mode:` | `autonomous`, `review` | `autonomous` | `review` when you want to pick the plan's decisions before anything is built |
+| `repo:` | a path | the repo you are in | when you invoke from outside it |
+| `depth:` | `quick`, `standard`, `deep` | `standard` (5 research questions) | `quick` (3) for a small feature, `deep` (8) for a wide one |
+| `sources:` | connector names | up to four connectors that may hold earlier talk about the feature | when you know where that talk is, for example `slack, monday` |
+| `test:` | same as `night-sprint` | `none` | when the build should boot the stack or run evals |
+| `speed:`, `parallel:` | same as `night-sprint` | `serial`, `3` | `blitz` makes both research and build parallel |
+
+Examples:
+
+```
+# Build the recommended plan without stopping
+/amit-mizrachi:night-marathon Let admins export the people directory to CSV, with a column picker
+
+# Stop at the plan so you pick the decisions, and read the Slack and Monday history first
+/amit-mizrachi:night-marathon Approval chains for time-off requests mode: review sources: slack, monday depth: deep
+```
+
+What happens, in three stages:
+
+1. **Research** reads a pinned snapshot of the repo (never your own checkout), the web and the
+   sources, and cites every claim. When the feature has UI, one question is always the repo's
+   own UI kit.
+2. **Plan** drafts the plan, gets Codex's second opinion when it is connected, and publishes a
+   short page: mockups built from the repo's real components, and at most five decisions, each
+   with a recommendation.
+3. **Build** runs a `night-sprint` on the chosen plan and opens one PR.
+
+In `review` mode the run stops after stage 2 and sends you the plan link. On the page, choose an
+option for each decision, press **Copy decisions**, then `claude attach <short id>` (the id is in
+the notification) and paste. Picking is the approval: the build starts and asks nothing more.
+
+The workspace is `~/claude-research/<slug>-<date>/`. Read `BRIEF.md` there right after launch: its
+`## Decided without asking` list shows every default the run took. Expect a few hours for
+research and plan at `standard` depth, then a night for the build.
+
+Good practice:
+
+- **Use `review` for anything users will see**, or when a decision is expensive to undo.
+  Use `autonomous` when you would accept the recommendations anyway.
+- **Say who the feature is for and what is out of scope** in the description. The research
+  questions come from those words.
+- **Name `sources:`** when the earlier discussion lives in one place. The default guesses.
+
+### Watching and steering a run
+
+| To | Do |
+|---|---|
+| See every run, stage by stage | `night-watch` in any terminal |
+| Look into one session | `claude agents`, then `claude attach <short id>` |
+| Find out what went wrong | `state/EVENTS.log` in the workspace (`phases/state/EVENTS.log` for a marathon) |
+| Change a setting after launch | stop the run and invoke again with that setting named |
+
+You do not need to watch. The runner revives sessions that die and waits out spending limits by
+itself. A run that needs you shows at the top of `night-watch` in red, with the command that
+fixes it.
+
 ## What's in it
 
 ### `next-prompt`
@@ -429,6 +581,10 @@ Validate before committing:
 claude plugin validate .
 claude plugin validate ./amit-mizrachi
 ```
+
+When a change adds, removes or renames an invocation option or a default, update
+[How to use night-sprint and night-marathon](#how-to-use-night-sprint-and-night-marathon) in the
+same PR. That section is the team's guide, so it must match the skills.
 
 That validator earns its keep. It is what caught `night-sprint` shipping an unquoted
 colon-space inside `argument-hint` - one bad line that took down the entire YAML block, so the
