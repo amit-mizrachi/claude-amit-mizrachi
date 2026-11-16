@@ -1,6 +1,6 @@
 # amit-mizrachi
 
-Eight [Claude Code](https://claude.com/claude-code) skills for running work you are not
+Eleven [Claude Code](https://claude.com/claude-code) skills for running work you are not
 sitting and watching - handing a session off, turning a feature into a spec and tickets, taking
 it through the night, reviewing it with one deep reviewer, researching a product question end to end, taking a feature from idea to
 plan to PR, and keeping a big effort's map legible - plus `codex-bridge`, an MCP server that lets
@@ -16,8 +16,9 @@ sprint and marathon in flight, and the macOS hook that stops your machine sleepi
 
 Start a new session (or `/clear`). The skills then appear as `amit-mizrachi:next-prompt`,
 `amit-mizrachi:night-sprint`, `amit-mizrachi:product-research`, `amit-mizrachi:to-spec`,
-`amit-mizrachi:to-tickets`, `amit-mizrachi:night-marathon`, `amit-mizrachi:deep-review`, and
-`amit-mizrachi:mywayfinder`.
+`amit-mizrachi:to-tickets`, `amit-mizrachi:night-marathon`, `amit-mizrachi:deep-review`,
+`amit-mizrachi:mywayfinder`, `amit-mizrachi:wait-what`, `amit-mizrachi:retro`, and
+`amit-mizrachi:writing-for-agents`.
 
 ## What's in it
 
@@ -315,6 +316,20 @@ Replayed on six squad-reviewed commits, it found 3 Highs to the squad's 1 and 17
 to 10, with 93% of its findings real against 46%. `night-sprint` runs it for every review; it is
 also the review to use by hand. Sources and the benchmark: `skills/deep-review/references/`.
 
+### `wait-what`, `retro` and `writing-for-agents`
+
+Copied unchanged from Matt Pocock's [`mattpocock/skills`](https://github.com/mattpocock/skills) (MIT).
+
+- **`/wait-what`**: when the last message did not land, it makes the agent re-pitch it with a
+  little context, in ASD-STE100 Simplified Technical English and the repo's `GLOSSARY.md` terms.
+- **`/retro`**: a retrospective on a coding session (the current one by default). It proposes
+  changes to the agent's *environment* (navigation pointers, automated checks, coding standards,
+  steering-file no-ops, tool economy, information access), ordered by severity.
+- **`writing-for-agents`**: the style guide `retro` loads; also useful when writing skills or
+  `AGENTS.md` / `CLAUDE.md`.
+
+`wait-what` and `retro` are slash commands only (`disable-model-invocation: true`, as upstream).
+
 ### `mywayfinder`
 
 The chart layer on top of `wayfinder`. It takes an effort's blocking graph and publishes it as
@@ -405,6 +420,7 @@ Nothing below is required. Where a skill is missing, the caller degrades and say
 | `night-sprint`, `to-spec`, `to-tickets`, `next-prompt` | `night-marathon` | both sprints and the hand-offs - all ship here |
 | `artifact-design`, `artifact-diagramming` | `night-marathon` | the plan page and its mockups - built into Claude Code |
 | `codex-bridge` MCP server | `night-marathon` | the optional second opinion on the plan - ships here |
+| `writing-for-agents` | `retro` | the writing style guide - ships here |
 
 `night-sprint` also references review and dev-environment skills generically. Substitute
 whatever your repo uses; the sprint reads the names out of its own prompt files, which you fill
@@ -436,6 +452,7 @@ skill loaded with no `name` and no `description` and only ever fired when invoke
 
 ## License
 
-MIT - see [LICENSE](LICENSE). `to-spec` and `to-tickets` are adapted from
+MIT - see [LICENSE](LICENSE). `to-spec` and `to-tickets` are adapted from, and `wait-what`,
+`retro` and `writing-for-agents` copied from,
 [`mattpocock/skills`](https://github.com/mattpocock/skills), also MIT - see
 [`amit-mizrachi/THIRD_PARTY_NOTICES.md`](amit-mizrachi/THIRD_PARTY_NOTICES.md).
