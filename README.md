@@ -1,6 +1,6 @@
 # amit-mizrachi
 
-Eleven [Claude Code](https://claude.com/claude-code) skills for running work you are not
+Thirteen [Claude Code](https://claude.com/claude-code) skills for running work you are not
 sitting and watching - handing a session off, turning a feature into a spec and tickets, taking
 it through the night, reviewing it with one deep reviewer, researching a product question end to end, taking a feature from idea to
 plan to PR, and keeping a big effort's map legible - plus `codex-bridge`, an MCP server that lets
@@ -17,7 +17,8 @@ sprint and marathon in flight, and the macOS hook that stops your machine sleepi
 Start a new session (or `/clear`). The skills then appear as `amit-mizrachi:next-prompt`,
 `amit-mizrachi:night-sprint`, `amit-mizrachi:product-research`, `amit-mizrachi:to-spec`,
 `amit-mizrachi:to-tickets`, `amit-mizrachi:night-marathon`, `amit-mizrachi:deep-review`,
-`amit-mizrachi:mywayfinder`, `amit-mizrachi:wait-what`, `amit-mizrachi:retro`, and
+`amit-mizrachi:mywayfinder`, `amit-mizrachi:fable-review`, `amit-mizrachi:address-review`,
+`amit-mizrachi:wait-what`, `amit-mizrachi:retro`, and
 `amit-mizrachi:writing-for-agents`.
 
 ## What's in it
@@ -330,6 +331,23 @@ Copied unchanged from Matt Pocock's [`mattpocock/skills`](https://github.com/mat
 
 `wait-what` and `retro` are slash commands only (`disable-model-invocation: true`, as upstream).
 
+### `fable-review`
+
+`/fable-review [PR | branch]` runs `deep-review` with **one Fable subagent** (`model: fable`, the
+latest Fable) as the reviewer instead of Opus, waits for its report, then addresses it in the
+main session: it verifies each finding, fixes the confirmed ones, runs targeted checks and
+re-reviews the fix diff once. Uncommitted work stays uncommitted; a branch or PR gets a commit
+and a push. Slash command only, because it spawns a subagent.
+
+### `address-review`
+
+`/address-review [PR]` answers **every** open review comment on a PR: inline threads, review
+bodies and conversation comments, from humans and from bots that ask for something. It verifies
+each comment against the code, applies the fixes that are needed, pushes, and only then replies on
+each one: `Fixed in <sha>` / `Applied in <sha>` / `Already fixed` / `Skipped: <reason>` /
+`Needs a human`, with the reasoning. It never resolves threads or force-pushes. `night-sprint`
+uses it for external threads.
+
 ### `mywayfinder`
 
 The chart layer on top of `wayfinder`. It takes an effort's blocking graph and publishes it as
@@ -411,7 +429,8 @@ Nothing below is required. Where a skill is missing, the caller degrades and say
 | `wayfinder` | `mywayfinder` | the map itself (**required**) |
 | `to-spec`, `to-tickets` | `night-sprint` | cutting a feature into tickets when none exist yet - ships here |
 | `deep-review` | `night-sprint` | the FIND half of each review pair - ships here |
-| `address-review` (or equivalent) | `night-sprint` | the FIX half of each review pair |
+| `address-review` | `night-sprint` | replies on external bot and human PR threads - ships here |
+| `deep-review` | `fable-review` | the review the Fable subagent runs - ships here |
 | a dev-environment skill | `night-sprint` | the optional test session that boots the stack |
 | `artifact-design` | `mywayfinder` | built into Claude Code |
 | `next-prompt` | `night-sprint` | the conductor relay - ships here |
