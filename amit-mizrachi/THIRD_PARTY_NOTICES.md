@@ -14,6 +14,11 @@ Changes from upstream:
 - Added a local-markdown fallback (`.scratch/<feature-slug>/`) when no issue tracker is
   configured, in place of telling the user to run `/setup-matt-pocock-skills`.
 
+The `wait-what`, `retro` and `writing-for-agents` skills in `skills/` are copied unchanged from
+[mattpocock/skills](https://github.com/mattpocock/skills) (`skills/productivity/wait-what`,
+`skills/engineering/retro` and `skills/productivity/writing-for-agents`, upstream commit
+`5863806dd4e15c63174bee4e7515a4256792ecfa`). `writing-for-agents` ships because `retro` loads it.
+
 The upstream license follows.
 
 ```

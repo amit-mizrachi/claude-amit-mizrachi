@@ -1,0 +1,5 @@
+interface:
+  display_name: "Fable Review"
+  short_description: "deep-review by a Fable subagent, then fix the findings"
+policy:
+  allow_implicit_invocation: false

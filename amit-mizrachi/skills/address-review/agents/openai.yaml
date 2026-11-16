@@ -1,0 +1,5 @@
+interface:
+  display_name: "Address Review"
+  short_description: "Fix and answer every PR review comment"
+policy:
+  allow_implicit_invocation: true
