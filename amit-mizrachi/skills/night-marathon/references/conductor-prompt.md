@@ -59,7 +59,7 @@ Each ticket's GOTCHAS line starts with: "Read code ONLY in <REPO_SNAPSHOT>, neve
 
 ## STEP 4 - THE MONITOR LOOP
 
-Exactly as night-sprint and research-mode.md say. Measure yourself with `bash <WS>/context-used.sh --self <CONTEXT_WINDOW>` at every event. At <RELAY_AT_USED>% used, write where you are to <WS>/LOG.md and relay yourself with `next-prompt`. Your successor's prompt says: "Read <WS>/phases/prompt-CONDUCTOR.txt in full - it is your role - then <WS>/LOG.md, and resume at the step LOG.md names." Nothing else needs carrying; that file holds every rule.
+Exactly as night-sprint and research-mode.md say. Measure yourself with `bash <WS>/context-used.sh --self <CONTEXT_WINDOW>` at every event. At <RELAY_AT_USED>% used, write where you are to <WS>/LOG.md, run `bash <WS>/retire.sh <WS> --self <WS>/phases/state/CONDUCTOR.session`, and relay yourself with `next-prompt`. Your successor's prompt says: "Read <WS>/phases/prompt-CONDUCTOR.txt in full - it is your role - then <WS>/LOG.md, and resume at the step LOG.md names. After the FIRST step of that prompt, run `bash <WS>/retire.sh <WS> --wait 60`: it takes the conductor you replace off the agent list." Nothing else needs carrying; that file holds every rule.
 
 ## STEP 5 - THE RESEARCH REPORT
 

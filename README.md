@@ -156,6 +156,10 @@ The parts that make it survive an unattended night:
   runner stops its session and takes it off the agent list with `claude rm`. The shared worktree
   and the transcript are kept, so `claude --resume <sessionId>` still reopens it. At the end only
   the conductor, with the morning report, is left on the list.
+- **One conductor, however many relays.** A conductor that hands itself on with `next-prompt`
+  records itself first (`retire.sh --self`); the runner and the next conductor remove it once its
+  last turn has ended. In a marathon the research conductor is removed the same way once the build
+  has started, so a run ends as one session.
 - **The full suite never runs locally.** Every session runs the static checks (format / lint,
   typecheck or compile); `FIX-FINAL` and `FIX-TEST` may add a few targeted test files for their
   own fixes. The suite runs on the PR in CI, and the async `CI` ticket fixes whatever is red, whichever

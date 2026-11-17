@@ -325,6 +325,7 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
 | `references/revive.sh` | the reviver, for dead sessions only: resume, then restart, then abandon |
 | `references/phase-chain.sh` | one detached runner over a chain of CONDUCTORS (night-marathon's research conductor, then each build): launches each phase when the one before writes `DONE`, revives a conductor that dies |
 | `references/close.sh` | removes a finished session from the agent list (stop, then `claude rm`) once its tag is terminal, so only the conductor is left at the end |
+| `references/retire.sh` | removes a conductor that relayed: `--self` records the relaying conductor, a plain call (the runner each sweep, the successor on arrival) removes every recorded one whose turn has ended |
 | `references/classify-error.sh` | what actually ended a session: transient / quota / auth / none |
 | `references/accept.sh` | are the required CI checks green **at the pushed sha**? Run by the async `CI` ticket, in its own tree |
 | `references/ci-prompt.md` | the async `CI` ticket (and `CI2`): sync its own tree to the pushed head, `accept.sh`, read the failing log, fix, push (rebasing only its own unpushed commits), repeat; BLOCKED after three passes |
@@ -529,6 +530,21 @@ through:
 3. Record the relay as its own ledger row, stop your own Monitor, then stop. Do **not** stop the
    running sessions or the runner - the new conductor adopts them.
 
+**One conductor is left at the end, however many relayed.** A relayed conductor would otherwise
+sit on the agent list for good, and a night of nine relays ends as nine conductor rows. A session
+cannot remove itself - that kills the turn doing it - so the two halves are split:
+
+- **Leaving:** right before step 2, run `bash <WS>/retire.sh <WS> --self`. It only records your
+  session id in `state/conductors.retired`. A phase conductor adds its phase's session file
+  (`bash <WS>/retire.sh <WS> --self <phases>/state/<PHASE>.session`), so it is not removed while
+  the phase runner still follows it.
+- **Arriving:** a relayed conductor's first command is `bash <WS>/retire.sh <WS> --wait 60`. The
+  successor's prompt must say so. It removes every recorded conductor whose last turn has ended
+  (never yours), and the runner does the same every sweep and on its way out. Exit 1 means a
+  predecessor is still finishing; leave it to the runner, and run it again at `SWEEP 0`.
+
+`claude rm` keeps the transcript: `claude --resume <sessionId>` reopens a removed conductor.
+
 `facts.env` + `PLAN.md` + `LOG.md` + `state/` are written so a cold conductor can pick the sprint
 up without your context. Relay as many times as the night needs.
 
@@ -627,8 +643,11 @@ launches the next phase. A conductor that dies is classified and resumed in its 
 session file is repointed.
 
 In a phase chain, a conductor that ended its own turn with no error is **waiting, not dead** -
-for the user's picks, its `Monitor`, or its relay - and is left alone. No conductor is ever
-closed. Two rules keep that from hiding a stuck one:
+for the user's picks, its `Monitor`, or its relay - and is left alone. A phase conductor is
+closed only once it has handed on: it wrote `DONE` and the next phase's session exists (its report
+is in its workspace's `REPORT.md`). The last phase, and a `BLOCKED` one, are never closed - their
+final message is what the user reads. A conductor that relayed inside a phase is removed through
+`retire.sh`, as in a plain sprint. Two rules keep that from hiding a stuck one:
 
 - **A wait needs something to end it.** If the turn has been closed for 35 minutes or more, and
   the session runs no tool command (no Monitor, no background Bash), it is `UNARMED`: nothing will

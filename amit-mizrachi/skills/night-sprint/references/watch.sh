@@ -38,7 +38,10 @@
 # each build conductor - and this one process, detached, owns the hop from one to the next and
 # revives any of them that dies. Two things change: a conductor that ended its own turn with no
 # error is waiting, not dead, so it is logged once and left alone; and finished conductors are
-# never closed, because a conductor's final message is the report somebody reads in the morning.
+# closed only once they have handed on: a phase that wrote DONE and whose successor has launched
+# is removed like a finished ticket (its report is in its workspace's REPORT.md), while the LAST
+# phase - and a BLOCKED one - stays, because its final message is what somebody reads in the
+# morning. A marathon ends as one session, as a sprint does.
 #
 # Reads, per tag, in state/:
 #   <tag>.session  - the launcher's background session id
@@ -212,11 +215,26 @@ do_advance() {
 # the turn that launches its successor - so this only logs what did not close yet. A removal that
 # keeps failing is reported once at the end, not every sweep.
 do_close() {
-  local tag="$1" out rc
-  [ "$PHASE" -eq 1 ] && return 0
+  local tag="$1" out rc nxt
+  if [ "$PHASE" -eq 1 ]; then
+    # A phase conductor is closed only when it finished AND the next phase is running. The last
+    # phase has no successor, and a BLOCKED one launched none: both keep their final message.
+    nxt="$(tr -d '[:space:]' < "$STATE/$tag.next" 2>/dev/null)"
+    [ -n "$nxt" ] || return 0
+    case "$(head -1 "$STATE/$tag.status" 2>/dev/null)" in DONE*) ;; *) return 0 ;; esac
+    [ -s "$STATE/$nxt.session" ] || return 0
+  fi
   out="$(bash "$WS/close.sh" "$WS" "$tag" "${2:-}" 2>&1)"; rc=$?
   [ "$rc" -ne 0 ] && log "close($tag) rc=$rc $out"
   return "$rc"
+}
+
+# A conductor that relayed recorded itself in state/conductors.retired (retire.sh --self). It is
+# removed here once its last turn has ended, so a night of relays still ends as one conductor.
+do_retire() {
+  local out
+  [ -s "$STATE/conductors.retired" ] && [ -f "$WS/retire.sh" ] || return 0
+  out="$(bash "$WS/retire.sh" "$WS" 2>&1)" || log "retire: $(printf '%s' "$out" | tail -1)"
 }
 
 # A dead session comes back, and the conductor hears about it only when a script cannot
@@ -293,6 +311,8 @@ while true; do
     sched="$(bash "$WS/schedule.sh" "$WS" 2>&1)" || log "schedule FAILED: $sched"
     [ -n "$sched" ] && log "schedule: $(printf '%s' "$sched" | tr '\n' ';')"
   fi
+
+  [ "$ACT" -eq 1 ] && do_retire
 
   # An auth hold is the one pause nothing automatic can lift. Do not spend a revive, an advance
   # or a `claude agents` call against it every two minutes - say so once and idle until a human
@@ -611,6 +631,7 @@ PYOUT
           [ -f "$STATE/.closed-$tag" ] && continue
           do_close "$tag" --force || unclosed="$unclosed $tag"
         done
+        do_retire
         [ -n "$unclosed" ] && say "UNCLOSED${unclosed} - these sessions are still on the agent list; see EVENTS.log"
       fi
       say "SWEEP 0 tags= all-sessions-terminal (quiet for $quiet sweeps)"
