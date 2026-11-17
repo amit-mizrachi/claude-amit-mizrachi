@@ -57,7 +57,7 @@ Then kickoff steps 3-9, the monitor loop, acceptance and the PR, exactly as the 
 
 ## CONTEXT
 
-Hold yourself to the skill's conductor rungs. At <RELAY_AT_USED>% used, relay with `next-prompt`; your successor's prompt says: "Read <WS>/phases/prompt-BUILD.txt in full - it is your role - then <WS>/build/LOG.md, and resume where LOG.md says." The context window is <CONTEXT_WINDOW>.
+Hold yourself to the skill's conductor rungs. At <RELAY_AT_USED>% used, first run `bash <WS>/build/retire.sh <WS>/build --self <WS>/phases/state/BUILD.session`, then relay with `next-prompt`; your successor's prompt says: "Read <WS>/phases/prompt-BUILD.txt in full - it is your role - then <WS>/build/LOG.md, and resume where LOG.md says. After the FIRST step of that prompt, run `bash <WS>/build/retire.sh <WS>/build --wait 60`: it takes the conductor you replace off the agent list." The context window is <CONTEXT_WINDOW>.
 
 ## THE END
 

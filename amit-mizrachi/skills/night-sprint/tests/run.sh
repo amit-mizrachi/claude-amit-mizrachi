@@ -876,8 +876,16 @@ check "DONE on a conductor launches the next phase" "ns-pslug-BUILD" "$(lastl | 
 check "the next phase runs in its own cwd" "$PCW/repo-a" "$(lastl | cut -d' ' -f4)"
 check "its session id is recorded for the runner" "b1b1b1b1-0000-4000-8000-000000000001" \
       "$(tr -d '[:space:]' < "$P/state/BUILD.session" 2>/dev/null)"
-check "a finished conductor is not removed - its last message is the report" "0" \
+check "a conductor that handed on is removed - one session is left per run" "rm c0d0c0d0" \
+      "$(cat "$MOCK_STATE/rms")"
+# The LAST phase has nobody to hand on to: its final message is the morning report.
+PC add "$P2" SOLO "$PCW/repo-a" >/dev/null
+printf '50105010-0000-4000-8000-000000000001\n' > "$P2/state/SOLO.session"
+printf 'DONE\n' > "$P2/state/SOLO.status"
+PATH="$PBIN:$PATH" bash "$P2/watch.sh" "$P2" 0 0 --once >/dev/null 2>&1
+check "the last phase's conductor is never removed - its last message is the report" "1" \
       "$(wc -l < "$MOCK_STATE/rms" | tr -d '[:space:]')"
+agent b1b1b1b1-0000-4000-8000-000000000001 ns-pslug-BUILD idle
 
 # --- the incident: the new conductor dies on "Connection lost" and shows working/idle.
 DEAD=d6d4bdb8-2007-42c6-a51b-6c432c131d06
@@ -1711,6 +1719,67 @@ printf '%s\n' "$TQ" > "$PP/state/CONDUCTOR.cwd"
 env -u CLAUDE_CONFIG_DIR HOME="$TH/home" MOCK_STATE="$TH/mock" PATH="$TBIN:$PATH" bash "$PP/launch.sh" "$PP" CONDUCTOR >/dev/null 2>&1
 check "a marathon conductor's <WS> (the phase chain's parent) is trusted" "True" "$(trusted "$TH/home/.claude.json" "$TQ")"
 rm -rf "$TH"
+
+echo
+echo "== one conductor per run: a relayed conductor is removed, a finished phase too =="
+# The night of 2026-11-17: nine conductor relays left nine conductor rows on the agent list.
+RWS="$(mktemp -d)"; mkdir -p "$RWS/state"
+RBIN="$RWS/bin"; mkdir -p "$RBIN"; cp "$HERE/mock-claude.sh" "$RBIN/claude"; chmod +x "$RBIN/claude"
+export MOCK_STATE="$RWS/mock"; mkdir -p "$MOCK_STATE"; : > "$MOCK_STATE/stops"; : > "$MOCK_STATE/rms"
+for f in agents.sh retire.sh; do cp "$REF/$f" "$RWS/"; done
+OLD="0c0d0001-0000-4000-8000-000000000001"; NEW="0c0d0002-0000-4000-8000-000000000002"
+RPROJ="$HOME/.claude/projects/ns-test-retire"; mkdir -p "$RPROJ"
+rt() { CLAUDE_CODE_SESSION_ID="$1" PATH="$RBIN:$PATH" bash "$RWS/retire.sh" "$RWS" "${@:2}" >/dev/null 2>&1; echo $?; }
+rrow() { printf '[{"sessionId":"%s","id":"%s","name":"conductor","state":"done","status":"%s","pid":%s,"startedAt":1}]' \
+           "$OLD" "${OLD:0:8}" "$1" "$2" > "$MOCK_STATE/agents.json"; }
+rrms() { wc -l < "$MOCK_STATE/rms" | tr -d '[:space:]'; }
+sleep 300 & RPID=$!
+
+check "a sweep with nothing recorded is a no-op" "0" "$(rt "$NEW")"
+check "--self records the relaying conductor" "0" "$(rt "$OLD" --self)"
+check "--self is once per conductor" "1" "$(rt "$OLD" --self >/dev/null; wc -l < "$RWS/state/conductors.retired" | tr -d '[:space:]')"
+check "--self needs a session id" "1" "$(rt "" --self)"
+
+# Mid-turn: the relay turn is still launching the successor.
+rrow busy "$RPID"
+printf '{"type":"assistant","message":{}}\n' > "$RPROJ/$OLD.jsonl"
+check "a conductor still inside its relay turn is left alone" "1" "$(rt "$NEW")"
+check "nothing was removed mid-turn" "0" "$(rrms)"
+check "a conductor never removes itself" "0" "$(rt "$OLD" >/dev/null; rrms)"
+
+# Turn closed: it is waiting for a message that will never come.
+printf '{"type":"system","subtype":"turn_duration"}\n' >> "$RPROJ/$OLD.jsonl"
+check "once its turn has ended the successor removes it" "0" "$(rt "$NEW")"
+check "it was removed by the SHORT id" "rm ${OLD:0:8}" "$(cat "$MOCK_STATE/rms")"
+check "removal is once per conductor" "1" "$(rt "$NEW" >/dev/null; rrms)"
+grep -q "retire removed conductor $OLD" "$RWS/state/EVENTS.log" && ok "the removal is in EVENTS.log" \
+  || no "the removal is in EVENTS.log" "no such line"
+
+# A phase conductor is not removed while the phase runner still follows its id.
+rm -f "$RWS/state/.retired-"* "$RWS/state/conductors.retired"; : > "$MOCK_STATE/rms"
+rrow idle null
+printf '%s\n' "$OLD" > "$RWS/state/BUILD.session"
+rt "$OLD" --self "$RWS/state/BUILD.session" >/dev/null
+check "a phase conductor waits until its session file is repointed" "1" "$(rt "$NEW")"
+check "nothing was removed while the phase still follows it" "0" "$(rrms)"
+printf '%s\n' "$NEW" > "$RWS/state/BUILD.session"
+check "it is removed once the successor took the phase over" "0" "$(rt "$NEW")"
+check "exactly one rm for the phase conductor" "1" "$(rrms)"
+
+# A hung relay turn: recorded longer ago than the stall window.
+rm -f "$RWS/state/.retired-"*; : > "$MOCK_STATE/rms"
+printf '%s %s\n' "$OLD" "$(( $(date +%s) - 1800 ))" > "$RWS/state/conductors.retired"
+printf '{"type":"assistant","message":{}}\n' > "$RPROJ/$OLD.jsonl"
+rrow busy "$RPID"
+check "a relay turn hung past the stall window is removed anyway" "0" "$(rt "$NEW")"
+kill "$RPID" 2>/dev/null; rm -rf "$RPROJ" "$RWS"
+
+# The phase chain: a phase that handed on is closed, the last one keeps its row.
+grep -q 'retire.sh' "$REF/bootstrap.sh" && grep -q 'retire.sh' "$REF/phase-chain.sh" \
+  && ok "retire.sh is copied into sprint and phase workspaces" \
+  || no "retire.sh is copied into sprint and phase workspaces" "missing from a copy list"
+grep -q 'bash "$WS/retire.sh" "$WS"' "$REF/watch.sh" && ok "the runner sweeps retired conductors" \
+  || no "the runner sweeps retired conductors" "watch.sh never calls retire.sh"
 
 echo
 echo "== $pass passed, $fail failed =="

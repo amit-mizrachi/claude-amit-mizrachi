@@ -582,6 +582,9 @@ quiet conductor costs one classifier read, not a revive.
 reads. The ticket rule "only the conductor is left at the end" does not apply when every tag is a
 conductor.
 
+> Changed in 1.25.0, see "One conductor per run" below: a phase that handed on is closed, and
+> only the last phase keeps its row.
+
 The classifier also learned the exact text: `Connection lost` had fallen through to
 `transient unknown`. It now reads `transient connection-lost`, with that night's line as a fixture.
 
@@ -869,3 +872,29 @@ The decisions behind it:
   head on its next loop and `CI2` only confirms it.
 - **Multi-repo `TEST` waits SOFTLY on every `FIX-FINAL-<key>`** (`.waits`), never on `CI-<key>`.
   A `FIX-FINAL-<key>` routed SKIP ends `SKIPPED`, and a hard dependency would skip the tester.
+
+## One conductor per run (2026-11-17, eval-env-domain-mcps)
+
+A two-hour sprint relayed its conductor nine times. Every ticket, review and fixer session was
+removed by `close.sh`, and the agent list still ended with nine conductor rows, eight of them
+finished: `close.sh` closes tags, and a conductor has no tag. A marathon had the same shape one
+level up, where "finished conductors are not closed" kept the research conductor listed beside
+the build for the rest of the night.
+
+The decisions behind `retire.sh`:
+
+- **Record on the way out, remove from outside.** A session that runs `claude rm` on itself kills
+  the turn that is launching its successor. The relaying conductor only writes its id to
+  `state/conductors.retired`; the runner removes it on a later sweep, once `turn_ended` says the
+  relay turn closed. The stall window is the same 25 minutes `close.sh` uses for a hung last turn.
+- **The successor sweeps too.** The last relay of a night often happens after the runner has
+  exited (`SWEEP 0`), so a runner-only sweep would leave exactly one stale conductor. The arriving
+  conductor runs the same script, which skips its own id.
+- **A phase conductor names its session file.** The phase runner follows `state/<PHASE>.session`.
+  Removed before the successor repoints that file, the old conductor reads as a death and is
+  revived - two conductors on one sprint. The retire line carries the file, and the sweep waits
+  until it no longer holds the old id.
+- **A phase that handed on is closed; the last one never is.** Each phase conductor writes its
+  report to `REPORT.md` before `DONE`, so its final message is not the only copy. `do_close` in a
+  phase chain needs `DONE`, a `.next`, and the successor's `.session`. A `BLOCKED` phase and the
+  last phase keep their rows: that message is the one the user opens in the morning.
