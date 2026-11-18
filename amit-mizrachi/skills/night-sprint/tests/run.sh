@@ -1712,6 +1712,30 @@ env -u CLAUDE_CONFIG_DIR HOME="$TH/home" MOCK_STATE="$TH/mock" PATH="$TBIN:$PATH
 check "a marathon conductor's <WS> (the phase chain's parent) is trusted" "True" "$(trusted "$TH/home/.claude.json" "$TQ")"
 rm -rf "$TH"
 
+echo "== keep-stack.sh: a stack outlives its session and the reaper =="
+KW="$(mktemp -d)"; cp "$REF/keep-stack.sh" "$KW/"
+KEEP_CMD='trap "echo got-int; exit 0" INT; while :; do sleep 1; done'
+CLAUDE_CODE_SESSION_ID=ks-sid CLAUDE_PID=4242 bash "$KW/keep-stack.sh" "$KW" start demo "$KW" -- bash -c "$KEEP_CMD" >/dev/null 2>&1
+KG="$(cat "$KW/stacks/demo.pid" 2>/dev/null)"
+check "keep-stack.sh start records a running group" "yes" "$([ -n "$KG" ] && kill -0 -- "-$KG" 2>/dev/null && echo yes || echo no)"
+check "it is reparented away from the session" "1" "$(ps -o ppid= -p "${KG:-0}" 2>/dev/null | tr -d ' ')"
+check "it leads its own process group" "$KG" "$(ps -o pgid= -p "${KG:-0}" 2>/dev/null | tr -d ' ')"
+check "a second start under the name reuses it" "0" "$(bash "$KW/keep-stack.sh" "$KW" start demo "$KW" -- sleep 9 >/dev/null 2>&1; echo $?)"
+check "list names it with its stop command" "1" "$(bash "$KW/keep-stack.sh" "$KW" list | grep -c "demo UP group=$KG .*stop demo")"
+if command -v node >/dev/null 2>&1; then
+  CLAUDE_CODE_SESSION_ID=ks-sid CLAUDE_PID=4242 bash "$KW/keep-stack.sh" "$KW" start envchk "$KW" -- node -e 'setInterval(()=>{},1000)' >/dev/null 2>&1
+  KE="$(ps eww -o command= -p "$(cat "$KW/stacks/envchk.pid")" 2>/dev/null | tr ' ' '\n')"
+  check "the stack carries RECLAIM_KEEP=1" "1" "$(printf '%s\n' "$KE" | grep -c '^RECLAIM_KEEP=1$')"
+  check "and no Claude session id" "0" "$(printf '%s\n' "$KE" | grep -c '^CLAUDE_CODE_SESSION_ID=\|^CLAUDE_PID=')"
+  bash "$KW/keep-stack.sh" "$KW" stop envchk >/dev/null 2>&1
+fi
+bash "$KW/keep-stack.sh" "$KW" stop demo >/dev/null 2>&1
+check "stop ends it with SIGINT first (not ignored)" "1" "$(grep -c '^got-int$' "$KW/stacks/demo.log")"
+check "and the group is gone" "no" "$(kill -0 -- "-${KG:-0}" 2>/dev/null && echo yes || echo no)"
+check "STACKS.md has the UP and DOWN lines" "2" "$(grep -c ' \(UP\|DOWN\) demo ' "$KW/state/STACKS.md")"
+check "a bad name is refused" "2" "$(bash "$KW/keep-stack.sh" "$KW" start 'a b' "$KW" -- true >/dev/null 2>&1; echo $?)"
+rm -rf "$KW"
+
 echo
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
