@@ -97,6 +97,14 @@ THE HANDOFF, in this order:
 
 Then post your summary and stop. Your successor owns the ticket now, and owns what comes after it.
 
+## A dev stack you boot stays up - boot it with keep-stack.sh
+
+Never start a long-running stack (`make dev`, `pnpm dev`, a dev server, an emulator's backend) from your own shell, in the foreground or with `&`. It dies with you: the runner stops every session when its tag ends, and the memory reaper stops anything an ended session started. Start it detached, under a short name:
+
+    bash <WS>/keep-stack.sh <WS> start <name> <dir> -- <the boot command>
+
+It runs in its own process group, owned by no session, and the reaper never stops it. It stays up after you, after the sprint, until the user stops it - so never stop it yourself, never `kill` it, and never run the stack's own stop/down target on it. `bash <WS>/keep-stack.sh <WS> list` shows what is up; its output is in `<WS>/stacks/<name>.log`. A stack that is already up under that name is reused, not restarted - read its URLs from the log or the stack's own status command. Write the name, the URLs and the log path into your summary so the next session and the user can find it.
+
 ## Found something real that is not your ticket?
 
 Do not fix it and do not leave it unsaid. One line:

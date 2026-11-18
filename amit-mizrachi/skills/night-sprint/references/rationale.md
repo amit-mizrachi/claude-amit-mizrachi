@@ -869,3 +869,24 @@ The decisions behind it:
   head on its next loop and `CI2` only confirms it.
 - **Multi-repo `TEST` waits SOFTLY on every `FIX-FINAL-<key>`** (`.waits`), never on `CI-<key>`.
   A `FIX-FINAL-<key>` routed SKIP ends `SKIPPED`, and a hard dependency would skip the tester.
+
+## Dev stacks died between sessions (2026-11-18, shapes-ai-chat-flow-parity, 1.25.0)
+
+The tester was told "leave the stack UP for your successor", and the successor found
+ERR_CONNECTION_REFUSED. FOLLOWUPS logged the merge-3909 stack stopped at 14:00Z and 15:12Z;
+the baseline stack died twice the same day. Two killers, both by design:
+
+- **The runner.** A stack booted from a session's Bash tool is in that session's process tree.
+  `close.sh` stops every finished session (`claude stop`, then SIGTERM and SIGKILL) and `revive.sh`
+  stops a stalled one. The 14:00Z stop came one second after `close T08 removed`.
+- **Reclaim**, the launchd memory reaper. It reads `CLAUDE_CODE_SESSION_ID` from each process's
+  environment. Once that session ended, an idle stack with no browser attached was an "orphan",
+  and at memory pressure "warning" - where a sprint machine (36 GB, swap full) sits most of the
+  night - it was stopped: `orphaned: session ended; no outside connections` at 12:04Z and 14:09Z.
+
+**Rule.** Every stack is started through `keep-stack.sh`: its own session and process group,
+reparented to launchd at once, without the session's ids, and with `RECLAIM_KEEP=1`, which reclaim
+honours by never stopping the group automatically (dreamteamapp/reclaim). No session stops a kept
+stack; the user wants them up after the sprint and stops them with `keep-stack.sh stop`, the
+Reclaim page, or by hand. The launcher also resets SIGINT: a background child of a non-interactive
+shell inherits it ignored, and dev.sh cleans up on SIGINT.

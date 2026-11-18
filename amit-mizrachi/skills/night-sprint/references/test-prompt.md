@@ -13,7 +13,7 @@ THIS SPRINT SPANS SEVERAL REPOS. The worktree above is only the first: each repo
 
 HOW TO EXERCISE IT - <pick exactly one at kickoff and delete the rest>:
 
-<A. LOCAL DEV STACK. Boot the stack against this worktree the way PLAN.md says to - the dev-environment skill it names, or the boot command it gives. Wait for it to serve before testing: a stack still coming up looks identical to a broken one, so retry for a few minutes before concluding it is down. If the change is UX-facing, drive a real browser with the `test-browser` skill and capture a screenshot per step. If it is API or CLI, exercise it directly with curl or the real entrypoint.>
+<A. LOCAL DEV STACK. Boot the stack against this worktree the way PLAN.md says to - the dev-environment skill it names, or the boot command it gives - and ALWAYS through `bash <WS>/keep-stack.sh <WS> start <name> <dir> -- <boot command>`, never from your own shell: a stack your shell starts dies when your session is closed or the memory reaper finds it. If `keep-stack.sh <WS> list` already shows one for this worktree, use it. Wait for it to serve before testing: a stack still coming up looks identical to a broken one, so retry for a few minutes before concluding it is down. If the change is UX-facing, drive a real browser with the `test-browser` skill and capture a screenshot per step. If it is API or CLI, exercise it directly with curl or the real entrypoint.>
 
 <B. EVALS. Run the eval suite as PLAN.md specifies and report the run id, the pass rate, and every case that regressed against the baseline. Do NOT start an eval run the user has not already approved in PLAN.md - evals are never run without permission.>
 
@@ -57,7 +57,7 @@ Write each step's result into <WS>/state/TEST-REPORT.md AS YOU GO, so a half-wri
   4. `echo "TESTc2" > <WS>/state/TEST.next`
   5. `echo "RELAYED: TESTc2" > <WS>/state/TEST.status`   (RELAYED, never DONE)
   6. `bash <WS>/advance.sh <WS> TEST`
-Leave the stack UP for your successor if you relay, and say so in the report. Shut it down only when the testing is actually finished.
+Leave every stack UP - when you relay AND when you finish. The user keeps using it after the sprint and stops it themselves; never stop, kill or tear down a kept stack, and never run the stack's own down target. Put a `## Stacks left up` section in TEST-REPORT.md: each stack's name, URLs, log path and its stop command from `keep-stack.sh <WS> list`.
 
 ## WHEN DONE
 

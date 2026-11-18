@@ -125,7 +125,9 @@ Decide that deliberately rather than discovering it in the morning.
      log the switch.
    - **Test session**: `test: none|dev-stack|evals|<cmd>` from the invocation, else **`none`**.
      For the stack, find your repo's dev-environment skill and its boot command yourself and
-     write both into `PLAN.md`; if you cannot find them, fall back to `none` and log it.
+     write both into `PLAN.md`; if you cannot find them, fall back to `none` and log it. Every
+     session boots a stack only through `keep-stack.sh`, and no session ever stops one: it
+     outlives the sprint until the user stops it (see the Red Flags).
 2. **Get the tickets.** The sprint needs a plan already cut into tickets in dependency order.
    Tickets exist (a `.scratch/<slug>/issues/` dir, tracker issues, a plan with numbered slices)?
    Read them all. None? Run the spec skill on the feature, then the ticket-splitting skill,
@@ -332,6 +334,7 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
 | `references/repos.sh` | shared: the repo a tag works in, and that repo's worktree and branch. Prints nothing in a single-repo sprint |
 | `references/multi-repo.md` | **conductor, at kickoff, multi-repo only**: facts per repo, worktrees, cross-repo edges, per-repo tails, cross-linked PRs, the report |
 | `references/context-used.sh` | the gauge: percent of a window already USED |
+| `references/keep-stack.sh` | start a dev stack detached from the session (own process group, no session id, `RECLAIM_KEEP=1`), so closing sessions and the memory reaper cannot stop it; `stop` and `list` for the user |
 | `references/rationale.md` | **maintainer only, never loaded at runtime**: the incident behind every rule here |
 | `tests/run.sh` | offline tests for the classifier, the transition owner, the renderer and the `set -u` guards |
 | `tests/blitz.sh` | offline tests for the queue, the landing lock, the render blocks and the relay's worktree |
@@ -854,6 +857,9 @@ The final message must contain, in this order (a multi-repo sprint reports per r
      just names a hostname sends the user hunting.
    - **The gates**: which step waits on something to merge, deploy or approve.
    - **How to know it worked** - the check that proves the feature is live.
+10. **Stacks left up** - `bash <WS>/keep-stack.sh <WS> list`, verbatim, with each stack's
+    URLs from its log: the user keeps using them, and each line carries its stop command.
+    None up? Say so in one line.
 
 ## The PR
 
@@ -872,6 +878,8 @@ never bypass hooks with `--no-verify`.
 | Rationalization | Reality |
 |---|---|
 | "The tickets touch three repos; I'll route each one by hand in its prompt." | That is a multi-repo sprint. Write `state/<TAG>.repo` and `repos/<key>.env`, and the scripts run each tag in its repo and the sprint ends with one PR per repo. Hand routing leaves one branch, one PR and one CI ticket for three repos. |
+| "I'll `make dev &` from my shell; the next session can use it." | It dies with you: the runner stops your session when the tag ends, and the memory reaper stops anything an ended session started. Boot it with `keep-stack.sh` - it then stays up past the sprint until the user stops it. |
+| "Testing is done, I'll tear the stack down to free memory." | The user keeps using it after the sprint. Leave every kept stack up and list it in the report; only the user stops one. |
 | "Tickets 3 and 4 are independent, I'll run both." | In a serial sprint, serial is the contract - it is what removes conflicts and integration. Concurrency is blitz mode, and only the invocation turns it on. |
 | "This is a big sprint, I'll switch it to blitz." | Blitz spends more tokens and quota per hour; that trade is the user's. Run what they invoked. |
 | "The checkpoint found a BLOCKER - I'll launch a fixer now." | Reviews are async and fixes happen once, in `FIX-FINAL`. REVIEW-FINAL re-checks it against the finished code and carries it forward. |
