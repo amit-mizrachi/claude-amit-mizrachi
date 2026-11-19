@@ -738,6 +738,11 @@ rebases only its own unpushed commits); three repair passes at most; three hours
 most. It writes `state/ACCEPTANCE.verdict`, posts one PR comment, and ends with `.next` empty.
 `CI2` does the same over the head `FIX-TEST` pushes, queued by `FIX-TEST` only when it pushed.
 
+**`TEST` and `CI` start in the same scheduler pass, `TEST` first.** The scheduler sorts async
+tags after every other tag, and it runs each launch with no stdin: `claude --bg` reads stdin, and
+fed the plan's pipe it ate every later line, so each sweep started one tag and `TEST` sat a whole
+sweep behind the CI ticket. Report them as running side by side - never "TEST is queued after CI".
+
 **Nothing waits for it, and nothing is lost by that.** No tag depends on it and no session reads
 CI but the CI ticket. Because it is a tag, the runner still launches it, revives it when the API
 drops it, and closes its session when it ends; the runner does not exit while it runs. When only
@@ -920,6 +925,7 @@ never bypass hooks with `--no-verify`.
 | "`VERIFY` passes, so CI will pass." | It did not, twice, on formatting read as a warning-only lint rule. Run `FORMAT_CHECK`; the `CI` ticket checks the pushed sha with `accept.sh`. |
 | "I'll just wait for CI here so the report can say green." | Only the async `CI` ticket waits on CI, and nothing waits for it. Write the report at `CHAIN-DONE` and add the CI line at `SWEEP 0`. |
 | "TEST should run after CI is green, so it tests what ships." | TEST runs straight after `FIX-FINAL`, beside the CI ticket. One sprint's demo sat behind a chained CI tag until the user launched TEST by hand. |
+| "The runner started CI this sweep; TEST will start on the next one." | One pass starts every ready tag, `TEST` before the async `CI`. If `TEST` is ready and not running after the pass that started `CI`, that is a scheduler bug: run `bash <WS>/schedule.sh <WS>` and say so in the report. |
 | "Put CI on the chain so the runner cannot forget it." | The queue does not forget either: a queued async tag is launched, revived and closed by the runner, and the runner does not exit while it runs. The chain is for what others must wait on. |
 | "The retro found a real fix - push it to the sprint branch so it ships tonight." | The sprint PR is reviewed as it stands. Retro fixes change the environment, not the feature: they go on their own branch off the base, in their own draft PR. |
 | "The CI ticket can work in the shared tree, TEST only reads it." | TEST boots the stack from it and FIX-TEST edits it. The CI ticket gets its own `.snapshot` tree, or a CI fix lands under a running stack. |

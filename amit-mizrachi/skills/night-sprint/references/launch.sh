@@ -157,7 +157,7 @@ case "$wt_real" in
 esac
 
 echo "launch: claimed $TAG, starting session '$NAME' in $WT"
-( cd "$WT" && claude --bg -n "$NAME" --permission-mode "$MODE" "$(cat "$PROMPT")" ) \
+( cd "$WT" && claude --bg -n "$NAME" --permission-mode "$MODE" "$(cat "$PROMPT")" </dev/null ) \
   > "$STATE/$TAG.launch.log" 2>&1
 rc=$?
 if [ $rc -ne 0 ]; then

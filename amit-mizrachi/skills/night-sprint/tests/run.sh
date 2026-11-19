@@ -1804,6 +1804,22 @@ bash "$RS/schedule.sh" "$RS" >/dev/null 2>&1
 check "it starts once all have ended, any way, beside a writer" "RETRO" "$(cat "$RS/launched" 2>/dev/null)"
 rm -rf "$RS"
 
+# One pass starts every ready tag. TEST must not sit out a sweep behind the async CI ticket.
+# The launcher drains stdin, as `claude --bg` does: fed the plan's pipe, it ate every line after
+# the first, so CI (sorted first) launched and TEST waited two minutes for the next sweep.
+RS="$(mktemp -d)"; mkdir -p "$RS/state"
+cp "$REF/schedule.sh" "$RS/"
+printf '#!/usr/bin/env bash\ncat >/dev/null\nmkdir "$1/state/claim-$2" && echo "$2" >> "$1/launched"\n' > "$RS/launch.sh"
+echo DONE > "$RS/state/FIX-FINAL.status"
+for t in CI TEST; do : > "$RS/state/$t.queued"; echo FIX-FINAL > "$RS/state/$t.waits"; done
+: > "$RS/state/CI.async"; : > "$RS/state/CI.snapshot"
+bash "$RS/schedule.sh" "$RS" >/dev/null 2>&1
+check "TEST and the async CI ticket start in the same pass, TEST first" "TEST CI" \
+  "$(tr '\n' ' ' < "$RS/launched" 2>/dev/null | sed 's/ $//')"
+rm -rf "$RS"
+grep -q 'claude --bg -n "$NAME" --permission-mode "$MODE" "$(cat "$PROMPT")" </dev/null' "$REF/launch.sh" \
+  && ok "launch.sh gives claude no stdin to read" || no "launch.sh gives claude no stdin to read" "no </dev/null"
+
 # retro-digest.sh condenses each session's transcript; the retro never reads one whole.
 RD="$(mktemp -d)"; mkdir -p "$RD/state" "$RD/projects/p"
 echo abcd1234 > "$RD/state/T01.session"; echo gone0000 > "$RD/state/T02.session"
