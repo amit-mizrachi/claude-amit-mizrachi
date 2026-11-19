@@ -90,6 +90,7 @@ may assume exactly the tickets in its "Blocked by" column have landed - nothing 
 | TEST | - | <the chosen test mode>; writes `state/GOLDEN.verdict` | FIX-FINAL | FIX-TEST if an in-scope step failed, else end |
 | FIX-TEST | - | one bounded repair pass over `state/TEST.findings.md`, then re-runs the affected golden-path steps. Queues CI2 if it pushed. Only rendered when a test session was chosen | TEST | end |
 | CI2 | - | ASYNC, like CI, over the head FIX-TEST pushed. Rendered at kickoff, `.waits` = FIX-TEST CI, queued only by FIX-TEST | FIX-TEST, CI (soft waits) | nothing |
+| RETRO | - | ASYNC, last, unless `retro: none`: runs `/amit-mizrachi:retro` over the whole night, applies the High and Medium environment fixes as draft PRs off the base (never on this branch), proposes the rest in `state/RETRO.md`. `.waits` = FIX-FINAL CI (+ TEST); TEST adds FIX-TEST and FIX-TEST adds CI2 when they run | everything above (soft waits) | nothing |
 {{#MULTI_REPO}}
 
 **Multi-repo:** add a `Repo` column after `Tag`. Each repo gets its own tail in place of the shared rows above: `REVIEW-C<n>-<key>`, `REVIEW-FINAL-<key>`, `FIX-FINAL-<key>`, and the async `CI-<key>`. Every `REVIEW-FINAL-<key>` waits on every ticket of every repo, so it reads the finished other side of each contract. `TEST`, when chosen, is queued to wait on every `FIX-FINAL-<key>`, never on a CI tag; `FIX-TEST` ends the blocking chain and queues `CI2-<key>` only for the repos it pushed to.

@@ -17,12 +17,13 @@ description: >-
   runs a test session that boots the stack or runs evals, and ends with the PR ready for review plus
   an ASYNC CI ticket: a session the runner launches, revives and closes like any other, that fixes
   what CI finds red in its own tree while the tester runs beside it and the morning report is
-  written without waiting for it. Also runs in research mode (`mode: research`), where each ticket
+  written without waiting for it. Last, an ASYNC RETRO ticket runs `/amit-mizrachi:retro` over the
+  whole night and acts on it, opening draft PRs for the environment fixes it finds. Also runs in research mode (`mode: research`), where each ticket
   is a research question answered from cited sources and the sprint ends in one published artifact
   instead of a PR. Use when the user says "night sprint", "sprint this feature", "build this
   overnight", "run this while I sleep", "ticket after ticket", "blitz", or wants a feature taken end
   to end unattended in a single PR.
-argument-hint: "<feature | spec path | ticket dir | issue URL> [speed: serial|blitz] [parallel: <n>] [test: none|dev-stack|evals|<command>] [permission: auto|<mode>] [approval: delegated] [mode: research]"
+argument-hint: "<feature | spec path | ticket dir | issue URL> [speed: serial|blitz] [parallel: <n>] [test: none|dev-stack|evals|<command>] [permission: auto|<mode>] [approval: delegated] [retro: on|none] [mode: research]"
 ---
 
 # Night Sprint
@@ -64,7 +65,7 @@ choose it.
 
 **Research mode.** If the invocation says `mode: research`, `facts.env` has `MODE=research`, or
 `product-research` launched you, read `references/research-mode.md` now. It replaces the
-kickoff, the reviews, acceptance and the PR below; the runner, the context rungs and everything
+kickoff, the reviews, acceptance, the PR and the `RETRO` ticket below; the runner, the context rungs and everything
 about reviving apply unchanged. A calling skill may render `SYNTH` from its own template
 (`night-marathon` does, to publish a plan instead of a findings page); the chain is the same.
 
@@ -125,7 +126,10 @@ Decide that deliberately rather than discovering it in the morning.
      log the switch.
    - **Test session**: `test: none|dev-stack|evals|<cmd>` from the invocation, else **`none`**.
      For the stack, find your repo's dev-environment skill and its boot command yourself and
-     write both into `PLAN.md`; if you cannot find them, fall back to `none` and log it. Every
+     write both into `PLAN.md`; if you cannot find them, fall back to `none` and log it.
+   - **Retro**: `retro: none` in the invocation turns the async `RETRO` ticket off. Anything else
+     keeps it **on**. It needs the `retro` skill (it ships here); if `/amit-mizrachi:retro` is not
+     in your skill list, turn it off and log it. Every
      session boots a stack only through `keep-stack.sh`, and no session ever stops one: it
      outlives the sprint until the user stops it (see the Red Flags).
 2. **Get the tickets.** The sprint needs a plan already cut into tickets in dependency order.
@@ -187,6 +191,7 @@ Decide that deliberately rather than discovering it in the morning.
    | review finder (`REVIEW-C<n>`, `REVIEW-FINAL`) | `TAG`, `CHECKPOINT`, `SCOPE`, `FIX_TAG=FIX-FINAL`, `NEXT_AFTER_FIX` (`TEST`, or empty with no test session) |
    | `FIX-FINAL` | `TAG=FIX-FINAL`, `CHECKPOINT`, `FIND_TAG=REVIEW-FINAL`, `NEXT_TAG` (`TEST`, or empty with no test session) |
    | `CI` (and `CI2`) | `TAG=CI` (`TAG=CI2`) - nothing else; it is async, so it has no successor |
+   | `RETRO` | `TAG=RETRO` - nothing else; async, no successor |
    | `TEST` | `TOTAL`, `FIND_FINAL_TAG` |
    | `FIX-TEST` | `TAG=FIX-TEST`, `CHECKPOINT`, `FIND_TAG=TEST`, `NEXT_TAG=` empty |
    | continuation (filled by the relaying session, not you) | `CONT_TAG`, `PREV_TAG`, `NN`, `TICKET_TITLE`, `NEXT_TAG` |
@@ -204,8 +209,9 @@ Decide that deliberately rather than discovering it in the morning.
    `` git diff $(git merge-base origin/<BASE> HEAD)..HEAD ``; each later one starts where the last
    snapshot stood: `` git diff $(cat <WS>/state/REVIEW-C<n-1>.headsha)..HEAD ``.
 
-   **What to render now:** every ticket prompt, every review finder, `FIX-FINAL`, and `CI` from
-   `ci-prompt.md`. There is no checkpoint fixer. Render `TEST`
+   **What to render now:** every ticket prompt, every review finder, `FIX-FINAL`, `CI` from
+   `ci-prompt.md`, and `RETRO` from `retro-prompt.md` unless the retro is off. There is no
+   checkpoint fixer. Render `TEST`
    only if the user opted in - and **when you do, also render `prompt-FIX-TEST.txt` from
    `review-fix-prompt.md`** with `FIND_TAG=TEST`, keeping its FIX-TEST-ONLY section and deleting
    the FINAL-ONLY one, **and `prompt-CI2.txt` from `ci-prompt.md`** with `TAG=CI2`, which fixes
@@ -234,6 +240,11 @@ Decide that deliberately rather than discovering it in the morning.
        `.waits` = `FIX-FINAL`. It starts the moment the final fixes are pushed, beside `TEST`.
        With a test session, also write `CI2`'s `.async`, `.snapshot` and `.waits` = `FIX-TEST CI`,
        but do NOT queue it: `FIX-TEST` queues it only if it pushes.
+     - **the async `RETRO` ticket**, unless the retro is off: `touch state/RETRO.queued
+       state/RETRO.async state/RETRO.snapshot` and `echo "FIX-FINAL CI TEST" > state/RETRO.waits`
+       (drop `TEST` with no test session). Write it with `echo`, newline and all: `TEST` appends
+       `FIX-TEST` to it when it routes a repair, and `FIX-TEST` appends `CI2` when it queues one,
+       each before its own status, so the retro starts only when nothing else is left.
      A ticket tag named in `.after` is settled through its relays: `T03` is DONE when the
      `T03c<n>` it relayed to is.
 8. **Write `PLAN.md`** from `plan-template.md` - the goal, out-of-scope, ticket order, the
@@ -258,6 +269,7 @@ Decide that deliberately rather than discovering it in the morning.
 | **Review finder** | 1 per review, **async** | **never** | run the reviewer roster over a snapshot (default: one `deep-review`), every reviewer at once, merge, check and triage what they report, write the findings manifest, post ONE PR comment. A checkpoint finder launches nothing; `REVIEW-FINAL` carries every still-true checkpoint finding forward and decides whether `FIX-FINAL` runs |
 | **Review fixer** | `FIX-FINAL`, plus `FIX-TEST` if the tester routes one | yes (fixes only) | work the whole night's manifest at once, reply on external threads, check, push. Static checks plus a few targeted tests, never the suite |
 | **Tester** | 0 or 1 | no | exercise the built thing, report PASS/FAIL per step, write `GOLDEN.verdict` |
+| **Retro** | 0 or 1 (`RETRO`, on unless `retro: none`) | never on the sprint branch | **async**: queued to start when the chain and every CI ticket have ended, in its own detached tree. Runs `/amit-mizrachi:retro` over the whole night (`retro-digest.sh` reads the transcripts for it), applies the High and Medium environment fixes as draft PRs off the base (one per repo, plus the plugin's repo for skill fixes), proposes the rest, writes `state/RETRO.md`, posts one comment on the sprint PR |
 | **CI ticket** | `CI`, plus `CI2` if `FIX-TEST` pushed | yes (CI fixes only) | **async**: queued to start when `FIX-FINAL` ends, in its own detached snapshot tree, beside `TEST`. Loops on the required checks at the pushed head, fixes and pushes what is red, inherited base-branch failures included (three passes at most), writes `ACCEPTANCE.verdict`, posts one PR comment. Nothing waits for it; the runner launches, revives and closes it like any tag |
 
 ### The full suite never runs locally
@@ -280,7 +292,7 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
 |---|---|
 | Workspace | `~/.claude/night-sprint/<slug>/` - `facts.env`, `PLAN.md`, `tickets/`, `prompt-<TAG>.txt`, `vars-<TAG>.env`, `state/`, `LOG.md` |
 | Pinned facts | `facts.env`, plus one-value files the scripts read: `WORKTREE`, `SLUG`, `PERMISSION_MODE`, `BRANCH`, `VERIFY`, `CONTEXT_WINDOW`, `WARN_AT_USED`, `RELAY_AT_USED`, `CEILING_USED` |
-| Tags | `T01`..`TNN`, async finders `REVIEW-C1`.., then `REVIEW-FINAL` + `FIX-FINAL`, then `TEST` and `FIX-TEST` if the tester finds an in-scope failure, plus continuations `<TAG>c2`, `<TAG>c3`. Off the chain, async: `CI`, and `CI2` if FIX-TEST pushed. Multi-repo: the review, fix and CI tags take a repo suffix, `REVIEW-FINAL-<key>` |
+| Tags | `T01`..`TNN`, async finders `REVIEW-C1`.., then `REVIEW-FINAL` + `FIX-FINAL`, then `TEST` and `FIX-TEST` if the tester finds an in-scope failure, plus continuations `<TAG>c2`, `<TAG>c3`. Off the chain, async: `CI`, and `CI2` if FIX-TEST pushed, then `RETRO` last. Multi-repo: the review, fix and CI tags take a repo suffix, `REVIEW-FINAL-<key>` |
 | Repo of a tag | multi-repo only: `state/<TAG>.repo` = its key; a continuation inherits its ticket's. `repos.sh` resolves it for `launch.sh`, `revive.sh`, `land.sh`, `accept.sh` and the runner |
 | Successors | `state/<TAG>.next`, written at setup, rewritable by the session **before** its status |
 | Async tags | `state/<TAG>.async` (the CI ticket): queued like any tag, but nothing waits for it, it never takes a writer slot (it works in its own `.snapshot` tree), and a relay copies the marker to its continuation. The runner launches, revives and closes it as usual and does not exit while it runs, but once only async tags are left it says `CHAIN-DONE` so the report does not wait |
@@ -330,6 +342,8 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
 | `references/classify-error.sh` | what actually ended a session: transient / quota / auth / none |
 | `references/accept.sh` | are the required CI checks green **at the pushed sha**? Run by the async `CI` ticket, in its own tree |
 | `references/ci-prompt.md` | the async `CI` ticket (and `CI2`): sync its own tree to the pushed head, `accept.sh`, read the failing log, fix, push (rebasing only its own unpushed commits), repeat; BLOCKED after three passes |
+| `references/retro-prompt.md` | the async `RETRO` ticket: opens with `/amit-mizrachi:retro`, reads the night from the workspace, acts on the High and Medium candidates as draft PRs off the base, proposes the rest |
+| `references/retro-digest.sh` | one block per session of the night from its transcript - tool calls, the largest results, files read 3+ times, failed calls - so the retro never reads a transcript whole |
 | `references/agents.sh` | shared: ask the harness for background sessions, with the `--cwd` fallback |
 | `references/repos.sh` | shared: the repo a tag works in, and that repo's worktree and branch. Prints nothing in a single-repo sprint |
 | `references/multi-repo.md` | **conductor, at kickoff, multi-repo only**: facts per repo, worktrees, cross-repo edges, per-repo tails, cross-linked PRs, the report |
@@ -498,8 +512,8 @@ waits and closing finished sessions itself, and logs all of them to `state/EVENT
 | `NEEDS-PR` | Open the **draft** PR. Early CI and early bot review are why it opens after the first ticket rather than at the end. Multi-repo: `NEEDS-PR <key>`, once per repo - open that repo's draft and cross-link it (`multi-repo.md`). |
 | `STRANDED <tags>` | A successor is wired (or a tag claimed) but no session and no status appeared for five sweeps. Something failed to launch it: check `state/<tag>.launch.log` and `EVENTS.log`, then launch it with `launch.sh <WS> <tag> --reclaim`, which drops the stale claim and refuses if the tag has a session. A tag whose launch failed (`BLOCKED: could not ...`) needs no flag: plain `launch.sh` retries it. |
 | `UNCLOSED <tags>` | The runner's last pass could not remove these finished sessions from the agent list. The work is not affected. Name them in the morning report so the user can `claude rm <id>` them. |
-| `CHAIN-DONE async=<tags>` | Every blocking tag has ended; only async tags (the `CI` ticket) still run. **Write the morning report now** - do not wait for CI - with the CI line as it stands. Keep the follower armed: the runner still revives the CI ticket and closes its session when it ends. |
-| `SWEEP 0 tags= all-sessions-terminal` | The runner **exited** and has removed every finished session, the CI ticket's included - nothing but you is on the agent list. Your follower exits with it. Tags left? Launch the next, `runner.sh start`, and **re-arm the follower**. Sprint complete? If you already wrote the report at `CHAIN-DONE`, post one short addendum: the final CI line from `state/CI.summary` (and `state/CI2.summary`); otherwise write the morning report. Never leave the sprint with no running runner and work outstanding. |
+| `CHAIN-DONE async=<tags>` | Every blocking tag has ended; only async tags (the `CI` ticket, then `RETRO`) still run. **Write the morning report now** - do not wait for CI or the retro - with the CI line as it stands. Keep the follower armed: the runner still revives the CI ticket and closes its session when it ends. |
+| `SWEEP 0 tags= all-sessions-terminal` | The runner **exited** and has removed every finished session, the CI ticket's included - nothing but you is on the agent list. Your follower exits with it. Tags left? Launch the next, `runner.sh start`, and **re-arm the follower**. Sprint complete? If you already wrote the report at `CHAIN-DONE`, post one short addendum: the final CI line from `state/CI.summary` (and `state/CI2.summary`) and the retro line from `state/RETRO.summary` with its PR links; otherwise write the morning report. Never leave the sprint with no running runner and work outstanding. |
 | `RUNNER-RESTARTED` | The runner had died mid-run (killed, a restart of the machine) and the follower started it again. Nothing to do. Name it in the morning report. |
 | `RUNNER-DOWN` | The runner died three times in 30 minutes. Nothing is advancing or reviving the sprint. Read `state/runner.log`, fix the cause, then `runner.sh start` and re-arm the follower. |
 | `AGENTS-UNREADABLE` | `claude agents` failed three sweeps in a row, so the runner cannot see any session and revives nothing. Run `claude agents --json --all` from `/` by hand. If that works, the runner's cwd is the problem (`lsof -a -d cwd -p $(cat <WS>/state/runner.pid)`): kill it and `runner.sh start <WS>` again. If it fails too, the CLI is the problem - report it. |
@@ -842,7 +856,8 @@ The final message must contain, in this order (a multi-repo sprint reports per r
 6. **Time lost to things that were not the work** - budget waits, auth stalls, revivals.
 7. **Follow-ups** - `state/FOLLOWUPS.md`, verbatim, ready to become tickets. An empty file is a
    fine answer; say so.
-8. **What needs a human** - decisions and blockers waiting on them.
+8. **What needs a human** - decisions and blockers waiting on them. At `SWEEP 0`, add the retro:
+   its draft PR links and the proposals in `state/RETRO.md` it left for the user.
 9. **Turn it on** - every `state/*.manual` step that passes both tests, in dependency order.
    This is the part the user acts on first, so it must need no thinking.
 
@@ -906,6 +921,7 @@ never bypass hooks with `--no-verify`.
 | "I'll just wait for CI here so the report can say green." | Only the async `CI` ticket waits on CI, and nothing waits for it. Write the report at `CHAIN-DONE` and add the CI line at `SWEEP 0`. |
 | "TEST should run after CI is green, so it tests what ships." | TEST runs straight after `FIX-FINAL`, beside the CI ticket. One sprint's demo sat behind a chained CI tag until the user launched TEST by hand. |
 | "Put CI on the chain so the runner cannot forget it." | The queue does not forget either: a queued async tag is launched, revived and closed by the runner, and the runner does not exit while it runs. The chain is for what others must wait on. |
+| "The retro found a real fix - push it to the sprint branch so it ships tonight." | The sprint PR is reviewed as it stands. Retro fixes change the environment, not the feature: they go on their own branch off the base, in their own draft PR. |
 | "The CI ticket can work in the shared tree, TEST only reads it." | TEST boots the stack from it and FIX-TEST edits it. The CI ticket gets its own `.snapshot` tree, or a CI fix lands under a running stack. |
 | "CI is red - I'll leave the PR in draft until it is green." | The sprint ends with the PR ready. `FIX-FINAL` marks it ready and the async `CI` ticket fixes what is red; a red lane it cannot fix is named in one PR comment, not hidden behind a draft. |
 | "T05 relayed, so T05 is finished - launch T06." | `RELAYED` is not `DONE`. The ticket is still being built under `T05c2`. `advance.sh` knows; nothing else gets to decide. |

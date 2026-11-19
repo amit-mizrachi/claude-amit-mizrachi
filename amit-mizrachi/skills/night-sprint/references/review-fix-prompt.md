@@ -128,6 +128,8 @@ after you have proved the failures are gone.
 6. **You pushed? Queue the second CI ticket**, so CI is fixed at YOUR head too. Its prompt already
    exists; the runner starts it, async, once you and the first CI ticket have both ended:
      touch <WS>/state/CI2.queued
+   and, if the sprint has a retro (`<WS>/state/RETRO.queued` exists), make it wait for that CI
+   ticket too: `echo CI2 >> <WS>/state/RETRO.waits`.
    Pushed nothing? Do not queue it. Either way your `.next` is EMPTY: the blocking chain ends with you.
 {{/MULTI_REPO}}
 {{#MULTI_REPO}}
@@ -137,6 +139,7 @@ after you have proved the failures are gone.
 
 **Multi-repo: you are the one fixer that may change more than one repo.** Every blocking session has ended; each repo's async CI ticket may still be pushing to its own branch, so step 0 and step 1 apply per repo. Fix each finding in the worktree of the repo it names, commit there, and push each repo as the top of this prompt says. Then, before your status, queue a second CI ticket for every repo you pushed to, and only those - their prompts already exist:
      touch <WS>/state/CI2-<key>.queued
+     echo CI2-<key> >> <WS>/state/RETRO.waits    # only if <WS>/state/RETRO.queued exists
 Leave your `.next` EMPTY: the blocking chain ends with you, and the runner starts each queued CI2-<key>, async.
 {{/MULTI_REPO}}
 

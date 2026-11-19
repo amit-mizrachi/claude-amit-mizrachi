@@ -890,3 +890,23 @@ honours by never stopping the group automatically (dreamteamapp/reclaim). No ses
 stack; the user wants them up after the sprint and stops them with `keep-stack.sh stop`, the
 Reclaim page, or by hand. The launcher also resets SIGINT: a background child of a non-interactive
 shell inherits it ignored, and dev.sh cleans up on SIGINT.
+
+## The night ended without anyone asking what to change (2026-11-19, user request, 1.26.0)
+
+Every morning report named the night's incidents - a relay from the ceiling, a lint lane CI found
+red that the local gate passed, a reviewer catching the same mistake in three tickets - and none
+of them changed anything: the user had to run `/retro` by hand, in a fresh session that had not
+seen the night. So the sprint now ends with an async `RETRO` ticket.
+
+- **Async and last.** It soft-waits on `FIX-FINAL`, `CI` and `TEST`, and `TEST` / `FIX-TEST`
+  append `FIX-TEST` / `CI2` to its `.waits` before their own status, so it starts only when
+  nothing else is left and never races a repair. Nothing waits for it, so the report is not held.
+- **It acts, but never on the sprint branch.** The sprint PR is reviewed as it stands. Retro fixes
+  change the environment (AGENTS.md pointers, lint rules, CI jobs, the plugin's own templates),
+  so they go on `night-sprint-retro/<slug>` off the base, in a draft PR the user can drop. The
+  user's global files are proposals only: they steer every session on the machine.
+- **The slash command is the prompt's first line.** `retro` has `disable-model-invocation: true`,
+  so a session cannot call it with the Skill tool; a prompt that starts with
+  `/amit-mizrachi:retro` expands it. The prompt also names the file to read if it did not expand.
+- **`retro-digest.sh` reads the transcripts.** One implementer's transcript can pass 10 MB; three
+  read whole fill the retro's window before it finds anything.
