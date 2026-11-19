@@ -30,7 +30,8 @@
 # Exit codes: 0 ok; 2 the ticket tree is not clean - commit first; 3 CONFLICT, resolve and
 # commit, then check and publish; 4 you do not hold the lock - run merge; 5 publish found the
 # sprint branch not inside the ticket branch - run merge again; 6 landed locally but the push
-# failed (the next landing pushes it); 75 busy - another ticket is landing, run merge again.
+# failed twice, after taking in what the remote gained; 8 origin's sprint branch has commits that
+# do not merge cleanly into the local one; 75 busy - another ticket is landing, run merge again.
 
 set -uo pipefail
 
@@ -99,6 +100,69 @@ take_lock() {
 
 release() { [ "$(holder)" = "$OWNER" ] && rm -rf "$LOCK"; return 0; }
 
+# Commits someone else pushed to the sprint branch (the i18n bot, the user, a CI fix) come into
+# the shared tree BEFORE a ticket merges it. Without this the next push is rejected as
+# non-fast-forward, the landing exits 6 "the next landing pushes it", and every later landing
+# fails the same way: on 2026-11-19 four tickets ended DONE with their work on the laptop only,
+# behind one bot commit, until the conductor merged it by hand.
+sync_remote() {
+  git -C "$WT" remote get-url origin >/dev/null 2>&1 || return 0
+  git -C "$WT" fetch -q origin "$BRANCH" 2>/dev/null || return 0
+  local remote out
+  remote="$(git -C "$WT" rev-parse -q --verify FETCH_HEAD 2>/dev/null)" || return 0
+  git -C "$WT" merge-base --is-ancestor "$remote" "$BRANCH" 2>/dev/null && return 0
+  heal_shared_tree "$remote"
+  if out="$(git -C "$WT" merge -q --no-edit "$remote" 2>&1)"; then
+    note "took in $(git -C "$WT" rev-parse --short "$remote") from origin/$BRANCH (pushed by someone else)"
+    return 0
+  fi
+  git -C "$WT" merge --abort >/dev/null 2>&1
+  release
+  die 8 "origin/$BRANCH has commits that do not merge cleanly into the local sprint branch in $WT: $out - merge them there by hand, then run merge again"
+}
+
+# The shared tree must hold no uncommitted edit when the sprint branch moves. A session that works
+# there (FIX-FINAL, TEST) and leaves an edit uncommitted blocks every later landing. An edit whose
+# content is EXACTLY what the incoming commit holds for that file is a stale copy of work that is
+# already committed, so it is safe to drop (2026-11-19: a doc line FIX-FINAL left uncommitted, and
+# T08 carried the same line). Anything else is someone's unsaved work: it is left alone, and the
+# fast-forward below names it.
+heal_shared_tree() {
+  local target="$1" f want have healed=""
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    want="$(git -C "$WT" rev-parse -q --verify "$target:$f" 2>/dev/null)" || continue
+    have="$(git -C "$WT" hash-object -- "$f" 2>/dev/null)" || continue
+    [ "$want" = "$have" ] || continue
+    if git -C "$WT" cat-file -e "HEAD:$f" 2>/dev/null; then
+      git -C "$WT" checkout -q HEAD -- "$f" 2>/dev/null && healed="$healed $f"
+    else   # new in the incoming commit: the copy here only stands in the way of the fast-forward
+      git -C "$WT" rm -q --cached -- "$f" >/dev/null 2>&1
+      rm -f "$WT/$f" && healed="$healed $f"
+    fi
+  done <<EOF
+$(git -C "$WT" diff --name-only HEAD 2>/dev/null; git -C "$WT" ls-files --others --exclude-standard 2>/dev/null)
+EOF
+  [ -n "$healed" ] && note "dropped stale uncommitted copies in the shared tree, identical to $target:$healed"
+  return 0
+}
+
+push_sprint_branch() {   # push; on a rejection, take in what the remote gained and try once more
+  local out
+  out="$(git -C "$WT" push -q -u origin "$BRANCH" 2>&1)" && return 0
+  git -C "$WT" fetch -q origin "$BRANCH" 2>/dev/null
+  local remote; remote="$(git -C "$WT" rev-parse -q --verify FETCH_HEAD 2>/dev/null)"
+  if [ -n "$remote" ] && ! git -C "$WT" merge-base --is-ancestor "$remote" "$BRANCH" 2>/dev/null \
+     && git -C "$WT" merge -q --no-edit "$remote" >/dev/null 2>&1; then
+    note "push rejected; took in $(git -C "$WT" rev-parse --short "$remote") from origin/$BRANCH and pushed again"
+    out="$(git -C "$WT" push -q -u origin "$BRANCH" 2>&1)" && return 0
+  else
+    git -C "$WT" merge --abort >/dev/null 2>&1
+  fi
+  printf '%s' "$out"
+  return 1
+}
+
 case "$VERB" in
   merge)
     [ -z "$(git -C "$TW" status --porcelain --untracked-files=no)" ] || \
@@ -107,6 +171,7 @@ case "$VERB" in
     if git -C "$TW" rev-parse -q --verify MERGE_HEAD >/dev/null; then
       die 3 "CONFLICT - a merge is already in progress in $TW. Resolve, 'git add', 'git commit --no-edit', run the static checks, then 'land.sh $WS $TAG publish'."
     fi
+    sync_remote
     if out="$(git -C "$TW" merge --no-edit "$BRANCH" 2>&1)"; then
       note "merged $BRANCH into $TAG: $(printf '%s' "$out" | tail -1)"
       echo "MERGED - the sprint branch is merged into your branch. Run the static checks on the combined tree, commit any fix, then: land.sh $WS $TAG publish"
@@ -125,14 +190,14 @@ case "$VERB" in
     git -C "$TW" merge-base --is-ancestor "$BRANCH" HEAD || \
       die 5 "the sprint branch is not inside your branch - run 'land.sh $WS $TAG merge' again"
     sha="$(git -C "$TW" rev-parse HEAD)"
+    heal_shared_tree "$sha"
     out="$(git -C "$WT" merge -q --ff-only "$sha" 2>&1)" || \
-      die 1 "could not fast-forward $BRANCH in $WT to $sha: $out"
-    release
+      die 1 "could not fast-forward $BRANCH in $WT to $sha: $out - an uncommitted edit in the shared tree ($(git -C "$WT" diff --name-only HEAD | tr '\n' ' ')) is in the way; the session that worked there left it"
     note "landed $sha on $BRANCH"
     if git -C "$WT" remote get-url origin >/dev/null 2>&1; then
-      out="$(git -C "$WT" push -q -u origin "$BRANCH" 2>&1)" || \
-        die 6 "LANDED $sha locally, but the push failed: $out - the next landing pushes it"
+      out="$(push_sprint_branch)" || { release; die 6 "LANDED $sha locally, but the push failed twice: $out"; }
     fi
+    release
     echo "LANDED $sha on $BRANCH"
     ;;
   abort)

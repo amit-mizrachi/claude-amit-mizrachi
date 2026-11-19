@@ -27,6 +27,7 @@
 | Reviewers | the roster in `<WS>/REVIEWERS.md`: `<R1 engine/model/effort/skill, R2 ...>`, from `<the source line and file, or "default">`. Default: one `deep-review` on Opus at high effort. Every row runs at once in each FIND step, fed the scope's tickets verbatim. No lanes, no squad, no fallback |
 | Test session | `<none | dev-stack | evals | custom: <cmd>>` - chosen by the user |
 | How to boot the stack | `<the dev-environment skill name and/or the exact boot command>` - only for `dev-stack`; the TEST session reads it from here |
+| Stacks already up | `<none | name, health URL, the tree it serves, log, stop command, which workspace started it>` - found at kickoff (`keep-stack.sh list` here and in an earlier sprint's workspace, or a stack the user left running). Every session REUSES it: pull in place, hot reload, restart one service at most. Which services do not hot-reload: `<list>` |
 {{#MULTI_REPO}}
 
 ## 0. Repos - this sprint ends with one branch and one PR per repo

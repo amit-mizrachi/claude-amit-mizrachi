@@ -127,6 +127,14 @@ Decide that deliberately rather than discovering it in the morning.
    - **Test session**: `test: none|dev-stack|evals|<cmd>` from the invocation, else **`none`**.
      For the stack, find your repo's dev-environment skill and its boot command yourself and
      write both into `PLAN.md`; if you cannot find them, fall back to `none` and log it.
+     **Look for a stack that is already up** before anything plans to boot one: `keep-stack.sh
+     list` in this workspace AND in any earlier sprint's workspace on the same branch (a
+     follow-up sprint), plus the stack the user left running (its health URL answers). Write it
+     into PLAN.md's `Stacks already up` row - name, health URL, the tree it serves, log, stop
+     command - with the services that do NOT hot-reload. Every session then reuses it (pull in
+     place, hot reload, restart one service at most); no ticket you write says "restart the
+     stack" or "rebuild the env". A follow-up sprint's verify ticket that rebuilt a healthy
+     stack twice cost about 20 minutes of boots on 2026-11-19 and inflated every measurement.
    - **Retro**: `retro: none` in the invocation turns the async `RETRO` ticket off. Anything else
      keeps it **on**. It needs the `retro` skill (it ships here); if `/amit-mizrachi:retro` is not
      in your skill list, turn it off and log it. Every
@@ -236,6 +244,8 @@ Decide that deliberately rather than discovering it in the morning.
      - `REVIEW-FINAL`, `.waits` = the last ticket (every ticket in blitz) and every checkpoint
        finder;
      - in blitz, every ticket: `.after` = its "Blocked by" tags, plus `touch state/T<NN>.isolate`;
+       a ticket that measures (timings, animations, perf, load) or walks the dev stack also gets
+       `touch state/T<NN>.solo`, so it runs with no build beside it;
      - **the async `CI` ticket**: `touch state/CI.queued state/CI.async state/CI.snapshot`, and
        `.waits` = `FIX-FINAL`. It starts the moment the final fixes are pushed, beside `TEST`.
        With a test session, also write `CI2`'s `.async`, `.snapshot` and `.waits` = `FIX-TEST CI`,
@@ -298,7 +308,9 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
 | Async tags | `state/<TAG>.async` (the CI ticket): queued like any tag, but nothing waits for it, it never takes a writer slot (it works in its own `.snapshot` tree), and a relay copies the marker to its continuation. The runner launches, revives and closes it as usual and does not exit while it runs, but once only async tags are left it says `CHAIN-DONE` so the report does not wait |
 | Queue | `state/<TAG>.queued` + `.after` (hard deps) + `.waits` (soft deps), started by `schedule.sh` from the runner. A dependency whose `.after` ends BLOCKED or SKIPPED gets its dependents `SKIPPED: blocker <X>`, recursively. Finders and async tags never count toward `MAX_PARALLEL` |
 | Own worktrees | `state/<TAG>.isolate` (blitz ticket: `<WORKTREE>-<TAG>` on `<BRANCH>--<TAG>`) or `state/<TAG>.snapshot` (finder: `<WORKTREE>-<TAG>`, detached at the branch tip). `launch.sh` creates it and records `state/<TAG>.cwd`; a relay copies `.cwd` to its continuation. Left on disk after the sprint for inspection |
-| Landing (blitz) | `bash <WS>/land.sh <WS> <TAG> merge` then `publish` (or `abort`), under `state/land.lock`. Only a ticket's own session lands it |
+| Landing (blitz) | `bash <WS>/land.sh <WS> <TAG> merge` then `publish` (or `abort`), under `state/land.lock`. Only a ticket's own session lands it. `merge` first takes in commits someone else pushed to the sprint branch (a bot, the user), and `publish` retries a rejected push once after taking them in, so a landing never ends "landed locally" behind a bot commit |
+| Solo tags (blitz) | `state/<TAG>.solo`: the tag starts only when no other writer runs, and nothing new starts while it waits or runs. Mark every ticket that MEASURES (timings, animations, a perf trace, load) or walks the dev stack: builds beside it inflate every number |
+| Requeue | `bash <WS>/requeue.sh <WS> <TAG>` puts a SKIPPED or BLOCKED tag (and every tag it skipped) back in the queue, once its blocker is fixed. Never truncate or hand-edit a `.status`: an empty one read as "ended" to the runner and "not ended" to the scheduler, and the runner closed the session the scheduler had just started |
 | Branch / worktree | ONE of each: `<type>/<slug>` off `origin/<default>`, in `.claude/worktrees/<slug>` |
 | Launching | `bash <WS>/launch.sh <WS> <TAG>` - never a bare `claude --bg`. It runs in `WORKTREE`, or in `state/<TAG>.cwd` when a tag has one (a phase conductor runs in its own repo, and `revive.sh` resumes it there) |
 | Advancing | `bash <WS>/advance.sh <WS> <TAG>` - **the only thing that decides what runs next** |
@@ -348,6 +360,7 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
 | `references/repos.sh` | shared: the repo a tag works in, and that repo's worktree and branch. Prints nothing in a single-repo sprint |
 | `references/multi-repo.md` | **conductor, at kickoff, multi-repo only**: facts per repo, worktrees, cross-repo edges, per-repo tails, cross-linked PRs, the report |
 | `references/context-used.sh` | the gauge: percent of a window already USED |
+| `references/requeue.sh` | put a SKIPPED or BLOCKED tag, and every tag it skipped, back in the queue after its blocker is fixed; refuses a tag whose session is alive |
 | `references/keep-stack.sh` | start a dev stack detached from the session (own process group, no session id, `RECLAIM_KEEP=1`), so closing sessions and the memory reaper cannot stop it; `stop` and `list` for the user |
 | `references/rationale.md` | **maintainer only, never loaded at runtime**: the incident behind every rule here |
 | `tests/run.sh` | offline tests for the classifier, the transition owner, the renderer and the `set -u` guards |
@@ -510,6 +523,7 @@ waits and closing finished sessions itself, and logs all of them to `state/EVENT
 | `HELD <tag>` | A successor was not launched because the sprint is paused. It launches when the pause clears. Nothing to do. |
 | `REVIVE-REFUSED <tag>` | The reviver would not touch it - usually because it is still working. Read `state/EVENTS.log` and decide. |
 | `NEEDS-PR` | Open the **draft** PR. Early CI and early bot review are why it opens after the first ticket rather than at the end. Multi-repo: `NEEDS-PR <key>`, once per repo - open that repo's draft and cross-link it (`multi-repo.md`). |
+| `PR-MERGED [<key>]` | Somebody merged the sprint PR while the sprint runs. Everything that lands from now on reaches a merged branch. Tell nobody to stop: let the tickets land, then at the end carry the commits after the merge onto a new branch off the base (merge the sprint branch into it; the squash already holds the rest, so conflicts resolve to the sprint side when the base did not change those files since) and open a follow-up PR that names the merged one. |
 | `STRANDED <tags>` | A successor is wired (or a tag claimed) but no session and no status appeared for five sweeps. Something failed to launch it: check `state/<tag>.launch.log` and `EVENTS.log`, then launch it with `launch.sh <WS> <tag> --reclaim`, which drops the stale claim and refuses if the tag has a session. A tag whose launch failed (`BLOCKED: could not ...`) needs no flag: plain `launch.sh` retries it. |
 | `UNCLOSED <tags>` | The runner's last pass could not remove these finished sessions from the agent list. The work is not affected. Name them in the morning report so the user can `claude rm <id>` them. |
 | `CHAIN-DONE async=<tags>` | Every blocking tag has ended; only async tags (the `CI` ticket, then `RETRO`) still run. **Write the morning report now** - do not wait for CI or the retro - with the CI line as it stands. Keep the follower armed: the runner still revives the CI ticket and closes its session when it ends. |
@@ -903,6 +917,9 @@ never bypass hooks with `--no-verify`.
 | "Tickets 3 and 4 are independent, I'll run both." | In a serial sprint, serial is the contract - it is what removes conflicts and integration. Concurrency is blitz mode, and only the invocation turns it on. |
 | "This is a big sprint, I'll switch it to blitz." | Blitz spends more tokens and quota per hour; that trade is the user's. Run what they invoked. |
 | "The checkpoint found a BLOCKER - I'll launch a fixer now." | Reviews are async and fixes happen once, in `FIX-FINAL`. REVIEW-FINAL re-checks it against the finished code and carries it forward. |
+| "The verify ticket should restart the stack so it tests a clean build." | Pull in place and let hot reload apply it; restart one service at most. A healthy stack rebuilt for io-client changes cost two boots and a loaded laptop for every measurement after (2026-11-19). |
+| "This animation / perf ticket can run beside the builds, it only reads." | It reads numbers the builds distort. Mark it `.solo`. |
+| "I'll put T13 back in the queue by emptying its status file." | `requeue.sh`. An empty status is two different answers to two scripts. |
 | "Two blitz tickets touch the same file, the merge will sort it out." | It will, at the price of a conflict at landing. When the overlap is heavy, make one ticket block the other at kickoff. |
 | "The blitz ticket is green on its own, mark it DONE." | DONE comes after `land.sh publish` says LANDED - the combined tree is what ships. |
 | "I'll just implement this small ticket myself." | The conductor writes no product code. Your context is the scarcest resource of the night. |

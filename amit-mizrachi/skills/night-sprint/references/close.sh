@@ -55,7 +55,7 @@ note() {
   printf 'close: %s %s\n' "$TAG" "$*"
 }
 
-[ -f "$STATE/$TAG.status" ] || { echo "close: $TAG has no status yet - not closing a live ticket" >&2; exit 3; }
+[ -n "$(head -1 "$STATE/$TAG.status" 2>/dev/null | tr -d '[:space:]')" ] || { echo "close: $TAG has no status yet - not closing a live ticket" >&2; exit 3; }
 [ -f "$MARK" ] && exit 0
 
 sid="$(tr -d '[:space:]' < "$STATE/$TAG.session" 2>/dev/null || echo)"

@@ -153,6 +153,9 @@ Several sessions for one fix pass is fine. A pass that dies holding un-recorded 
 
 ## WHEN DONE - in this order
 
+Before you write your status, `git status --short --untracked-files=no` in every tree you worked in prints nothing: commit each edit or revert it. An edit left uncommitted in the shared tree blocks every later landing (2026-11-19: one doc line left by FIX-FINAL blocked T08 in the next sprint).
+
+
 1. Final commit body line: `SIGNAL: <TAG>-DONE` (or `-BLOCKED: <reason>`). Push.
 2. `echo "<n fixed, n rejected, n deferred, in one line>" > <WS>/state/<TAG>.summary`
 3. `echo "<NEXT_TAG>" > <WS>/state/<TAG>.next` - your successor, written BEFORE your status.

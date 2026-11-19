@@ -197,6 +197,66 @@ grep -q 'took over a stale landing lock' "$L/state/EVENTS.log" && ok "and the ta
 out="$(bash "$L/land.sh" "$L" L5 abort 2>&1)"; check "abort releases it" "" "$(cat "$L/state/land.lock/owner" 2>/dev/null)"
 
 echo
+echo "== land.sh takes in a commit someone else pushed, and drops a stale shared-tree copy =="
+# A bot pushes to the sprint branch from elsewhere: the next landing must take it in, not leave
+# its own work landed only locally behind it.
+git clone -q "$T/origin.git" "$T/bot" && git -C "$T/bot" checkout -q feat/x
+( cd "$T/bot" && printf 'bot\n' > bot.txt && git add . && git commit -q -m bot && git push -q origin feat/x )
+branch L6 e.txt six
+out="$(bash "$L/land.sh" "$L" L6 merge 2>&1)"; check "L6 merges after the bot push" "0" "$?"
+grep -q 'took in .* from origin/feat/x' "$L/state/EVENTS.log" && ok "the bot commit is taken in first, and logged" \
+  || no "the bot commit is taken in first, and logged" "$(tail -3 "$L/state/EVENTS.log")"
+# The shared tree holds an uncommitted copy of exactly what L6 commits: a stale copy, not work.
+printf 'six\n' > "$T/wt/e.txt"; git -C "$T/wt" add -N e.txt 2>/dev/null
+out="$(bash "$L/land.sh" "$L" L6 publish 2>&1)"; rc=$?
+check "L6 publishes over the stale copy" "0" "$rc"
+check "and the push carries the bot commit and L6" "$(git -C "$T/wt" rev-parse HEAD)" "$(git -C "$T/origin.git" rev-parse feat/x 2>/dev/null)"
+[ -f "$T/wt/bot.txt" ] && ok "the bot file is in the shared tree" || no "the bot file is in the shared tree" "$(ls "$T/wt")"
+# A real uncommitted edit (not what lands) is someone's work: it is never dropped.
+branch L7 a.txt seven
+printf 'mine\n' > "$T/wt/a.txt"
+bash "$L/land.sh" "$L" L7 merge >/dev/null 2>&1
+out="$(bash "$L/land.sh" "$L" L7 publish 2>&1)"; rc=$?
+check "a different uncommitted edit stops the fast-forward" "1" "$rc"
+check "and it is kept" "mine" "$(cat "$T/wt/a.txt")"
+case "$out" in *a.txt*) ok "the refusal names the file" ;; *) no "the refusal names the file" "$out" ;; esac
+git -C "$T/wt" checkout -q -- a.txt; bash "$L/land.sh" "$L" L7 abort >/dev/null 2>&1
+
+echo
+echo "== a solo tag runs alone, and requeue.sh puts a skipped tag back =="
+W5="$T/ws5"; new_ws "$W5" 1 3; reset_mock; cp "$REF/requeue.sh" "$W5/"
+prompt "$W5" S1 S2 S3 S4
+queue "$W5" S1 S2 S3 S4
+: > "$W5/state/S3.solo"
+printf 'S1\n' > "$W5/state/S3.after"
+bash "$W5/schedule.sh" "$W5" >/dev/null
+check "the solo tag waits for its blocker; the others start" "S1 S2 S4" "$(launched)"
+echo DONE > "$W5/state/S1.status"; reset_mock
+bash "$W5/schedule.sh" "$W5" >/dev/null
+check "ready but writers still run: the solo tag waits and nothing new starts" "" "$(launched)"
+echo DONE > "$W5/state/S2.status"; echo DONE > "$W5/state/S4.status"; reset_mock
+bash "$W5/schedule.sh" "$W5" >/dev/null
+check "no writer left: the solo tag starts" "S3" "$(launched)"
+prompt "$W5" S5; queue "$W5" S5; reset_mock
+bash "$W5/schedule.sh" "$W5" >/dev/null
+check "nothing starts beside a running solo tag" "" "$(launched)"
+
+prompt "$W5" R1 R2 R3; queue "$W5" R1 R2 R3
+echo "BLOCKED: env down" > "$W5/state/R1.status"
+printf 'R1\n' > "$W5/state/R2.after"; printf 'R2\n' > "$W5/state/R3.after"
+bash "$W5/schedule.sh" "$W5" >/dev/null
+check "R1 blocked skips R2" "SKIPPED: blocker R1 BLOCKED" "$(head -1 "$W5/state/R2.status" 2>/dev/null)"
+out="$(bash "$W5/requeue.sh" "$W5" R1 2>&1)"; check "requeue succeeds" "0" "$?"
+[ ! -e "$W5/state/R1.status" ] && [ ! -e "$W5/state/R2.status" ] && [ ! -e "$W5/state/R3.status" ] \
+  && ok "R1 and everything it skipped lose their status" \
+  || no "R1 and everything it skipped lose their status" "$(ls "$W5/state" | grep status)"
+printf 'NOTEMPTY\n' > /dev/null
+: > "$W5/state/E1.status"
+mkdir -p "$W5/state"; cp "$REF/close.sh" "$W5/"
+bash "$W5/close.sh" "$W5" E1 >/dev/null 2>&1
+check "close.sh treats an empty status as no outcome" "3" "$?"
+
+echo
 echo "== render.sh resolves the mode blocks, and bootstrap resolves every template once =="
 R="$T/r"; mkdir -p "$R"
 printf 'A\n{{#BLITZ}}\nblitz\n{{/BLITZ}}\n{{^BLITZ}}\nserial\n{{/BLITZ}}\nZ\n' > "$R/t.md"

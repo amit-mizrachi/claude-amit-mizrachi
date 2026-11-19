@@ -910,3 +910,36 @@ seen the night. So the sprint now ends with an async `RETRO` ticket.
   `/amit-mizrachi:retro` expands it. The prompt also names the file to read if it did not expand.
 - **`retro-digest.sh` reads the transcripts.** One implementer's transcript can pass 10 MB; three
   read whole fill the retro's window before it finds anything.
+
+## A follow-up sprint rebuilt a healthy stack, and four landings stayed on the laptop (2026-11-19, side-chat-open-builder-2, 1.27.0)
+
+A blitz follow-up sprint of seven tickets ran on the same branches as the night before, with that
+night's dev stack still up and serving the shared worktree. What cost the time, from the
+transcripts:
+
+- **The verify ticket rebuilt the stack twice.** Its ticket, written by the conductor, said
+  "restart the stack". It killed a healthy stack, booted it again (about 14 minutes), and later
+  rebooted it a second time when a health check was slow on the overloaded machine. The changes
+  were io-client code that Vite would have hot-reloaded in seconds. The ticket ran 118 minutes;
+  the same kind of walk took 33 (T11) and 36 (TEST, the night before). Now: kickoff records the
+  stack that is already up (PLAN.md `Stacks already up`, including one an earlier sprint left),
+  and every implementer and tester prompt says to reuse it - pull in place, hot reload, restart
+  one service at most, full reboot only after three minutes of a failing health URL.
+- **Measurements ran beside builds.** The baseline (T11) recorded animations while four tickets
+  ran pnpm, jest and Vite; the verify ran at load 80-110 with 42 GB of swap. Every timing was
+  inflated. Now: `.solo` - a measuring or stack-walking tag starts only when no writer runs, and
+  nothing new starts beside it.
+- **An empty status meant two things.** The conductor "re-queued" T13 by truncating its status.
+  schedule.sh read empty as not ended and launched it; watch.sh read it as ended and closed the
+  session 4 seconds later. Now both read empty as no outcome, and `requeue.sh` is the one way back.
+- **Four tickets landed only locally.** The i18n bot pushed to the sprint branch; every later
+  `land.sh publish` push was rejected and exited 6 "the next landing pushes it", which the next
+  landing could not do either. Now `merge` takes in what the remote gained first, and `publish`
+  retries a rejected push once after taking it in.
+- **A stale shared-tree edit blocked a landing.** The night before, FIX-FINAL left one doc line
+  uncommitted in the shared tree; T08 carried the same line and could not fast-forward. Now
+  `land.sh` drops an uncommitted copy only when it is byte-identical to what lands, and the fix
+  and test prompts end with a clean tree.
+- **The PR was merged mid-sprint.** The user squash-merged the platform PR while the final review
+  ran; only that review noticed, and five fixes landed on a merged branch. Now the runner raises
+  `PR-MERGED` once, and the conductor carries the rest to a follow-up PR off the base.
