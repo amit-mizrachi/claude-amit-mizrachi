@@ -91,7 +91,7 @@ fi
 
 # Already finished, or already running. Either way this is not ours to start. The atomic
 # claim inside launch.sh is the real guard against a double start; this is just quieter.
-if [ -f "$STATE/$next.status" ]; then
+if [ -n "$(head -1 "$STATE/$next.status" 2>/dev/null | tr -d '[:space:]')" ]; then
   note "$reason -> $next already terminal ($(head -1 "$STATE/$next.status"))"
   exit 0
 fi

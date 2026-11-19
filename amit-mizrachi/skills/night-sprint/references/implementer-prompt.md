@@ -105,6 +105,16 @@ Never start a long-running stack (`make dev`, `pnpm dev`, a dev server, an emula
 
 It runs in its own process group, owned by no session, and the reaper never stops it. It stays up after you, after the sprint, until the user stops it - so never stop it yourself, never `kill` it, and never run the stack's own stop/down target on it. `bash <WS>/keep-stack.sh <WS> list` shows what is up; its output is in `<WS>/stacks/<name>.log`. A stack that is already up under that name is reused, not restarted - read its URLs from the log or the stack's own status command. Write the name, the URLs and the log path into your summary so the next session and the user can find it.
 
+## A stack that is already up is reused, never rebuilt
+
+Before you boot anything, look for a stack that already serves this code: `bash <WS>/keep-stack.sh <WS> list`, the `Stacks already up` row of <WS>/PLAN.md (a stack an EARLIER sprint or the user left running, with its health URL and the tree it serves), and the stack's own status command. If one answers its health URL, use it:
+
+1. Bring its code up to date IN PLACE. Pull the tree it serves (`git -C <that tree> pull --ff-only origin <branch>`) only when that tree is clean and on the sprint branch; hot reload (Vite, nodemon, wrangler dev and the like) applies the rest within seconds.
+2. Restart ONE service only when its code changed and it does not hot-reload (PLAN.md names which ones), with the stack's own per-service target.
+3. Re-apply an overlay (a seed, an agent spec) only when the change touched it.
+
+A full reboot is the last resort: only when the health URL still fails after steps 1-3 and three minutes of retries. Never stop a healthy stack to "start clean", and never because a ticket says "restart" - the ticket was written before anyone knew the stack was up. Say in your summary what you reused, what you pulled and what you restarted. On 2026-11-19 a verify ticket killed a healthy stack and rebuilt it twice for io-client changes Vite would have hot-reloaded: about 20 minutes of boots, and the machine's load went to 80-110 for the measurements that followed.
+
 ## Found something real that is not your ticket?
 
 Do not fix it and do not leave it unsaid. One line:

@@ -19,6 +19,16 @@ HOW TO EXERCISE IT - <pick exactly one at kickoff and delete the rest>:
 
 <C. CUSTOM: <the exact command(s) the user asked for at kickoff>.>
 
+## A stack that is already up is reused, never rebuilt
+
+Before you boot anything, look for a stack that already serves this code: `bash <WS>/keep-stack.sh <WS> list`, the `Stacks already up` row of <WS>/PLAN.md (a stack an EARLIER sprint or the user left running, with its health URL and the tree it serves), and the stack's own status command. If one answers its health URL, use it:
+
+1. Bring its code up to date IN PLACE. Pull the tree it serves (`git -C <that tree> pull --ff-only origin <branch>`) only when that tree is clean and on the sprint branch; hot reload (Vite, nodemon, wrangler dev and the like) applies the rest within seconds.
+2. Restart ONE service only when its code changed and it does not hot-reload (PLAN.md names which ones), with the stack's own per-service target.
+3. Re-apply an overlay (a seed, an agent spec) only when the change touched it.
+
+A full reboot is the last resort: only when the health URL still fails after steps 1-3 and three minutes of retries. Never stop a healthy stack to "start clean", and never because a ticket says "restart" - the ticket was written before anyone knew the stack was up. Say in your summary what you reused, what you pulled and what you restarted. On 2026-11-19 a verify ticket killed a healthy stack and rebuilt it twice for io-client changes Vite would have hot-reloaded: about 20 minutes of boots, and the machine's load went to 80-110 for the measurements that followed.
+
 GOLDEN PATH - walk each step, capture what you actually saw, mark PASS or FAIL:
 1. <step 1 of the end-to-end acceptance, authored by the conductor at kickoff>
 2. <step 2>
@@ -60,6 +70,9 @@ Write each step's result into <WS>/state/TEST-REPORT.md AS YOU GO, so a half-wri
 Leave every stack UP - when you relay AND when you finish. The user keeps using it after the sprint and stops it themselves; never stop, kill or tear down a kept stack, and never run the stack's own down target. Put a `## Stacks left up` section in TEST-REPORT.md: each stack's name, URLs, log path and its stop command from `keep-stack.sh <WS> list`.
 
 ## WHEN DONE
+
+Before you write your status, `git status --short --untracked-files=no` in every tree you worked in prints nothing: commit each edit or revert it. An edit left uncommitted in the shared tree blocks every later landing (2026-11-19: one doc line left by FIX-FINAL blocked T08 in the next sprint).
+
 
 **DONE means you finished testing. It does not mean the feature passed.** Those are two different facts and they go in two different files. A sprint once reported every stage complete over a red branch because nothing separated them.
 

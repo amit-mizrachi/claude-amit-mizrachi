@@ -344,7 +344,10 @@ if len(live)>1: print(" ".join(sorted(str(r.get("id") or "?") for r in live)))' 
     # 1. The session reported its own outcome. That always wins, and it is also the moment
     #    the chain moves - through advance.sh, which reads `.next` (written BEFORE the status)
     #    so a session's last-minute decision about its successor is never raced.
-    if [ -f "$st" ]; then
+    #    An EMPTY status file is no outcome: schedule.sh reads it as "not ended" and launches the
+    #    tag, so reading it here as an end closed the session schedule.sh had just started
+    #    (2026-11-19, T13). Both read it the same way now; requeue.sh is how a tag goes back.
+    if [ -n "$(head -1 "$st" 2>/dev/null | tr -d '[:space:]')" ]; then
       line="$(head -1 "$st")"
       case "$line" in
         DONE*|SKIPPED*) any_done=1 ;;
@@ -507,6 +510,7 @@ for r in rows:
   # A multi-repo sprint has one PR per repo, so it asks once PER REPO, the first time a tag of
   # that repo ends DONE (a continuation counts for its ticket's repo).
   if [ "$any_done" -eq 1 ] && [ -f "$WS/REPO_KEYS" ]; then
+    repo_keys=()
     read -r -a repo_keys < "$WS/REPO_KEYS"
     for key in "${repo_keys[@]}"; do
       [ -f "$STATE/.pr-asked-$key" ] && continue
@@ -533,6 +537,29 @@ for r in rows:
     fi
   fi
 
+  # A sprint PR merged while the sprint still runs (2026-11-19: the user squash-merged #4200 while
+  # its final review ran). Everything that lands after the merge reaches a dead branch, and only the
+  # final review noticed. Said once per PR, so the conductor can carry the rest onto a follow-up
+  # branch off the base and tell the sessions still running.
+  if [ -f "$WS/REPO_KEYS" ]; then
+    pm_keys=()
+    read -r -a pm_keys < "$WS/REPO_KEYS"
+    for key in "${pm_keys[@]}"; do
+      [ -f "$STATE/.pr-asked-$key" ] && [ ! -f "$STATE/.pr-merged-$key" ] || continue
+      pm_wt="$(repo_fact "$WS" "$key" WORKTREE 2>/dev/null || true)"
+      pm_br="$(repo_fact "$WS" "$key" BRANCH 2>/dev/null || true)"
+      if [ "$(cd "$pm_wt" 2>/dev/null && gh pr view "$pm_br" --json state -q .state 2>/dev/null)" = "MERGED" ]; then
+        : > "$STATE/.pr-merged-$key"
+        emit_once "sprint:pr-merged:$key" "PR-MERGED $key - the $pm_br PR is merged; what lands from now on needs a follow-up PR off the base"
+      fi
+    done
+  elif [ -f "$STATE/.pr-asked" ] && [ ! -f "$STATE/.pr-merged" ] && [ -n "$WT" ]; then
+    if [ "$(cd "$WT" 2>/dev/null && gh pr view --json state -q .state 2>/dev/null)" = "MERGED" ]; then
+      : > "$STATE/.pr-merged"
+      emit_once "sprint:pr-merged" "PR-MERGED - the sprint PR is merged; what lands from now on needs a follow-up PR off the base"
+    fi
+  fi
+
   # PATCHED (machina-feedback sprint, 2026-09-23): the SWEEP 0 race. `open_n` only counts tags
   # that already have a .session file, so the gap between a status landing and its successor's
   # .session being written (launch.sh resolves the id AFTER the claim, a relay launches its own
@@ -543,7 +570,8 @@ import os, sys, glob
 st = sys.argv[1]
 def status(t):
     p = os.path.join(st, t + ".status")
-    return open(p).readline().strip() if os.path.exists(p) else None
+    line = open(p).readline().strip() if os.path.exists(p) else ""
+    return line or None   # an empty file is no outcome, as in schedule.sh
 out = set()
 for sp in glob.glob(os.path.join(st, "*.status")):
     tag = os.path.basename(sp)[:-len(".status")]

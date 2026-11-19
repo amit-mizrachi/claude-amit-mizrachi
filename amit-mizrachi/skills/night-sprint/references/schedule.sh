@@ -32,6 +32,12 @@
 #                        never counts either: a serial sprint's cap of 1 would otherwise hold
 #                        the CI ticket until TEST ended, which is the wait async exists to remove.
 #   state/<TAG>.async  - present = this tag is async (see above). A relay copies it on.
+#   state/<TAG>.solo   - present = this tag runs ALONE: it starts only when no other writer is
+#                        running, and while it is ready or running no new writer starts. For a
+#                        ticket that MEASURES (timings, animations, load, a perf trace) or walks the
+#                        dev stack: five builds beside it (pnpm, jest, Vite, Chromium) put the laptop
+#                        at load 80-110 and every number it took was inflated (2026-11-19). Finders
+#                        and async tags still run beside it; they are light and read only.
 #   BLITZ              - `1` in blitz mode. Otherwise the cap is 1.
 #   state/PAUSED       - present: start nothing, exactly like launch.sh.
 # Writes state/EVENTS.log, one line per start and per skip. Always exits 0 after a clean run.
@@ -135,21 +141,40 @@ while changed:
                 changed = True
                 break
 
+def solo(tag):
+    # A continuation (T13c2) inherits the marker of its ticket.
+    base = re.sub(r"c\d+$", "", tag)
+    return any(os.path.exists(os.path.join(state, t + ".solo")) for t in {tag, base})
+
 writers = 0
+solo_running = False
 for cd in glob.glob(os.path.join(state, "claim-*")):
     tag = os.path.basename(cd)[len("claim-"):]
     if status(tag) is None and needs_slot(tag):
         writers += 1
+        solo_running = solo_running or solo(tag)
+
+def ready(tag):
+    if status(tag) is not None or claimed(tag):
+        return False
+    if any(resolve(d) != "DONE" for d in deps(tag, "after")):
+        return False
+    return not any(resolve(d) == "PENDING" for d in deps(tag, "waits"))
+
+# A solo tag that is ready drains the writers: nothing new starts until it can run alone.
+solo_waiting = any(solo(t) and needs_slot(t) and ready(t) for t in queued)
 
 for tag in queued:
-    if status(tag) is not None or claimed(tag):
-        continue
-    if any(resolve(d) != "DONE" for d in deps(tag, "after")):
-        continue
-    if any(resolve(d) == "PENDING" for d in deps(tag, "waits")):
+    if not ready(tag):
         continue
     if needs_slot(tag):
-        if writers >= cap:
+        if solo_running or writers >= cap:
+            continue
+        if solo(tag):
+            if writers > 0:
+                continue
+            solo_running = True
+        elif solo_waiting:
             continue
         writers += 1
     print("LAUNCH %s" % tag)
