@@ -317,7 +317,8 @@ check "with facts.env: bootstrap succeeds" "0" "$rc"
 # agents.sh is sourced on the first line of four scripts. A workspace without it has a
 # launcher, a reviver, a runner and a closer that all fail before doing anything.
 for need in agents.sh repos.sh launch.sh advance.sh watch.sh runner.sh revive.sh classify-error.sh \
-            context-used.sh schedule.sh land.sh accept.sh ci-prompt.md render.sh continuation-prompt.md; do
+            context-used.sh schedule.sh land.sh accept.sh ci-prompt.md render.sh continuation-prompt.md \
+            retro-prompt.md retro-digest.sh; do
   [ -f "$BWS/$need" ] && ok "copied $need" || no "copied $need" "absent from $BWS"
 done
 check "PERMISSION_MODE defaults to auto" "auto" "$(cat "$BWS/PERMISSION_MODE")"
@@ -1735,6 +1736,94 @@ check "and the group is gone" "no" "$(kill -0 -- "-${KG:-0}" 2>/dev/null && echo
 check "STACKS.md has the UP and DOWN lines" "2" "$(grep -c ' \(UP\|DOWN\) demo ' "$KW/state/STACKS.md")"
 check "a bad name is refused" "2" "$(bash "$KW/keep-stack.sh" "$KW" start 'a b' "$KW" -- true >/dev/null 2>&1; echo $?)"
 rm -rf "$KW"
+
+# --- The sprint ends with an async RETRO ticket. 2026-11-19: every morning report named the night's
+# incidents and nothing changed until the user ran /retro by hand. RETRO runs /amit-mizrachi:retro
+# last, async, and acts on it in its own draft PRs, never on the sprint branch.
+echo
+echo "== an async RETRO ticket runs the retro last and acts on it =="
+RR="$(mktemp -d)"
+cat > "$RR/facts.env" <<'ENV'
+REPO=repo
+REPO_PATH=/tmp/repo
+REPO_SLUG=owner/repo
+SLUG=rslug
+USER=Amit
+WS=/tmp/ws
+WORKTREE=/tmp/wt
+BRANCH=feat/x
+BASE=main
+TOOLCHAIN=true
+VERIFY=pnpm test
+FORMAT_CHECK=pnpm format:check
+CONTEXT_WINDOW=1000000
+WARN_AT_USED=20
+RELAY_AT_USED=30
+ENV
+printf 'TAG=RETRO\n' > "$RR/vars-RETRO.env"
+bash "$REF/render.sh" "$RR" "$REF/retro-prompt.md" "$RR/prompt-RETRO.txt" "$RR/vars-RETRO.env" >/dev/null 2>&1
+check "the RETRO prompt renders with no unfilled slot" "0" "$?"
+head -1 "$RR/prompt-RETRO.txt" | grep -q '^/amit-mizrachi:retro night sprint rslug - RETRO' \
+  && ok "its first line is the retro slash command (the skill is not model-invocable)" \
+  || no "its first line is the retro slash command (the skill is not model-invocable)" "$(head -1 "$RR/prompt-RETRO.txt")"
+grep -q 'pwd    # /tmp/wt-RETRO$' "$RR/prompt-RETRO.txt" \
+  && ok "it works in a tree of its own" || no "it works in a tree of its own" "$(grep -n 'pwd' "$RR/prompt-RETRO.txt")"
+grep -q 'git switch -c night-sprint-retro/rslug origin/main' "$RR/prompt-RETRO.txt" \
+  && ok "its fixes go on a branch off the base, not the sprint branch" \
+  || no "its fixes go on a branch off the base, not the sprint branch" "no retro branch line"
+grep -q '{{' "$RR/prompt-RETRO.txt" && no "no block marker is left" "$(grep -n '{{' "$RR/prompt-RETRO.txt")" \
+  || ok "no block marker is left"
+grep -q '^3\. `: > <WS>/state/<TAG>.next`' "$REF/retro-prompt.md" \
+  && ok "the RETRO ticket has no successor" || no "the RETRO ticket has no successor" "a .next is wired"
+grep -q 'bash <WS>/advance.sh <WS> <TAG>' "$REF/retro-prompt.md" \
+  && ok "the RETRO ticket ends through advance.sh" || no "the RETRO ticket ends through advance.sh" "no advance.sh"
+grep -q 'touch state/RETRO.queued' "$HERE/../SKILL.md" && grep -q 'state/RETRO.async state/RETRO.snapshot' "$HERE/../SKILL.md" \
+  && ok "the kickoff queues RETRO async, in its own tree" || no "the kickoff queues RETRO async, in its own tree" "no queue line"
+grep -q 'echo FIX-TEST >> <WS>/state/RETRO.waits' "$REF/test-prompt.md" \
+  && ok "TEST makes the retro wait for a repair pass" || no "TEST makes the retro wait for a repair pass" "no append"
+grep -q 'echo CI2 >> <WS>/state/RETRO.waits' "$REF/review-fix-prompt.md" \
+  && ok "FIX-TEST makes the retro wait for CI2" || no "FIX-TEST makes the retro wait for CI2" "no append"
+rm -rf "$RR"
+
+# The scheduler holds RETRO until everything it waits on has ended, the appended tags included.
+RS="$(mktemp -d)"; mkdir -p "$RS/state"
+cp "$REF/schedule.sh" "$RS/"
+printf '#!/usr/bin/env bash\nmkdir "$1/state/claim-$2" && echo "$2" >> "$1/launched"\n' > "$RS/launch.sh"
+: > "$RS/state/RETRO.queued"; : > "$RS/state/RETRO.async"
+echo "FIX-FINAL CI TEST" > "$RS/state/RETRO.waits"
+echo DONE > "$RS/state/FIX-FINAL.status"; echo DONE > "$RS/state/CI.status"
+echo FIX-TEST >> "$RS/state/RETRO.waits"; echo DONE > "$RS/state/TEST.status"
+bash "$RS/schedule.sh" "$RS" >/dev/null 2>&1
+check "RETRO waits while FIX-TEST, appended by TEST, has not ended" "" "$(cat "$RS/launched" 2>/dev/null)"
+echo CI2 >> "$RS/state/RETRO.waits"; echo DONE > "$RS/state/FIX-TEST.status"
+bash "$RS/schedule.sh" "$RS" >/dev/null 2>&1
+check "and while CI2, appended by FIX-TEST, has not ended" "" "$(cat "$RS/launched" 2>/dev/null)"
+echo "BLOCKED: red" > "$RS/state/CI2.status"
+mkdir "$RS/state/claim-T09"   # a writer holding the only serial slot does not hold an async tag
+bash "$RS/schedule.sh" "$RS" >/dev/null 2>&1
+check "it starts once all have ended, any way, beside a writer" "RETRO" "$(cat "$RS/launched" 2>/dev/null)"
+rm -rf "$RS"
+
+# retro-digest.sh condenses each session's transcript; the retro never reads one whole.
+RD="$(mktemp -d)"; mkdir -p "$RD/state" "$RD/projects/p"
+echo abcd1234 > "$RD/state/T01.session"; echo gone0000 > "$RD/state/T02.session"
+python3 - "$RD/projects/p/abcd1234-0000-4000-8000-000000000000.jsonl" <<'PY2'
+import json, sys
+rows = [{"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "t%d" % i, "name": "Read", "input": {"file_path": "/r/a.ts"}}]}} for i in range(3)]
+rows += [{"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t%d" % i, "content": "x" * 4096}]}} for i in range(3)]
+rows += [{"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "b1", "name": "Bash", "input": {"command": "pnpm lint"}}]}},
+         {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "b1", "is_error": True, "content": "lint failed: no-floating-promises"}]}}]
+open(sys.argv[1], "w").write("\n".join(json.dumps(r) for r in rows) + "\nnot json\n")
+PY2
+CLAUDE_CONFIG_DIR="$RD" bash "$REF/retro-digest.sh" "$RD" >/dev/null 2>&1
+check "retro-digest.sh writes its page" "0" "$?"
+DG="$(cat "$RD/state/RETRO.digest.md" 2>/dev/null)"
+printf '%s' "$DG" | grep -q 'calls: Read 3, Bash 1' && ok "it counts tool calls by name" || no "it counts tool calls by name" "$DG"
+printf '%s' "$DG" | grep -q 'read 3 times: `/r/a.ts`' && ok "it names a file read three times" || no "it names a file read three times" "$DG"
+printf '%s' "$DG" | grep -q 'Bash pnpm lint -> lint failed: no-floating-promises' && ok "it quotes a failed call" || no "it quotes a failed call" "$DG"
+printf '%s' "$DG" | grep -q 'no transcript found for session `gone0000`' && ok "a missing transcript is one line, not a crash" \
+  || no "a missing transcript is one line, not a crash" "$DG"
+rm -rf "$RD"
 
 echo
 echo "== $pass passed, $fail failed =="

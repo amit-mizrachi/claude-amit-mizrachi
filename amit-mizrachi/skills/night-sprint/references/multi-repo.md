@@ -91,6 +91,7 @@ cuts a blitz ticket's tree or a finder's snapshot from that repo's branch. A con
 | `TEST` (opt-in) | none | queued | `.waits` = every `FIX-FINAL-<key>`, never a CI tag; `.next` = `FIX-TEST` or empty, the tester decides |
 | `FIX-TEST` | none | the chain | `.next` empty; it `touch`es `state/CI2-<key>.queued` for each repo it pushed to |
 | `CI2-<key>` | key | queued by `FIX-TEST` | `.snapshot` + `.async` + `.waits` = `FIX-TEST CI-<key>`, written at kickoff; prompt rendered at kickoff; NOT queued at kickoff |
+| `RETRO` (unless `retro: none`) | the first key | queued + `.snapshot` + `.async` | ONE for the sprint. `.waits` = every `FIX-FINAL-<key>`, every `CI-<key>`, and `TEST` when chosen; `FIX-TEST` appends each `CI2-<key>` it queues. It opens one draft retro PR per repo it changes; `.next` empty |
 
 Do not queue `CI2-<key>` yourself: a queued tag whose `FIX-TEST` never runs is `STRANDED`.
 
@@ -118,6 +119,7 @@ sibling worktrees in what it gives the reviewer, so both sides of the contract a
 | `REVIEW-C<n>-<key>` / `REVIEW-FINAL-<key>` | `FIX_TAG=FIX-FINAL-<key>`, `NEXT_AFTER_FIX=` empty; `SCOPE` runs in that repo (`git merge-base origin/<its BASE> HEAD`, then `state/REVIEW-C<n-1>-<key>.headsha`) |
 | `FIX-FINAL-<key>` | `FIND_TAG=REVIEW-FINAL-<key>`, `NEXT_TAG=` empty |
 | `CI-<key>` / `CI2-<key>` | `TAG=CI-<key>` / `TAG=CI2-<key>` |
+| `RETRO` | rendered with the first repo's file; `TAG=RETRO` |
 | `TEST` | rendered with the first repo's file; `FIND_FINAL_TAG=the REVIEW-FINAL-<key> sessions` |
 | `FIX-TEST` | rendered with the first repo's file; `FIND_TAG=TEST`, `NEXT_TAG=` empty |
 

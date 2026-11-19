@@ -152,6 +152,11 @@ The parts that make it survive an unattended night:
   `state/ACCEPTANCE.verdict`. Nothing waits for it: when only async tags are left the runner says
   `CHAIN-DONE` and the morning report is written then. The runner still revives the CI ticket if
   it dies and closes its session when it ends.
+- **The night ends with a retro that acts.** Last, an async `RETRO` ticket (on unless
+  `retro: none`) runs `/amit-mizrachi:retro` over every session of the night - `retro-digest.sh`
+  condenses each transcript for it - and applies the High and Medium environment fixes it finds
+  (AGENTS.md pointers, lint rules, CI jobs, the plugin's own templates) as draft PRs off the base,
+  never on the sprint branch. Changes to your global files are only proposed, in `state/RETRO.md`.
 - **Finished sessions are removed.** Once a tag is terminal and the chain has moved past it, the
   runner stops its session and takes it off the agent list with `claude rm`. The shared worktree
   and the transcript are kept, so `claude --resume <sessionId>` still reopens it. At the end only

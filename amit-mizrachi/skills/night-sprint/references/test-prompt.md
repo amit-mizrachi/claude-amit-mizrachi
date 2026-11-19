@@ -82,7 +82,9 @@ Leave every stack UP - when you relay AND when you finish. The user keeps using 
 
 5. Write `<WS>/state/TEST.next` - **before** your status, and write it exactly once:
 
-   - **A repair pass is PENDING** -> `echo "FIX-TEST" > <WS>/state/TEST.next`, and **SKIP STEP 6
+   - **A repair pass is PENDING** -> `echo "FIX-TEST" > <WS>/state/TEST.next`, and if the sprint
+     has a retro (`<WS>/state/RETRO.queued` exists) `echo FIX-TEST >> <WS>/state/RETRO.waits`, so
+     the retro waits for the repair too. Then **SKIP STEP 6
      ENTIRELY**. Do not touch SETUP.verdict. FIX-TEST fixes the failures, re-runs the steps that
      failed, rewrites GOLDEN.verdict, and writes the setup verdict itself once the golden path
      actually passes.
