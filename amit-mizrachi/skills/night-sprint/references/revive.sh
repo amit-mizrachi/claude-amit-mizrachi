@@ -503,7 +503,7 @@ in your summary, and keep going."
   esac
   echo "revive: $TAG rung=resume ($RUNG_OF) launch=r$attempt cause=$CAUSE from=$OLD_SID"
   PRE_SIDS="$(known_sids)"
-  ( cd "$WT" && claude --bg --resume "$OLD_SID" -n "$NAME" --permission-mode "$MODE" "$CONTINUE_PROMPT" ) \
+  ( cd "$WT" && claude --bg --resume "$OLD_SID" -n "$NAME" --permission-mode "$MODE" "$CONTINUE_PROMPT" </dev/null ) \
     > "$STATE/$TAG.revive-$attempt.log" 2>&1
   rc=$?
 

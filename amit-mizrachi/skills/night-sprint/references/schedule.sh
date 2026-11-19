@@ -101,7 +101,11 @@ def deps(tag, kind):
     return (read(os.path.join(state, tag + "." + kind)) or "").split()
 
 def natural(tag):
-    rank = 0 if re.match(r"T\d", tag) else (1 if tag.startswith("REVIEW-C") else 2)
+    # Async tags go last, so a chain tag (TEST, beside the CI ticket) starts first.
+    if os.path.exists(os.path.join(state, tag + ".async")):
+        rank = 3
+    else:
+        rank = 0 if re.match(r"T\d", tag) else (1 if tag.startswith("REVIEW-C") else 2)
     return (rank, [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", tag)])
 
 def claimed(tag):
@@ -160,7 +164,10 @@ printf '%s\n' "$plan" | while read -r verb tag rest; do
   case "$verb" in
     SKIP)   note "$tag SKIPPED: ${rest}" ;;
     LAUNCH) note "$tag ready - launching"
-            out="$(bash "$WS/launch.sh" "$WS" "$tag" 2>&1)"; rc=$?
+            # </dev/null: `claude --bg` reads stdin, and here stdin is the plan. Fed the pipe, the
+            # first launch ate every later line, so one sweep started one tag and TEST sat a whole
+            # sweep behind the CI ticket.
+            out="$(bash "$WS/launch.sh" "$WS" "$tag" 2>&1 </dev/null)"; rc=$?
             note "$tag launch rc=$rc $(printf '%s' "$out" | tail -1)" ;;
   esac
   printf '%s %s %s\n' "$verb" "$tag" "$rest"
