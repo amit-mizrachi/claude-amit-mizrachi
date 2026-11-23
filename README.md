@@ -1,9 +1,9 @@
 # amit-mizrachi
 
-Thirteen [Claude Code](https://claude.com/claude-code) skills for running work you are not
+Fourteen [Claude Code](https://claude.com/claude-code) skills for running work you are not
 sitting and watching - handing a session off, turning a feature into a spec and tickets, taking
 it through the night, reviewing it with one deep reviewer, researching a product question end to end, taking a feature from idea to
-plan to PR, and keeping a big effort's map legible - plus `codex-bridge`, an MCP server that lets
+plan to PR, fixing a reported AI agent issue from eval repro to approved PR, and keeping a big effort's map legible - plus `codex-bridge`, an MCP server that lets
 Claude ask OpenAI Codex for a second opinion, `night-watch`, a live terminal board of every
 sprint and marathon in flight, and the macOS hook that stops your machine sleeping through it.
 
@@ -16,7 +16,7 @@ sprint and marathon in flight, and the macOS hook that stops your machine sleepi
 
 Start a new session (or `/clear`). The skills then appear as `amit-mizrachi:next-prompt`,
 `amit-mizrachi:night-sprint`, `amit-mizrachi:product-research`, `amit-mizrachi:to-spec`,
-`amit-mizrachi:to-tickets`, `amit-mizrachi:night-marathon`, `amit-mizrachi:deep-review`,
+`amit-mizrachi:to-tickets`, `amit-mizrachi:night-marathon`, `amit-mizrachi:agent-fix`, `amit-mizrachi:deep-review`,
 `amit-mizrachi:mywayfinder`, `amit-mizrachi:fable-review`, `amit-mizrachi:address-review`,
 `amit-mizrachi:wait-what`, `amit-mizrachi:retro`, and
 `amit-mizrachi:writing-for-agents`.
@@ -266,6 +266,27 @@ reports name the time each one cost.
 `night-sprint` gained what this needs: a kickoff with `approval: delegated`, where a calling
 skill may already have written the tickets, and `repo:` source locators in the
 research citation check.
+
+### `agent-fix`
+
+Fixes one reported AI agent issue end to end, unattended, as three conductors on `night-sprint`'s
+phase chain:
+
+1. **TRIAGE** - understands the issue from the report, the traces and the code; turns it into
+   eval cases and proves them **RED** on the live eval agent (`send_chat_turn` + `grade_trial`,
+   several trials each, oracle re-read from the seed) before opening one case PR; writes the fix
+   options and consults **Astra** (Codex `gpt-6-astra` via `codex-bridge`) and **Fable** (one
+   read-only subagent) with the same neutral brief; picks the cleanest fix. A fix that names the
+   eval's question is a plaster and is never picked.
+2. **BUILD** - a code `night-sprint` (reviews, FIX-FINAL, async CI) whose test session proves the
+   same cases **GREEN** on an agent running the fix branch, plus a small regression selection.
+3. **SHIP** - waits for CI, publishes a one-page before/after summary artifact, and DMs the
+   approver on Slack (`approver:`, default Talos) for approval - only when the cases are GREEN and
+   CI is green; otherwise the message is written to a file for you.
+
+It interrupts you at most once: a push notification when a large-scope clean fix and a
+small-scope plaster are both live and the call is not clear. You `claude attach` and reply with
+the option id. An issue that does not reproduce stops the run before any PR.
 
 ### `codex-bridge` (MCP server)
 
