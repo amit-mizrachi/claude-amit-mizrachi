@@ -1,9 +1,9 @@
 # amit-mizrachi
 
-Thirteen [Claude Code](https://claude.com/claude-code) skills for running work you are not
+Fourteen [Claude Code](https://claude.com/claude-code) skills for running work you are not
 sitting and watching - handing a session off, turning a feature into a spec and tickets, taking
 it through the night, reviewing it with one deep reviewer, researching a product question end to end, taking a feature from idea to
-plan to PR, and keeping a big effort's map legible - plus `codex-bridge`, an MCP server that lets
+plan to PR, fixing a reported AI agent issue from eval repro to approved PR, and keeping a big effort's map legible - plus `codex-bridge`, an MCP server that lets
 Claude ask OpenAI Codex for a second opinion, `night-watch`, a live terminal board of every
 sprint and marathon in flight, and the macOS hook that stops your machine sleeping through it.
 
@@ -16,7 +16,7 @@ sprint and marathon in flight, and the macOS hook that stops your machine sleepi
 
 Start a new session (or `/clear`). The skills then appear as `amit-mizrachi:next-prompt`,
 `amit-mizrachi:night-sprint`, `amit-mizrachi:product-research`, `amit-mizrachi:to-spec`,
-`amit-mizrachi:to-tickets`, `amit-mizrachi:night-marathon`, `amit-mizrachi:deep-review`,
+`amit-mizrachi:to-tickets`, `amit-mizrachi:night-marathon`, `amit-mizrachi:agent-fix`, `amit-mizrachi:deep-review`,
 `amit-mizrachi:mywayfinder`, `amit-mizrachi:fable-review`, `amit-mizrachi:address-review`,
 `amit-mizrachi:wait-what`, `amit-mizrachi:retro`, and
 `amit-mizrachi:writing-for-agents`.
@@ -266,6 +266,31 @@ reports name the time each one cost.
 `night-sprint` gained what this needs: a kickoff with `approval: delegated`, where a calling
 skill may already have written the tickets, and `repo:` source locators in the
 research citation check.
+
+### `agent-fix`
+
+Fixes one reported AI agent issue end to end, unattended, as three conductors on `night-sprint`'s
+phase chain: **TRIAGE** (diagnose, prove RED, open one case PR, weigh fix options with **Astra**
+(Codex `gpt-6-astra`) and one read-only **Fable** subagent, pick the cleanest fix), **BUILD** (a
+code `night-sprint` whose test session proves the same cases GREEN), and **SHIP** (wait for CI,
+publish a one-page before/after summary artifact, DM the approver on Slack - `approver:`, default
+Talos - only when the proof is GREEN and CI is green).
+
+**Two halves.** agent-fix owns only the orchestration. Diagnose, reproduce and prove are **role
+skills in a domain repo**, which declares them in one line of its `AGENTS.md`:
+
+    agent-fix roles: diagnose `<path>` · reproduce `<path>` · prove `<path>`
+
+The front door finds that line (or `domain: <repo>[@<ref>]` names the repo), snapshots the repo,
+and the phases follow those skills. `skills/agent-fix/references/contract.md` is the contract:
+the files each role reads and writes, and what its verdict line means. So the company-specific
+know-how (traces, eval tools, seed rules) lives and changes in its own repo; at Shapes it is
+shapes-internal's `diagnosing-an-agent-issue`, `reproducing-an-agent-issue` and
+`proving-an-agent-fix`.
+
+It interrupts you at most once: a push notification when a large-scope clean fix and a
+small-scope plaster are both live and the call is not clear. An issue that does not reproduce
+stops the run before any PR.
 
 ### `codex-bridge` (MCP server)
 
