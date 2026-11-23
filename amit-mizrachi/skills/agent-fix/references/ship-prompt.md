@@ -12,7 +12,7 @@ FIRST, every time this prompt starts a session: `echo "$CLAUDE_CODE_SESSION_ID" 
 
 ## STEP 1 - GATHER
 
-Read <WS>/ISSUE.md, <WS>/BEFORE.md, <WS>/CASES_PR.url, <WS>/FIX-PLAN.md, <WS>/FIX_PRS.url, <WS>/build/AFTER.md, <WS>/build/REPORT.md and <WS>/build/state/GOLDEN.verdict.
+Read <WS>/ISSUE.md, <WS>/BEFORE.md, <WS>/CASES_PR.url, <WS>/FIX-PLAN.md, <WS>/FIX_PRS.url, <WS>/build/AFTER.md, <WS>/build/REPORT.md, <WS>/build/state/GOLDEN.verdict and <WS>/build/state/PROVE.verdict.
 
 Missing FIX_PRS.url or AFTER.md: take what the build report says, and treat the proof as not GREEN.
 
@@ -36,7 +36,7 @@ Write the artifact URL to <WS>/SUMMARY.url.
 
 ## STEP 4 - ASK FOR APPROVAL ON SLACK
 
-Send ONLY when all three hold: GOLDEN.verdict starts with PASS, every case in AFTER.md is GREEN, and every fix PR's required checks are green. Otherwise do not send: write the message to <WS>/SLACK-APPROVER.md for <USER> to send, with one line on why it was held.
+Send ONLY when all three hold: GOLDEN.verdict starts with PASS, PROVE.verdict starts with GREEN, and every fix PR's required checks are green. Otherwise do not send: write the message to <WS>/SLACK-APPROVER.md for <USER> to send, with one line on why it was held.
 
 The message (ASCII, short, in <USER>'s voice):
 
@@ -44,7 +44,10 @@ The message (ASCII, short, in <USER>'s voice):
     Issue: <one sentence>
     Fix: <fix PR url> (<one line on the change>)
     Cases: <case PR url> - <n> case(s), <before total>/<trial total> passing before, <after total>/<trial total> after
+    Please also confirm the expected values in the case PR's "Oracle to confirm" comment - no human has checked them yet.
     Summary: <artifact url>
+
+Leave out the "confirm the expected values" line when the case PR is `none` (every case was an existing one).
 
 Load the Slack tools with ToolSearch (`slack_send_message`). Send it as a direct message to `<APPROVER_SLACK_ID>`. If that is `none` or the tools are missing, write the message to <WS>/SLACK-APPROVER.md instead and say so. Send it once: if the call errors, check the DM for the message before any retry. Record the message link in <WS>/SLACK.url.
 

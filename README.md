@@ -270,23 +270,27 @@ research citation check.
 ### `agent-fix`
 
 Fixes one reported AI agent issue end to end, unattended, as three conductors on `night-sprint`'s
-phase chain:
+phase chain: **TRIAGE** (diagnose, prove RED, open one case PR, weigh fix options with **Astra**
+(Codex `gpt-6-astra`) and one read-only **Fable** subagent, pick the cleanest fix), **BUILD** (a
+code `night-sprint` whose test session proves the same cases GREEN), and **SHIP** (wait for CI,
+publish a one-page before/after summary artifact, DM the approver on Slack - `approver:`, default
+Talos - only when the proof is GREEN and CI is green).
 
-1. **TRIAGE** - understands the issue from the report, the traces and the code; turns it into
-   eval cases and proves them **RED** on the live eval agent (`send_chat_turn` + `grade_trial`,
-   several trials each, oracle re-read from the seed) before opening one case PR; writes the fix
-   options and consults **Astra** (Codex `gpt-6-astra` via `codex-bridge`) and **Fable** (one
-   read-only subagent) with the same neutral brief; picks the cleanest fix. A fix that names the
-   eval's question is a plaster and is never picked.
-2. **BUILD** - a code `night-sprint` (reviews, FIX-FINAL, async CI) whose test session proves the
-   same cases **GREEN** on an agent running the fix branch, plus a small regression selection.
-3. **SHIP** - waits for CI, publishes a one-page before/after summary artifact, and DMs the
-   approver on Slack (`approver:`, default Talos) for approval - only when the cases are GREEN and
-   CI is green; otherwise the message is written to a file for you.
+**Two halves.** agent-fix owns only the orchestration. Diagnose, reproduce and prove are **role
+skills in a domain repo**, which declares them in one line of its `AGENTS.md`:
+
+    agent-fix roles: diagnose `<path>` · reproduce `<path>` · prove `<path>`
+
+The front door finds that line (or `domain: <repo>[@<ref>]` names the repo), snapshots the repo,
+and the phases follow those skills. `skills/agent-fix/references/contract.md` is the contract:
+the files each role reads and writes, and what its verdict line means. So the company-specific
+know-how (traces, eval tools, seed rules) lives and changes in its own repo; at Shapes it is
+shapes-internal's `diagnosing-an-agent-issue`, `reproducing-an-agent-issue` and
+`proving-an-agent-fix`.
 
 It interrupts you at most once: a push notification when a large-scope clean fix and a
-small-scope plaster are both live and the call is not clear. You `claude attach` and reply with
-the option id. An issue that does not reproduce stops the run before any PR.
+small-scope plaster are both live and the call is not clear. An issue that does not reproduce
+stops the run before any PR.
 
 ### `codex-bridge` (MCP server)
 
