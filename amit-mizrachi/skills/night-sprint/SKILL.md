@@ -14,7 +14,7 @@ description: >-
   keeps building, and nothing waits for it) and fixes every finding of the night once, at the end,
   with every review run by ONE deep-review reviewer (`deep-review` ships in this plugin) unless the
   invocation or an AGENTS.md line names a roster of reviewers to run side by side, optionally
-  runs a test session that boots the stack or runs evals, and ends with the PR ready for review plus
+  runs a test session that walks the app in a Shapes cloud dev box (or a laptop stack, or evals), records it as screenshots and a video in one Artifact, and leaves the box running for the user, and ends with the PR ready for review plus
   an ASYNC CI ticket: a session the runner launches, revives and closes like any other, that fixes
   what CI finds red in its own tree while the tester runs beside it and the morning report is
   written without waiting for it. Last, an ASYNC RETRO ticket runs `/amit-mizrachi:retro` over the
@@ -23,7 +23,7 @@ description: >-
   instead of a PR. Use when the user says "night sprint", "sprint this feature", "build this
   overnight", "run this while I sleep", "ticket after ticket", "blitz", or wants a feature taken end
   to end unattended in a single PR.
-argument-hint: "<feature | spec path | ticket dir | issue URL> [speed: serial|blitz] [parallel: <n>] [test: none|dev-stack|evals|<command>] [permission: auto|<mode>] [approval: delegated] [retro: on|none] [mode: research]"
+argument-hint: "<feature | spec path | ticket dir | issue URL> [speed: serial|blitz] [parallel: <n>] [test: none|box|dev-stack|local|evals|<command>] [permission: auto|<mode>] [approval: delegated] [retro: on|none] [mode: research]"
 ---
 
 # Night Sprint
@@ -124,9 +124,21 @@ Decide that deliberately rather than discovering it in the morning.
      one-time interactive disclaimer nobody can accept for the user: if the invocation names it
      and `T01` then stalls on that disclaimer, switch `PERMISSION_MODE` to `auto`, relaunch, and
      log the switch.
-   - **Test session**: `test: none|dev-stack|evals|<cmd>` from the invocation, else **`none`**.
-     For the stack, find your repo's dev-environment skill and its boot command yourself and
+   - **Test session**: `test: none|box|dev-stack|local|evals|<cmd>` from the invocation, else **`none`**.
+     **`box` and `dev-stack` mean the cloud box** (test-prompt mode D, `references/box.md`) when the
+     sprint has a shapes-platform branch: the app runs in a Shapes cloud dev box, not on this
+     laptop, and the box stays up after the sprint. Preflight it now: `claude mcp list 2>/dev/null
+     | grep '^cloud-boxes:'` must say `Connected`. Missing or `Needs authentication` -> fall back to
+     the laptop stack, log it, and put "sign in to the cloud-boxes MCP (`claude mcp add --scope user
+     --transport http cloud-boxes https://api-dev.shapes.services/mcp`, then `/mcp` > cloud-boxes >
+     Authenticate)" in the morning report's "What needs a human". Render `TEST` with
+     `BOX_BRANCH` = the shapes-platform sprint branch. A sprint with no shapes-platform branch, or
+     `test: local`, uses the laptop stack (mode A).
+     For the laptop stack, find your repo's dev-environment skill and its boot command yourself and
      write both into `PLAN.md`; if you cannot find them, fall back to `none` and log it.
+     **A UX-facing golden path is recorded** in mode A and mode D: the tester walks it with
+     `box-capture.sh` and publishes the screenshots and one video as an Artifact
+     (`state/TEST.artifact`). Write the golden path so each step names what a human should see.
      **Look for a stack that is already up** before anything plans to boot one: `keep-stack.sh
      list` in this workspace AND in any earlier sprint's workspace on the same branch (a
      follow-up sprint), plus the stack the user left running (its health URL answers). Write it
@@ -200,7 +212,7 @@ Decide that deliberately rather than discovering it in the morning.
    | `FIX-FINAL` | `TAG=FIX-FINAL`, `CHECKPOINT`, `FIND_TAG=REVIEW-FINAL`, `NEXT_TAG` (`TEST`, or empty with no test session) |
    | `CI` (and `CI2`) | `TAG=CI` (`TAG=CI2`) - nothing else; it is async, so it has no successor |
    | `RETRO` | `TAG=RETRO` - nothing else; async, no successor |
-   | `TEST` | `TOTAL`, `FIND_FINAL_TAG` |
+   | `TEST` | `TOTAL`, `FIND_FINAL_TAG`, and `BOX_BRANCH` in mode D |
    | `FIX-TEST` | `TAG=FIX-TEST`, `CHECKPOINT`, `FIND_TAG=TEST`, `NEXT_TAG=` empty |
    | continuation (filled by the relaying session, not you) | `CONT_TAG`, `PREV_TAG`, `NN`, `TICKET_TITLE`, `NEXT_TAG` |
 
@@ -339,7 +351,9 @@ holds the sprint (and the user) for a run CI does anyway, on the commit that act
 | `references/implementer-prompt.md` | one ticket, one session |
 | `references/review-find-prompt.md` | the FIND step - the roster's reviewers at once (default one deep-review), merge, triage, the manifest, the fix route |
 | `references/review-fix-prompt.md` | the FIX step - work the manifest, external threads, the acceptance gate |
-| `references/test-prompt.md` | the opt-in tester - pick ONE of its three modes and delete the rest |
+| `references/test-prompt.md` | the opt-in tester - pick ONE of its four modes (D cloud box, A laptop stack, B evals, C custom) and delete the rest |
+| `references/box.md` | the tester's guide to the cloud box: start or reuse it with the `cloud-boxes` MCP, walk it, leave it up, write `state/BOX.md` (link + sign-in) |
+| `references/box-capture.sh` + `box-capture.mjs` | record a walk on a box link or a local stack: Playwright through Cloudflare Access, a screenshot per `shot` step, one video, and `gallery.html` to publish as the Artifact |
 | `references/continuation-prompt.md` | a relayed tag's successor - sessions fill this one themselves |
 | `references/render.sh` | fill a template from `facts.env` + per-tag vars, and refuse a half-filled one |
 | `references/launch.sh` | atomic claim + launch + session-id capture. Refuses while the sprint is paused |
@@ -894,6 +908,12 @@ The final message must contain, in this order (a multi-repo sprint reports per r
 10. **Stacks left up** - `bash <WS>/keep-stack.sh <WS> list`, verbatim, with each stack's
     URLs from its log: the user keeps using them, and each line carries its stop command.
     None up? Say so in one line.
+11. **The box and the recording** - `state/BOX.md` verbatim (the box link, the sign-in logins and
+    password, its id and how to stop it) and the Artifact link from `state/TEST.artifact`. Then
+    **send them**: post the same block, the Artifact link and the PR link to the user as a Slack
+    DM to themselves (`slack_search_users` for the user, then `slack_send_message` to that user
+    id) when the Slack MCP is connected, and as a `PushNotification` either way. Say in the
+    report that you sent it. No box and no recording? Say so in one line.
 
 ## The PR
 
@@ -914,6 +934,8 @@ never bypass hooks with `--no-verify`.
 | "The tickets touch three repos; I'll route each one by hand in its prompt." | That is a multi-repo sprint. Write `state/<TAG>.repo` and `repos/<key>.env`, and the scripts run each tag in its repo and the sprint ends with one PR per repo. Hand routing leaves one branch, one PR and one CI ticket for three repos. |
 | "I'll `make dev &` from my shell; the next session can use it." | It dies with you: the runner stops your session when the tag ends, and the memory reaper stops anything an ended session started. Boot it with `keep-stack.sh` - it then stays up past the sprint until the user stops it. |
 | "Testing is done, I'll tear the stack down to free memory." | The user keeps using it after the sprint. Leave every kept stack up and list it in the report; only the user stops one. |
+| "The box costs money idle, I'll `cloud_box_stop` it." | The box is the morning demo. Leave it up with `sleep_after_hours: 12` and send its link and sign-in; only the user stops it. |
+| "The test passed; the screenshots I looked at are enough." | The user was asleep. Record the walk with `box-capture.sh` and publish it: screenshots and one video in an Artifact, linked in the report. |
 | "Tickets 3 and 4 are independent, I'll run both." | In a serial sprint, serial is the contract - it is what removes conflicts and integration. Concurrency is blitz mode, and only the invocation turns it on. |
 | "This is a big sprint, I'll switch it to blitz." | Blitz spends more tokens and quota per hour; that trade is the user's. Run what they invoked. |
 | "The checkpoint found a BLOCKER - I'll launch a fixer now." | Reviews are async and fixes happen once, in `FIX-FINAL`. REVIEW-FINAL re-checks it against the finished code and carries it forward. |

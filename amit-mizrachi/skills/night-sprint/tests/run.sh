@@ -261,7 +261,7 @@ facts = set(re.findall(r'"([A-Z][A-Z0-9_]*)"', open(os.path.join(ref, "bootstrap
 per_tag = {"TAG", "NN", "TICKET_TITLE", "GOTCHAS", "NEXT_TAG", "TOTAL", "CONVENTIONS",
            "SCOPE", "CHECKPOINT", "FIX_TAG", "FIND_TAG", "IMPL_TAG",
            "NEXT_AFTER_FIX", "FIND_FINAL_TAG", "PR", "CONT_TAG", "PREV_TAG", "SCRIPT_PATH",
-           "FEATURE_TITLE"}
+           "FEATURE_TITLE", "BOX_BRANCH"}
 bad = {}
 for f in sorted(glob.glob(os.path.join(ref, "*prompt*.md"))):
     slots = set(re.findall(r'<([A-Z][A-Z0-9_]*)>', open(f).read()))
@@ -278,7 +278,7 @@ facts = set(re.findall(r'"([A-Z][A-Z0-9_]*)"', open(os.path.join(ref, "bootstrap
 per_tag = {"TAG", "NN", "TICKET_TITLE", "GOTCHAS", "NEXT_TAG", "TOTAL", "CONVENTIONS",
            "SCOPE", "CHECKPOINT", "FIX_TAG", "FIND_TAG", "IMPL_TAG",
            "NEXT_AFTER_FIX", "FIND_FINAL_TAG", "PR", "CONT_TAG", "PREV_TAG", "SCRIPT_PATH",
-           "FEATURE_TITLE"}
+           "FEATURE_TITLE", "BOX_BRANCH"}
 out = set()
 for f in glob.glob(os.path.join(ref, "*prompt*.md")):
     out |= set(re.findall(r'<([A-Z][A-Z0-9_]*)>', open(f).read())) - facts - per_tag
