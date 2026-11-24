@@ -13,7 +13,9 @@ THIS SPRINT SPANS SEVERAL REPOS. The worktree above is only the first: each repo
 
 HOW TO EXERCISE IT - <pick exactly one at kickoff and delete the rest>:
 
-<A. LOCAL DEV STACK. Boot the stack against this worktree the way PLAN.md says to - the dev-environment skill it names, or the boot command it gives - and ALWAYS through `bash <WS>/keep-stack.sh <WS> start <name> <dir> -- <boot command>`, never from your own shell: a stack your shell starts dies when your session is closed or the memory reaper finds it. If `keep-stack.sh <WS> list` already shows one for this worktree, use it. Wait for it to serve before testing: a stack still coming up looks identical to a broken one, so retry for a few minutes before concluding it is down. If the change is UX-facing, drive a real browser with the `test-browser` skill and capture a screenshot per step. If it is API or CLI, exercise it directly with curl or the real entrypoint.>
+<D. CLOUD BOX. The app runs in a Shapes cloud dev box, not on this laptop. Read <WS>/box.md first and follow it: start or reuse the box on the pushed shapes-platform branch <BOX_BRANCH> with the `cloud-boxes` MCP (`cloud_box_start`, `if_exists: use`, `sleep_after_hours: 12`), wait for `ready`, walk the golden path on it, record the walk (the RECORDING section below), and leave the box RUNNING. Never call `cloud_box_stop`. Write the box block (`## Box left up`) into TEST-REPORT.md and `<WS>/state/BOX.md` as box.md says.>
+
+<A. LOCAL DEV STACK. Boot the stack against this worktree the way PLAN.md says to - the dev-environment skill it names, or the boot command it gives - and ALWAYS through `bash <WS>/keep-stack.sh <WS> start <name> <dir> -- <boot command>`, never from your own shell: a stack your shell starts dies when your session is closed or the memory reaper finds it. If `keep-stack.sh <WS> list` already shows one for this worktree, use it. Wait for it to serve before testing: a stack still coming up looks identical to a broken one, so retry for a few minutes before concluding it is down. If the change is UX-facing, record the walk (the RECORDING section below). If it is API or CLI, exercise it directly with curl or the real entrypoint.>
 
 <B. EVALS. Run the eval suite as PLAN.md specifies and report the run id, the pass rate, and every case that regressed against the baseline. Do NOT start an eval run the user has not already approved in PLAN.md - evals are never run without permission.>
 
@@ -28,6 +30,17 @@ Before you boot anything, look for a stack that already serves this code: `bash 
 3. Re-apply an overlay (a seed, an agent spec) only when the change touched it.
 
 A full reboot is the last resort: only when the health URL still fails after steps 1-3 and three minutes of retries. Never stop a healthy stack to "start clean", and never because a ticket says "restart" - the ticket was written before anyone knew the stack was up. Say in your summary what you reused, what you pulled and what you restarted. On 2026-11-19 a verify ticket killed a healthy stack and rebuilt it twice for io-client changes Vite would have hot-reloaded: about 20 minutes of boots, and the machine's load went to 80-110 for the measurements that followed.
+
+## RECORDING - screenshots and a video, published as one Artifact
+
+A UX-facing golden path is recorded, in mode A and mode D alike. The user watches the result in the morning, so the recording is a deliverable, not a debug aid.
+
+1. Write the walk as steps in `<WS>/state/walk.json` - one JSON array, the golden path in order, with a `["shot", "<title>", "<what it proves>"]` after every step a human would want to see. The step kinds are in the header of `<WS>/box-capture.mjs` (`login`, `open`, `click`, `fill`, `press`, `wait`, `scroll`, `shot`). Find selectors first with `cloud_box_browser` `["snapshot", "-i"]` (mode D) or by reading the page (mode A); prefer `text=` and role selectors over CSS paths.
+2. Run it: `bash <WS>/box-capture.sh <app url> <WS>/state/walk <WS>/state/walk.json "<SLUG> - golden path"`. It records ONE video of the whole walk (`video/walk.mp4`), a screenshot per `shot` (`shots/*.png`), `steps.json`, and `gallery.html`. A failing step ends the walk with `error-<n>.png`; fix the steps file and re-run when the failure was a wrong selector, report it when the app is wrong. One re-run per failure at most.
+3. Publish `gallery.html` as an Artifact with every file it references (the Artifact tool's `files`: `video/walk.mp4` and each `shots/*.png`, mapped from `<WS>/state/walk/`), `icon: video`, and a one-sentence description. Load the `artifact-design` skill first, as the tool asks. Re-publish to the same file path after a re-run, so the link stays the same.
+4. Write the link: `echo "<artifact url>" > <WS>/state/TEST.artifact`, and put it at the top of TEST-REPORT.md.
+
+The capture is the evidence; it does not replace your PASS/FAIL judgement. Look at the screenshots yourself (Read them) before you mark a step PASS. When the Artifact tool is not available, keep the files on disk, give their paths instead of a link, and say so in the summary.
 
 GOLDEN PATH - walk each step, capture what you actually saw, mark PASS or FAIL:
 1. <step 1 of the end-to-end acceptance, authored by the conductor at kickoff>
@@ -67,7 +80,7 @@ Write each step's result into <WS>/state/TEST-REPORT.md AS YOU GO, so a half-wri
   4. `echo "TESTc2" > <WS>/state/TEST.next`
   5. `echo "RELAYED: TESTc2" > <WS>/state/TEST.status`   (RELAYED, never DONE)
   6. `bash <WS>/advance.sh <WS> TEST`
-Leave every stack UP - when you relay AND when you finish. The user keeps using it after the sprint and stops it themselves; never stop, kill or tear down a kept stack, and never run the stack's own down target. Put a `## Stacks left up` section in TEST-REPORT.md: each stack's name, URLs, log path and its stop command from `keep-stack.sh <WS> list`.
+Leave every stack and every cloud box UP - when you relay AND when you finish. The user keeps using it after the sprint and stops it themselves; never stop, kill or tear down a kept stack, and never run the stack's own down target. Put a `## Stacks left up` section in TEST-REPORT.md: each stack's name, URLs, log path and its stop command from `keep-stack.sh <WS> list`. In mode D, put the `## Box left up` section from <WS>/box.md there instead, and pass the box id to your successor when you relay.
 
 ## WHEN DONE
 
@@ -119,4 +132,4 @@ Before you write your status, `git status --short --untracked-files=no` in every
 
 8. `bash <WS>/advance.sh <WS> TEST`
 
-Post as your last message: a per-step PASS/FAIL table and a one-paragraph verdict - is this feature usable by <USER> right now, and if not, exactly what blocks it. Shut down anything you started before you stop.
+Post as your last message: the Artifact link, the box link and sign-in (mode D), a per-step PASS/FAIL table and a one-paragraph verdict - is this feature usable by <USER> right now, and if not, exactly what blocks it. Shut down anything you started before you stop, except a kept stack or a cloud box: those stay up for the user.
