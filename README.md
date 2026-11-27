@@ -1,9 +1,9 @@
 # amit-mizrachi
 
-Thirteen [Claude Code](https://claude.com/claude-code) skills for running work you are not
+Fourteen [Claude Code](https://claude.com/claude-code) skills for running work you are not
 sitting and watching - handing a session off, turning a feature into a spec and tickets, taking
 it through the night, reviewing it with one deep reviewer, researching a product question end to end, taking a feature from idea to
-plan to PR, and keeping a big effort's map legible - plus `codex-bridge`, an MCP server that lets
+plan to PR, designing Shapes UI the way Rotem ships it, and keeping a big effort's map legible - plus `codex-bridge`, an MCP server that lets
 Claude ask OpenAI Codex for a second opinion, `night-watch`, a live terminal board of every
 sprint and marathon in flight, and the macOS hook that stops your machine sleeping through it.
 
@@ -18,7 +18,7 @@ Start a new session (or `/clear`). The skills then appear as `amit-mizrachi:next
 `amit-mizrachi:night-sprint`, `amit-mizrachi:product-research`, `amit-mizrachi:to-spec`,
 `amit-mizrachi:to-tickets`, `amit-mizrachi:night-marathon`, `amit-mizrachi:deep-review`,
 `amit-mizrachi:mywayfinder`, `amit-mizrachi:fable-review`, `amit-mizrachi:address-review`,
-`amit-mizrachi:wait-what`, `amit-mizrachi:retro`, and
+`amit-mizrachi:rotem-design`, `amit-mizrachi:wait-what`, `amit-mizrachi:retro`, and
 `amit-mizrachi:writing-for-agents`.
 
 ## What's in it
@@ -321,6 +321,16 @@ and writes no review attestation.
 Replayed on six squad-reviewed commits, it found 3 Highs to the squad's 1 and 17 High + Medium
 to 10, with 93% of its findings real against 46%. `night-sprint` runs it for every review; it is
 also the review to use by hand. Sources and the benchmark: `skills/deep-review/references/`.
+
+### `rotem-design`
+
+Makes a session design or redesign Shapes UI so it looks like Rotem (Shapes' designer-engineer)
+shipped it. Distilled from her merged shapes-platform PRs, with Connectors v2 as the reference
+implementation. Four steps: find the closest Rotem surface, map each surface to concrete deltas,
+build on `@shapesos/ui` with her tokens, prove it with before/after screenshots and measured
+numbers. Ends with a review checklist that also works on someone else's UI diff. Token values
+(spacing, radius, type, colour, motion, copy, states) and the component imports with source
+files live in `skills/rotem-design/references/`.
 
 ### `wait-what`, `retro` and `writing-for-agents`
 
