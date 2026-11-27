@@ -112,7 +112,7 @@ Tabler only (`@tabler/icons-react`): 16px in text rows (muted, `margin-top: 2px`
 - **Error**: a calm note, said once: the mark in red with a white X, a short centred apology, announced to screen readers.
 - **Disabled**: keeps a tooltip that says why.
 - **Hover**: `var(--muted)` fill on cards and rows; muted icons turn `var(--foreground)`; the hover square sits on the real click target only.
-- **Focus**: `:focus-visible` 2px `var(--ring)` outline, offset 2; dialogs focus the primary action.
+- **Focus**: `:focus-visible` 2px `var(--ring)` outline, offset 2; consent and connect dialogs focus the primary action, a destructive confirm leaves focus on the cancel ("Keep {name}") and never focuses the destructive action.
 - **Connected**: the green-tinted square (card) or "Connected" pill (menu row), opening a menu with a destructive remove item.
 
 ## Groups and choices

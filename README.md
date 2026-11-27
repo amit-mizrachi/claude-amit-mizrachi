@@ -325,9 +325,9 @@ also the review to use by hand. Sources and the benchmark: `skills/deep-review/r
 ### `rotem-design`
 
 Makes a session design or redesign Shapes UI so it looks like Rotem (Shapes' designer-engineer)
-shipped it. Distilled from her merged shapes-platform PRs, with Connectors v2 as the reference
+shipped it. Distilled from Rotem's merged shapes-platform PRs, with Connectors v2 as the reference
 implementation. Four steps: find the closest Rotem surface, map each surface to concrete deltas,
-build on `@shapesos/ui` with her tokens, prove it with before/after screenshots and measured
+build on `@shapesos/ui` with Rotem's tokens, prove it with before/after screenshots and measured
 numbers. Ends with a review checklist that also works on someone else's UI diff. Token values
 (spacing, radius, type, colour, motion, copy, states) and the component imports with source
 files live in `skills/rotem-design/references/`.
